@@ -1,0 +1,38 @@
+# General Python artifacts
+__pycache__/
+*.pyc
+*.log
+*.sqlite3
+.Python
+.env/
+venv/
+env/
+pip-log.txt
+pip-delete-this-arg.txt
+.venv/
+
+# Distribution / packaging
+.eggs/
+*.egg-info/
+build/
+dist/
+
+# Jupyter Notebook / IPython
+.ipynb_checkpoints/
+
+# IDEs and editors
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store # macOS
+Thumbs.db # Windows
+
+# Project-specific results and trained models
+# Exclude the main results directory
+validation/results/
+ml/testing_results/
+results/kobayashi*
+results/edep*
+
+
