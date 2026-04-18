@@ -18,6 +18,15 @@ from ml.transform import (
     resolve_norm_params_base_path,
     save_normalization_params,
 )
+from physics.steady_2d_scattering import (
+    STEADY_2D_SCATTERING_TAG,
+    normalize_steady_2d_scattering_mode,
+    steady_2d_model_dir as resolve_steady_2d_model_dir,
+    steady_2d_model_dir_candidates as resolve_steady_2d_model_dir_candidates,
+    steady_2d_norm_params_base_path as resolve_steady_2d_norm_params_base_path,
+    steady_2d_norm_params_base_path_candidates as resolve_steady_2d_norm_params_base_path_candidates,
+    steady_2d_training_dir as resolve_steady_2d_training_dir,
+)
 
 try:
     from scipy.stats import ks_2samp, norm, qmc, wasserstein_distance
@@ -100,8 +109,11 @@ def available_cpu_count():
 
 
 def safe_get_sim_data(func, **kwargs):
+    params = inspect.signature(func).parameters
     if "sampling" not in inspect.signature(func).parameters:
         kwargs.pop("sampling", None)
+    if "scattering_mode" not in params:
+        kwargs.pop("scattering_mode", None)
     return func(**kwargs)
 
 
@@ -116,6 +128,9 @@ def analytic_log_bounds(min_val, max_val, name):
 
 
 def save_norm_params_artifacts(norm_params_path, norm_params, label):
+    directory = os.path.dirname(norm_params_path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
     meta_path = save_normalization_params(norm_params_path, norm_params)
     print(f"Saved {label} normalization parameters to {meta_path}")
     return meta_path
@@ -168,11 +183,23 @@ def generate_target_noise(samples, cond_features, target_dim, batch_size, device
     return torch.tensor(noise_np, dtype=torch.float32, device=device)
 
 
-def norm_params_base_path(data_dim, source_type):
+def steady_2d_model_dir(data_dim, source_type, scattering_mode="isotropic"):
+    if data_dim == "2d":
+        return resolve_steady_2d_model_dir(source_type, scattering_mode=scattering_mode)
+    return f"ml/models/{data_dim}_{source_type}"
+
+
+def steady_2d_training_dir(data_dim, source_type, scattering_mode="isotropic"):
+    if data_dim == "2d":
+        return resolve_steady_2d_training_dir(source_type, scattering_mode=scattering_mode)
+    return f"ml/training_results/{data_dim}_{source_type}"
+
+
+def norm_params_base_path(data_dim, source_type, scattering_mode="isotropic"):
     if data_dim == "1d_timedep":
         return f"ml/data/norm_params_1d_timedep_{source_type}.npy"
     if data_dim == "2d":
-        return f"ml/data/norm_params_2d_{source_type}.npy"
+        return resolve_steady_2d_norm_params_base_path(source_type, scattering_mode=scattering_mode)
     if data_dim == "2d_timedep":
         return f"ml/data/norm_params_2d_timedep_{source_type}.npy"
     if data_dim == "2d_triangle_timedep":
@@ -186,19 +213,39 @@ def norm_params_base_path(data_dim, source_type):
     raise ValueError(f"Unsupported data_dim='{data_dim}'")
 
 
-def load_norm_params_for_data_dim(data_dim, source_type, train_sampling):
-    base_path = norm_params_base_path(data_dim, source_type)
-    return load_normalization_params(base_path, train_sampling=train_sampling)
+def load_norm_params_for_data_dim(data_dim, source_type, train_sampling, scattering_mode="isotropic"):
+    candidates = norm_params_base_path_candidates(data_dim, source_type, scattering_mode=scattering_mode)
+    last_error = None
+    for base_path in candidates:
+        try:
+            return load_normalization_params(base_path, train_sampling=train_sampling)
+        except FileNotFoundError as exc:
+            last_error = exc
+    if last_error is not None:
+        raise last_error
+    raise FileNotFoundError(
+        f"Normalization metadata not found for data_dim='{data_dim}', source_type='{source_type}'."
+    )
 
 
-def load_norm_params_only(data_dim, source_type, train_sampling):
-    norm_params, _ = load_norm_params_for_data_dim(data_dim, source_type, train_sampling)
+def load_norm_params_only(data_dim, source_type, train_sampling, scattering_mode="isotropic"):
+    norm_params, _ = load_norm_params_for_data_dim(
+        data_dim,
+        source_type,
+        train_sampling,
+        scattering_mode=scattering_mode,
+    )
     return norm_params
 
 
-def load_norm_params_or_abort(data_dim, source_type, train_sampling, description):
+def load_norm_params_or_abort(data_dim, source_type, train_sampling, description, scattering_mode="isotropic"):
     try:
-        return load_norm_params_only(data_dim, source_type, train_sampling)
+        return load_norm_params_only(
+            data_dim,
+            source_type,
+            train_sampling,
+            scattering_mode=scattering_mode,
+        )
     except FileNotFoundError:
         print(f"FATAL: normalization parameters for {description} not found. Cannot proceed.")
         return None
@@ -212,7 +259,19 @@ def resolve_norm_params_file(base_path, train_sampling="random"):
     return resolve_norm_params_base_path(base_path, train_sampling=train_sampling)
 
 
-def compute_model_dims(data_dim, source_type, *, train_sampling="random"):
+def steady_2d_model_dir_candidates(data_dim, source_type, scattering_mode="isotropic"):
+    if data_dim == "2d":
+        return resolve_steady_2d_model_dir_candidates(source_type, scattering_mode=scattering_mode)
+    return (steady_2d_model_dir(data_dim, source_type, scattering_mode=scattering_mode),)
+
+
+def norm_params_base_path_candidates(data_dim, source_type, scattering_mode="isotropic"):
+    if data_dim == "2d":
+        return resolve_steady_2d_norm_params_base_path_candidates(source_type, scattering_mode=scattering_mode)
+    return (norm_params_base_path(data_dim, source_type, scattering_mode=scattering_mode),)
+
+
+def compute_model_dims(data_dim, source_type, *, train_sampling="random", scattering_mode="isotropic"):
     dir_feats_2d = None
     if data_dim in TWO_D_TIME_DEPENDENT_DATA_DIMS:
         norm_params = load_norm_params_only(data_dim, source_type, train_sampling)
@@ -303,26 +362,37 @@ def load_model(
     data_dim="2d",
     train_sampling="random",
     scheduler_type="condOT",
+    scattering_mode="isotropic",
 ):
+    if data_dim == "2d":
+        scattering_mode = normalize_steady_2d_scattering_mode(scattering_mode)
     input_dim, cond_dim = compute_model_dims(
         data_dim,
         source_type,
         train_sampling=train_sampling,
+        scattering_mode=scattering_mode,
     )
-    print(f"Loading model for {data_dim} {source_type} source (input_dim={input_dim}, cond_dim={cond_dim})")
+    mode_suffix = (
+        f", scattering_mode={scattering_mode}, asset_tag={STEADY_2D_SCATTERING_TAG}"
+        if data_dim == "2d"
+        else ""
+    )
+    print(f"Loading model for {data_dim} {source_type} source (input_dim={input_dim}, cond_dim={cond_dim}{mode_suffix})")
     scheduler_suffix = f"_{scheduler_type}" if scheduler_type != "condOT" else ""
     sampling_suffix = f"_{train_sampling}" if train_sampling != "random" else ""
-    model_dir = f"ml/models/{data_dim}_{source_type}"
+    model_dirs = steady_2d_model_dir_candidates(data_dim, source_type, scattering_mode=scattering_mode)
     model_paths = list(
         dict.fromkeys(
-            [
+            path
+            for model_dir in model_dirs
+            for path in (
                 os.path.join(model_dir, f"best_model{scheduler_suffix}{sampling_suffix}.pth"),
                 os.path.join(model_dir, f"trained_model_final{scheduler_suffix}{sampling_suffix}.pth"),
                 os.path.join(model_dir, f"best_model{scheduler_suffix}.pth"),
                 os.path.join(model_dir, f"trained_model_final{scheduler_suffix}.pth"),
                 os.path.join(model_dir, "best_model.pth"),
                 os.path.join(model_dir, "trained_model_final.pth"),
-            ]
+            )
         )
     )
 

@@ -24,6 +24,13 @@ import numpy as np
 import torch
 
 from physics.mc2d import calculate_boundaries_2d, run_mc_simulation_2d_njit_wrapper
+from physics.steady_2d_scattering import (
+    STEADY_2D_SCATTERING_TAG,
+    guard_projected_direction_xy,
+    normalize_steady_2d_scattering_mode,
+    sample_isotropic_direction_3d_from_unit,
+    sample_scattered_direction_3d_from_unit,
+)
 
 
 FACE_LEFT = 0
@@ -120,6 +127,7 @@ class LocalSNSolution:
 @dataclass
 class SteadyModelBundle:
     device: str
+    scattering_mode: str
     boundary_solver: object
     internal_solver: object
     boundary_norm: Dict[str, float]
@@ -213,6 +221,15 @@ def build_multigrid_hierarchy(
         fine=fine,
         fine_per_coarse_x=fine.num_cells_x // coarse.num_cells_x,
         fine_per_coarse_y=fine.num_cells_y // coarse.num_cells_y,
+    )
+
+
+def make_single_level_hierarchy(problem: RectLatticeProblem) -> MultigridHierarchy:
+    return MultigridHierarchy(
+        coarse=problem,
+        fine=problem,
+        fine_per_coarse_x=1,
+        fine_per_coarse_y=1,
     )
 
 
@@ -434,12 +451,31 @@ def _build_time_grid(device: str) -> Tuple[torch.Tensor, torch.Tensor]:
     return t_grid, step_size
 
 
-def load_steady_gmc_models(device: Optional[str] = None) -> SteadyModelBundle:
+def _assert_steady_2d_norm_mode(norm_params: Dict[str, float], scattering_mode: str, label: str) -> None:
+    saved_mode = str(norm_params.get("steady_2d_scattering_mode", "isotropic")).strip().lower() or "isotropic"
+    saved_tag = str(norm_params.get("steady_2d_scattering_tag", "")).strip()
+    if saved_mode != scattering_mode:
+        raise ValueError(
+            f"{label} normalization metadata uses scattering_mode='{saved_mode}', "
+            f"but '{scattering_mode}' was requested."
+        )
+    if scattering_mode != "isotropic" and saved_tag != STEADY_2D_SCATTERING_TAG:
+        raise ValueError(
+            f"{label} normalization metadata tag mismatch: expected '{STEADY_2D_SCATTERING_TAG}', got '{saved_tag}'."
+        )
+
+
+def load_steady_gmc_models(
+    device: Optional[str] = None,
+    *,
+    scattering_mode: str = "isotropic",
+    train_sampling: str = "random",
+) -> SteadyModelBundle:
     from flow_matching.solver import ODESolver
     from ml.model import WrappedModel
-    from ml.transform import load_normalization_params
-    from ml.utils import load_model
+    from ml.utils import load_model, load_norm_params_for_data_dim
 
+    scattering_mode = normalize_steady_2d_scattering_mode(scattering_mode)
     resolved_device = str(device or ("cuda" if torch.cuda.is_available() else "cpu"))
     boundary_model, boundary_input_dim, boundary_cond_dim = load_model(
         resolved_device,
@@ -448,6 +484,8 @@ def load_steady_gmc_models(device: Optional[str] = None) -> SteadyModelBundle:
         expansion_factor=1,
         source_type="boundary",
         data_dim="2d",
+        train_sampling=train_sampling,
+        scattering_mode=scattering_mode,
     )
     internal_model, internal_input_dim, internal_cond_dim = load_model(
         resolved_device,
@@ -456,11 +494,26 @@ def load_steady_gmc_models(device: Optional[str] = None) -> SteadyModelBundle:
         expansion_factor=1,
         source_type="internal",
         data_dim="2d",
+        train_sampling=train_sampling,
+        scattering_mode=scattering_mode,
     )
-    boundary_norm, _ = load_normalization_params("ml/data/norm_params_2d_boundary.npy")
-    internal_norm, _ = load_normalization_params("ml/data/norm_params_2d_internal.npy")
+    boundary_norm, _ = load_norm_params_for_data_dim(
+        "2d",
+        "boundary",
+        train_sampling=train_sampling,
+        scattering_mode=scattering_mode,
+    )
+    internal_norm, _ = load_norm_params_for_data_dim(
+        "2d",
+        "internal",
+        train_sampling=train_sampling,
+        scattering_mode=scattering_mode,
+    )
+    _assert_steady_2d_norm_mode(boundary_norm, scattering_mode, "Boundary")
+    _assert_steady_2d_norm_mode(internal_norm, scattering_mode, "Internal")
     return SteadyModelBundle(
         device=resolved_device,
+        scattering_mode=scattering_mode,
         boundary_solver=ODESolver(velocity_model=WrappedModel(boundary_model).to(resolved_device)),
         internal_solver=ODESolver(velocity_model=WrappedModel(internal_model).to(resolved_device)),
         boundary_norm=boundary_norm,
@@ -866,22 +919,27 @@ def run_coarse_gmc_with_surface_tally(
 
 
 def _sample_isotropic_direction_2d(rng: np.random.Generator) -> Tuple[float, float]:
-    """Sample a 2D direction from 3D isotropic scattering projected onto the x-y plane.
+    u, v, _ = sample_isotropic_direction_3d_from_unit(float(rng.random()), float(rng.random()), 1.0e-12)
+    return guard_projected_direction_xy(u, v, 1.0e-12)
 
-    A 3D isotropic direction has mu_z = cos(polar) uniform in [-1,1] and azimuth phi
-    uniform in [0, 2pi].  The in-plane components are u = sin(polar)*cos(phi),
-    v = sin(polar)*sin(phi), which is what the training data uses.  A purely-2D
-    uniform-angle sample would give ||(u,v)|| = 1 always, which is inconsistent with
-    the 3D-projected model.
-    """
-    mu_z = 2.0 * float(rng.random()) - 1.0          # uniform in [-1, 1]
-    phi = 2.0 * math.pi * float(rng.random())
-    t = math.sqrt(max(0.0, 1.0 - mu_z * mu_z))      # sin(polar)
-    u = t * math.cos(phi)
-    v = t * math.sin(phi)
-    if abs(u) + abs(v) < 1.0e-12:
-        u = 1.0e-6
-    return u, v
+
+def _sample_scattered_direction_3d(
+    rng: np.random.Generator,
+    current_direction: Tuple[float, float, float],
+    *,
+    scattering_mode: str = "isotropic",
+) -> Tuple[float, float, float]:
+    mode = normalize_steady_2d_scattering_mode(scattering_mode)
+    mode_code = 0 if mode == "isotropic" else 1
+    return sample_scattered_direction_3d_from_unit(
+        float(current_direction[0]),
+        float(current_direction[1]),
+        float(current_direction[2]),
+        float(rng.random()),
+        float(rng.random()),
+        mode_code,
+        1.0e-12,
+    )
 
 
 def _distance_to_rect_boundary(
@@ -940,9 +998,11 @@ def run_coarse_mc_with_surface_tally(
     seed: int = 52,
     max_events: int = 20_000,
     energy_threshold: float = 1.0e-8,
+    scattering_mode: str = "isotropic",
 ) -> Dict[str, object]:
     """Run analog MC on the coarse mesh and tally true inter-cell surface crossings."""
 
+    scattering_mode = normalize_steady_2d_scattering_mode(scattering_mode)
     rng = np.random.default_rng(seed)
     tally = initialize_surface_tallies(hierarchy, quadrature)
     track_grid = np.zeros_like(problem.sigma_t_map, dtype=np.float64)
@@ -960,6 +1020,8 @@ def run_coarse_mc_with_surface_tally(
             x = problem.cell_boundaries_x[cell_x] + 0.5 * problem.cell_widths[cell_x]
             y = problem.cell_boundaries_y[cell_y] + 0.5 * problem.cell_heights[cell_y]
         u, v = _sample_isotropic_direction_2d(rng)
+        w_mag = math.sqrt(max(0.0, 1.0 - u * u - v * v))
+        w = w_mag if float(rng.random()) < 0.5 else -w_mag
         weight = 1.0
 
         for _event in range(max_events):
@@ -1031,7 +1093,12 @@ def run_coarse_mc_with_surface_tally(
                     problem.cell_boundaries_y[cell_y + 1] - epsilon,
                 )
             else:
-                u, v = _sample_isotropic_direction_2d(rng)
+                u, v, w = _sample_scattered_direction_3d(
+                    rng,
+                    (u, v, w),
+                    scattering_mode=scattering_mode,
+                )
+                u, v = guard_projected_direction_xy(u, v, 1.0e-12)
 
     track_grid /= float(num_particles)
     energy_grid /= float(num_particles)
@@ -1281,9 +1348,11 @@ def run_direct_fine_mc_reference(
     randomize_start_pos: bool = True,
     seed: int = 450,
     energy_threshold: float = 1.0e-8,
+    scattering_mode: str = "isotropic",
 ) -> Dict[str, object]:
     """Run direct fine-grid MC by distributing particles uniformly over source cells."""
 
+    scattering_mode = normalize_steady_2d_scattering_mode(scattering_mode)
     num_src = max(1, problem.source_cells.shape[0])
     base_count = num_particles // num_src
     remainder = num_particles % num_src
@@ -1317,6 +1386,7 @@ def run_direct_fine_mc_reference(
             sigma_a_per_cell=problem.sigma_a_map.astype(np.float64),
             randomize_position_in_cell=randomize_start_pos,
             verbose=False,
+            scattering_mode=scattering_mode,
         )
         weight = float(n_k) / float(num_particles)
         energy_accum += weight * e_k

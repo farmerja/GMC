@@ -2,6 +2,20 @@ import numpy as np
 import pytest
 
 from physics import multigrid_steady_2d as mg
+from physics.steady_2d_scattering import guard_projected_direction_xy
+
+
+def test_anisotropic_scatter_sampler_biases_forward_and_preserves_norm():
+    rng = np.random.default_rng(1234)
+    samples = np.array(
+        [mg._sample_scattered_direction_3d(rng, (1.0, 0.0, 0.0), scattering_mode="anisotropic") for _ in range(4000)],
+        dtype=np.float64,
+    )
+
+    assert np.allclose(np.linalg.norm(samples, axis=1), 1.0, atol=1.0e-10)
+    assert float(np.mean(samples[:, 0])) > 0.28
+    assert abs(float(np.mean(samples[:, 1]))) < 0.03
+    assert abs(float(np.mean(samples[:, 2]))) < 0.03
 
 
 def test_build_multigrid_hierarchy_preserves_nested_material_blocks():
@@ -68,6 +82,25 @@ def test_segment_index_and_surface_tally_account_for_synthetic_crossings():
 
     outgoing_bins = ~quadrature.face_incoming_mask[mg.FACE_LEFT]
     assert np.all(tally.angular_flux[0, 0, mg.FACE_LEFT, :, outgoing_bins] == 0.0)
+
+
+def test_anisotropic_scatter_sampler_is_forward_biased_and_zero_guarded():
+    rng = np.random.default_rng(123)
+    current = np.array([0.35, -0.45, np.sqrt(1.0 - 0.35**2 - 0.45**2)], dtype=np.float64)
+    samples = np.array(
+        [mg._sample_scattered_direction_3d(rng, tuple(current), scattering_mode="anisotropic") for _ in range(4000)],
+        dtype=np.float64,
+    )
+
+    dots = samples @ current
+    norms = np.linalg.norm(samples, axis=1)
+
+    assert np.allclose(norms, 1.0, atol=1.0e-10)
+    assert np.mean(dots) == pytest.approx(1.0 / 3.0, abs=0.04)
+
+    u_g, v_g = guard_projected_direction_xy(0.0, 0.0, 1.0e-6)
+    assert u_g == pytest.approx(1.0e-6)
+    assert v_g == pytest.approx(0.0)
 
 
 def test_solve_local_sn_tiny_homogeneous_case_is_stable_and_symmetric():
@@ -193,3 +226,26 @@ def test_coarse_mc_surface_tally_uses_target_cell_local_face_coordinates(monkeyp
     assert result["surface_tally"].crossing_weight[target_cell_y, target_cell_x, mg.FACE_LEFT, expected_segment, angle_idx] == pytest.approx(1.0)
     assert np.sum(result["surface_tally"].crossing_weight[target_cell_y, target_cell_x, mg.FACE_LEFT, wrong_last_segment, :]) == pytest.approx(0.0)
     assert np.sum(result["surface_tally"].crossing_weight) == pytest.approx(1.0)
+
+
+def test_run_direct_fine_mc_reference_forwards_scattering_mode(monkeypatch):
+    hierarchy = mg.build_multigrid_hierarchy(coarse_refinement=1, fine_refinement=2)
+    calls = []
+
+    def fake_wrapper(**kwargs):
+        calls.append(kwargs["scattering_mode"])
+        shape = kwargs["sigma_t_per_cell"].shape
+        return np.zeros(shape), np.zeros(shape), (0, 0, 0, 0, kwargs["num_particles"], 0, 0, 0)
+
+    monkeypatch.setattr(mg, "run_mc_simulation_2d_njit_wrapper", fake_wrapper)
+
+    result = mg.run_direct_fine_mc_reference(
+        hierarchy.fine,
+        num_particles=5,
+        seed=11,
+        scattering_mode="anisotropic",
+    )
+
+    assert calls
+    assert set(calls) == {"anisotropic"}
+    assert result["flux"].shape == hierarchy.fine.material_map.shape

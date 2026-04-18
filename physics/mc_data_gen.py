@@ -32,6 +32,7 @@ from .mc2dtimetriangle import (
 from .mc2dtime import simulate_single_cell_2d_time_dependent, SRC_INTERNAL as SRC2D_INTERNAL, SRC_BOUNDARY_X0 as SRC2D_BOUNDARY
 from .mc3d import simulate_single_cell_3d_boundary_source, simulate_single_cell_3d_internal_source
 from .mc3dtime import simulate_single_cell_3d_time_dependent, SRC_INTERNAL as SRC3D_INTERNAL, SRC_BOUNDARY_X0 as SRC3D_BOUNDARY
+from .steady_2d_scattering import steady_2d_scattering_mode_code
 
 
 def _generate_cond_samples(num_neutrons: int, num_dims: int, sampling: str = 'random'):
@@ -268,9 +269,10 @@ def get_2d_boundary_simulation_data(
     min_height: float = 0.01,
     max_height: float = 10.0,
     sampling: str = 'random',
+    scattering_mode: str = "isotropic",
 ) -> pd.DataFrame:
     """Get 2D boundary source steady-state simulation data."""
-    print(f"Generating 2D single-cell boundary source data ({num_neutrons} neutrons)...")
+    print(f"Generating 2D single-cell boundary source data ({num_neutrons} neutrons, scattering_mode={scattering_mode})...")
     cond_samples = _generate_cond_samples(num_neutrons, 5, sampling)
     start_time = time.time()
     results = simulate_single_cell_2d_boundary_source(
@@ -282,6 +284,7 @@ def get_2d_boundary_simulation_data(
         min_height=min_height,
         max_height=max_height,
         cond_samples=cond_samples,
+        scattering_mode_code=steady_2d_scattering_mode_code(scattering_mode),
     )
     end_time = time.time()
     print(f"2D Boundary data generation took {end_time - start_time:.2f} seconds.")
@@ -319,9 +322,10 @@ def get_2d_internal_source_simulation_data(
     min_height: float = 0.01,
     max_height: float = 10.0,
     sampling: str = 'random',
+    scattering_mode: str = "isotropic",
 ) -> pd.DataFrame:
     """Get 2D internal source steady-state simulation data."""
-    print(f"Generating 2D single-cell internal source data ({num_neutrons} neutrons)...")
+    print(f"Generating 2D single-cell internal source data ({num_neutrons} neutrons, scattering_mode={scattering_mode})...")
     cond_samples = _generate_cond_samples(num_neutrons, 6, sampling)
     start_time = time.time()
     results = simulate_single_cell_2d_internal_source(
@@ -333,6 +337,7 @@ def get_2d_internal_source_simulation_data(
         min_height=min_height,
         max_height=max_height,
         cond_samples=cond_samples,
+        scattering_mode_code=steady_2d_scattering_mode_code(scattering_mode),
     )
     end_time = time.time()
     print(f"2D Internal data generation took {end_time - start_time:.2f} seconds.")

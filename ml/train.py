@@ -30,9 +30,16 @@ from ml.utils import (
     TWO_D_TIME_DEPENDENT_DATA_DIMS,
     analytic_log_bounds as _analytic_log_bounds,
     available_cpu_count as _available_cpu_count,
+    norm_params_base_path,
     safe_get_sim_data,
     save_norm_params_artifacts as _save_norm_params_artifacts,
     setup_environment,
+    steady_2d_model_dir,
+    steady_2d_training_dir,
+)
+from physics.steady_2d_scattering import (
+    STEADY_2D_SCATTERING_TAG,
+    normalize_steady_2d_scattering_mode,
 )
 from physics.mc_data_gen import (
     get_simulation_data, get_internal_source_simulation_data,
@@ -58,12 +65,14 @@ def prepare_data(device, data_dim='2d', source_type='boundary', batch_size=2048,
                  min_path_budget=0.00001, max_path_budget=0.1,
                  direction_encoding_2d='polar',
                  angular_sampling=0,
+                 scattering_mode='isotropic',
                  sampling='random',
                  train_workers=None, val_workers=None):
     print(f"Loading simulation data for {data_dim} {source_type} source...")
     print(f"  Number of neutrons: {num_neutrons}")
     print(f"  Sampling method: {sampling.upper()}")
     direction_encoding_2d = str(direction_encoding_2d).strip().lower()
+    scattering_mode = normalize_steady_2d_scattering_mode(scattering_mode) if data_dim == '2d' else scattering_mode
     if direction_encoding_2d != 'polar':
         raise ValueError(
             f"Unsupported direction_encoding_2d='{direction_encoding_2d}'. "
@@ -73,6 +82,8 @@ def prepare_data(device, data_dim='2d', source_type='boundary', batch_size=2048,
         print(f"  Path budget range: [{min_path_budget}, {max_path_budget}]")
     if data_dim == '2d' or data_dim in TWO_D_TIME_DEPENDENT_DATA_DIMS:
         print(f"  2D direction encoding: {direction_encoding_2d}")
+    if data_dim == '2d':
+        print(f"  2D steady scattering mode: {scattering_mode} ({STEADY_2D_SCATTERING_TAG})")
 
     os.makedirs("ml/data", exist_ok=True)
     sampling_suffix = f"_{sampling}" if sampling != 'random' else ""
@@ -138,7 +149,8 @@ def prepare_data(device, data_dim='2d', source_type='boundary', batch_size=2048,
                 scatter_ratio=1.0, distribution=0,
                 min_width=min_thick_or_width, max_width=max_thick_or_width,
                 min_height=min_height, max_height=max_height,
-                sampling=sampling
+                sampling=sampling,
+                scattering_mode=scattering_mode,
             )
             data_type_str = '2d_boundary'
             sim_data = sim_data[sim_data["exited"] == 1].copy()
@@ -154,11 +166,15 @@ def prepare_data(device, data_dim='2d', source_type='boundary', batch_size=2048,
                 'width_lower': width_lower, 'width_upper': width_upper,
                 'height_lower': height_lower, 'height_upper': height_upper,
                 'direction_encoding_2d': direction_encoding_2d,
+                'steady_2d_scattering_mode': scattering_mode,
+                'steady_2d_scattering_tag': STEADY_2D_SCATTERING_TAG,
             }
-            norm_params_path = f"ml/data/norm_params_2d_boundary{sampling_suffix}.npy"
+            norm_params_path = norm_params_base_path('2d', 'boundary', scattering_mode=scattering_mode)
+            if sampling_suffix:
+                norm_params_path = norm_params_path.replace(".npy", f"{sampling_suffix}.npy")
             _save_norm_params_artifacts(
                 norm_params_path, norm_params,
-                "2D boundary",
+                f"2D boundary ({scattering_mode})",
             )
 
         else: 
@@ -168,7 +184,8 @@ def prepare_data(device, data_dim='2d', source_type='boundary', batch_size=2048,
                 scatter_ratio=1.0, distribution=0,
                 min_width=min_thick_or_width, max_width=max_thick_or_width,
                 min_height=min_height, max_height=max_height,
-                sampling=sampling
+                sampling=sampling,
+                scattering_mode=scattering_mode,
             )
             data_type_str = '2d_internal'
             sim_data = sim_data[sim_data["exited"] == 1].copy()
@@ -184,11 +201,15 @@ def prepare_data(device, data_dim='2d', source_type='boundary', batch_size=2048,
                 'width_lower': width_lower, 'width_upper': width_upper,
                 'height_lower': height_lower, 'height_upper': height_upper,
                 'direction_encoding_2d': direction_encoding_2d,
+                'steady_2d_scattering_mode': scattering_mode,
+                'steady_2d_scattering_tag': STEADY_2D_SCATTERING_TAG,
             }
-            norm_params_path = f"ml/data/norm_params_2d_internal{sampling_suffix}.npy"
+            norm_params_path = norm_params_base_path('2d', 'internal', scattering_mode=scattering_mode)
+            if sampling_suffix:
+                norm_params_path = norm_params_path.replace(".npy", f"{sampling_suffix}.npy")
             _save_norm_params_artifacts(
                 norm_params_path, norm_params,
-                "2D internal",
+                f"2D internal ({scattering_mode})",
             )
 
     elif data_dim == '3d':
@@ -672,6 +693,7 @@ def train(num_epochs=50, batch_size=2048, hidden_dim=128, depth=4, expansion_fac
           min_path_budget=1e-5, max_path_budget=0.1,
           direction_encoding_2d='polar',
           angular_sampling=0,
+          scattering_mode='isotropic',
           sampling='random',
           train_workers=None, val_workers=None):
 
@@ -687,16 +709,16 @@ def train(num_epochs=50, batch_size=2048, hidden_dim=128, depth=4, expansion_fac
         min_path_budget=min_path_budget, max_path_budget=max_path_budget,
         direction_encoding_2d=direction_encoding_2d,
         angular_sampling=angular_sampling,
+        scattering_mode=scattering_mode,
         sampling=sampling,
         train_workers=train_workers,
         val_workers=val_workers,
     )
 
-    # Define results directory based on data_dim and source_type
-    model_dir = f"ml/models/{data_dim}_{source_type}"
+    model_dir = steady_2d_model_dir(data_dim, source_type, scattering_mode=scattering_mode)
     os.makedirs(model_dir, exist_ok=True)
 
-    training_dir = f"ml/training_results/{data_dim}_{source_type}"
+    training_dir = steady_2d_training_dir(data_dim, source_type, scattering_mode=scattering_mode)
     os.makedirs(training_dir, exist_ok=True)
 
     print(f"Models will be saved in: {model_dir}")
@@ -886,6 +908,8 @@ def parse_args():
                         help='Boundary angular sampling for timedep datasets: 0=uniform-u (ML), 1=cosine-law (physical)')
     parser.add_argument('--direction_encoding_2d', type=str, default='polar', choices=['polar'],
                         help='Encoding for 2D direction channels. Fixed to polar.')
+    parser.add_argument('--scattering_mode', type=str, default='isotropic', choices=['isotropic', 'anisotropic'],
+                        help='2D steady-state scattering kernel for data/model assets.')
 
     parser.add_argument('--num_epochs', type=int, default=70, help='Number of training epochs')
     parser.add_argument('--batch_size', type=int, default=1024, help='Batch size for training')
@@ -911,8 +935,12 @@ def parse_args():
 def main(args=None):
     if args is None:
         args = parse_args()
+    if args.data_dim != '2d' and args.scattering_mode != 'isotropic':
+        raise ValueError("scattering_mode is currently only supported for steady 2D training.")
 
     print(f"Starting training for {args.data_dim} {args.source_type} source with {args.scheduler} scheduler")
+    if args.data_dim == '2d':
+        print(f"2D steady scattering mode: {args.scattering_mode} ({STEADY_2D_SCATTERING_TAG})")
     if args.data_dim in TIME_DEPENDENT_DATA_DIMS:
         print(f"Path-length budget parameters: min={args.min_path_budget}, max={args.max_path_budget}")
 
@@ -946,6 +974,7 @@ def main(args=None):
         max_path_budget=args.max_path_budget,
         direction_encoding_2d=args.direction_encoding_2d,
         angular_sampling=args.angular_sampling,
+        scattering_mode=args.scattering_mode,
         sampling=args.sampling,
         train_workers=args.train_workers,
         val_workers=args.val_workers,

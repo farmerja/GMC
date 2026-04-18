@@ -14,6 +14,13 @@ from matplotlib.colors import LogNorm
 
 from .mc1d import sample_unit
 from ._seed import seeded_numpy_execution
+from .steady_2d_scattering import (
+    guard_projected_direction_xy,
+    sample_incoming_hemisphere_plus_x_direction_3d_from_unit,
+    sample_isotropic_direction_3d_from_unit,
+    sample_scattered_direction_3d_from_unit,
+    steady_2d_scattering_mode_code,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -47,29 +54,6 @@ def calculate_boundaries_2d(cell_widths, cell_heights):
     return cell_boundaries_x, cell_boundaries_y
 
 
-@njit(inline='always')
-def _sample_isotropic_dir_uv_from_unit(unit_mu_z: float, unit_phi: float, eps: float):
-    mu_z = 2.0 * unit_mu_z - 1.0
-    phi = 2.0 * np.pi * unit_phi
-    t = np.sqrt(max(0.0, 1.0 - mu_z * mu_z))
-    u = t * np.cos(phi)
-    v = t * np.sin(phi)
-    if abs(u) < eps and abs(v) < eps:
-        u = eps
-    return u, v
-
-
-@njit(inline='always')
-def _sample_incoming_hemisphere_plus_x_uv_from_unit(unit_mu_x: float, unit_phi: float, eps: float):
-    u = unit_mu_x
-    if u < eps:
-        u = eps
-    phi = 2.0 * np.pi * unit_phi
-    t = np.sqrt(max(0.0, 1.0 - u * u))
-    v = t * np.cos(phi)
-    return u, v
-
-
 # ---------------------------------------------------------------------------
 # Single-cell 2D steady-state
 # ---------------------------------------------------------------------------
@@ -84,6 +68,7 @@ def simulate_single_cell_2d_boundary_source(
     min_height: float = 0.01,
     max_height: float = 10.0,
     cond_samples=None,
+    scattering_mode_code: int = 0,
 ):
     """2D single-cell boundary source. Particles enter from x=0.
 
@@ -120,9 +105,10 @@ def simulate_single_cell_2d_boundary_source(
         data[i, 2] = pos_y
 
         if use_precond:
-            u, v = _sample_incoming_hemisphere_plus_x_uv_from_unit(cond_samples[i, 3], cond_samples[i, 4], eps)
+            u, v, w = sample_incoming_hemisphere_plus_x_direction_3d_from_unit(cond_samples[i, 3], cond_samples[i, 4], eps)
         else:
-            u, v = _sample_incoming_hemisphere_plus_x_uv_from_unit(np.random.random(), np.random.random(), eps)
+            u, v, w = sample_incoming_hemisphere_plus_x_direction_3d_from_unit(np.random.random(), np.random.random(), eps)
+        u, v = guard_projected_direction_xy(u, v, eps)
         data[i, 3] = u
         data[i, 4] = v
 
@@ -181,11 +167,16 @@ def simulate_single_cell_2d_boundary_source(
                     data[i, 11] = absorbed_in_cell
                     alive = False
                 else:
-                    mu = np.random.uniform(-1.0, 1.0)
-                    phi = np.random.uniform(0.0, 2.0 * np.pi)
-                    t = np.sqrt(1.0 - mu * mu)
-                    u = t * np.cos(phi)
-                    v = t * np.sin(phi)
+                    u, v, w = sample_scattered_direction_3d_from_unit(
+                        u,
+                        v,
+                        w,
+                        np.random.random(),
+                        np.random.random(),
+                        scattering_mode_code,
+                        eps,
+                    )
+                    u, v = guard_projected_direction_xy(u, v, eps)
 
     return data
 
@@ -200,6 +191,7 @@ def simulate_single_cell_2d_internal_source(
     min_height: float = 0.01,
     max_height: float = 10.0,
     cond_samples=None,
+    scattering_mode_code: int = 0,
 ):
     """2D single-cell internal source. Particles start uniformly within cell.
 
@@ -242,9 +234,10 @@ def simulate_single_cell_2d_internal_source(
         data[i, 3] = pos_y
 
         if use_precond:
-            u, v = _sample_isotropic_dir_uv_from_unit(cond_samples[i, 4], cond_samples[i, 5], eps)
+            u, v, w = sample_isotropic_direction_3d_from_unit(cond_samples[i, 4], cond_samples[i, 5], eps)
         else:
-            u, v = _sample_isotropic_dir_uv_from_unit(np.random.random(), np.random.random(), eps)
+            u, v, w = sample_isotropic_direction_3d_from_unit(np.random.random(), np.random.random(), eps)
+        u, v = guard_projected_direction_xy(u, v, eps)
         data[i, 4] = u
         data[i, 5] = v
 
@@ -303,11 +296,16 @@ def simulate_single_cell_2d_internal_source(
                     data[i, 12] = absorbed_in_cell
                     alive = False
                 else:
-                    mu = np.random.uniform(-1.0, 1.0)
-                    phi = np.random.uniform(0.0, 2.0 * np.pi)
-                    t = np.sqrt(1.0 - mu * mu)
-                    u = t * np.cos(phi)
-                    v = t * np.sin(phi)
+                    u, v, w = sample_scattered_direction_3d_from_unit(
+                        u,
+                        v,
+                        w,
+                        np.random.random(),
+                        np.random.random(),
+                        scattering_mode_code,
+                        eps,
+                    )
+                    u, v = guard_projected_direction_xy(u, v, eps)
 
     return data
 
@@ -323,7 +321,7 @@ def multi_cell_mc_boundary_source_2d_njit(
     num_particles,
     sigma_t_per_cell, sigma_a_per_cell,
     energy_threshold,
-    reflected_boundaries, angular_sampling
+    reflected_boundaries, angular_sampling, scattering_mode_code
 ):
     """2D multi-cell MC, boundary source at x=0. Uses per-cell XS arrays.
 
@@ -354,9 +352,12 @@ def multi_cell_mc_boundary_source_2d_njit(
             t = np.sqrt(1.0 - mu * mu)
             u = t * np.cos(phi)
             v = t * np.sin(phi)
+            u, v = guard_projected_direction_xy(u, v, epsilon)
             if u > epsilon:
+                w_mag = np.sqrt(max(0.0, 1.0 - u * u - v * v))
+                w = w_mag if np.random.random() < 0.5 else -w_mag
                 break
-        direction = np.array([u, v], dtype=np.float64)
+        direction = np.array([u, v, w], dtype=np.float64)
 
         finished = False
         max_steps_per_particle = 1000000
@@ -449,18 +450,22 @@ def multi_cell_mc_boundary_source_2d_njit(
                             direction[1] = -direction[1]
                             pos[1] = boundary_epsilon if is_bottom else total_height - boundary_epsilon
                 else:
-                    pos += direction * epsilon
+                    pos[0] += direction[0] * epsilon
+                    pos[1] += direction[1] * epsilon
             else:
-                while True:
-                    mu = np.random.uniform(-1.0, 1.0)
-                    phi = np.random.uniform(0.0, 2.0 * np.pi)
-                    t = np.sqrt(1.0 - mu * mu)
-                    u_new = t * np.cos(phi)
-                    v_new = t * np.sin(phi)
-                    if abs(u_new) > epsilon or abs(v_new) > epsilon:
-                        break
+                u_new, v_new, w_new = sample_scattered_direction_3d_from_unit(
+                    direction[0],
+                    direction[1],
+                    direction[2],
+                    np.random.random(),
+                    np.random.random(),
+                    scattering_mode_code,
+                    epsilon,
+                )
+                u_new, v_new = guard_projected_direction_xy(u_new, v_new, epsilon)
                 direction[0] = u_new
                 direction[1] = v_new
+                direction[2] = w_new
 
             if steps_this_particle >= max_steps_per_particle:
                 warning_flags += 4
@@ -484,7 +489,7 @@ def multi_cell_mc_internal_source_2d_njit(
     start_cell_indices_tuple, start_position_relative_tuple,
     sigma_t_per_cell, sigma_a_per_cell,
     energy_threshold,
-    reflected_boundaries, randomize_start_pos=False
+    reflected_boundaries, scattering_mode_code, randomize_start_pos=False
 ):
     """2D multi-cell MC, internal point-in-cell source. Uses per-cell XS arrays.
 
@@ -518,14 +523,11 @@ def multi_cell_mc_internal_source_2d_njit(
         pos = np.array([start_pos_x, start_pos_y], dtype=np.float64)
 
         while True:
-            mu = np.random.uniform(-1.0, 1.0)
-            phi = np.random.uniform(0.0, 2.0 * np.pi)
-            t = np.sqrt(1.0 - mu * mu)
-            u0 = t * np.cos(phi)
-            v0 = t * np.sin(phi)
+            u0, v0, w0 = sample_isotropic_direction_3d_from_unit(np.random.random(), np.random.random(), epsilon)
+            u0, v0 = guard_projected_direction_xy(u0, v0, epsilon)
             if abs(u0) > epsilon or abs(v0) > epsilon:
                 break
-        direction = np.array([u0, v0], dtype=np.float64)
+        direction = np.array([u0, v0, w0], dtype=np.float64)
 
         finished = False
         max_steps_per_particle = 1000000
@@ -618,18 +620,22 @@ def multi_cell_mc_internal_source_2d_njit(
                             direction[1] = -direction[1]
                             pos[1] = boundary_epsilon if is_bottom else total_height - boundary_epsilon
                 else:
-                    pos += direction * epsilon
+                    pos[0] += direction[0] * epsilon
+                    pos[1] += direction[1] * epsilon
             else:
-                while True:
-                    mu = np.random.uniform(-1.0, 1.0)
-                    phi = np.random.uniform(0.0, 2.0 * np.pi)
-                    t = np.sqrt(1.0 - mu * mu)
-                    u_new = t * np.cos(phi)
-                    v_new = t * np.sin(phi)
-                    if abs(u_new) > epsilon or abs(v_new) > epsilon:
-                        break
+                u_new, v_new, w_new = sample_scattered_direction_3d_from_unit(
+                    direction[0],
+                    direction[1],
+                    direction[2],
+                    np.random.random(),
+                    np.random.random(),
+                    scattering_mode_code,
+                    epsilon,
+                )
+                u_new, v_new = guard_projected_direction_xy(u_new, v_new, epsilon)
                 direction[0] = u_new
                 direction[1] = v_new
+                direction[2] = w_new
 
             if steps_this_particle >= max_steps_per_particle:
                 warning_flags += 4
@@ -658,7 +664,8 @@ def run_mc_simulation_2d_njit_wrapper(
     scatter_ratio, energy_threshold, seed,
     reflected_boundaries, angular_sampling=1,
     sigma_t_per_cell=None, sigma_a_per_cell=None,
-    randomize_position_in_cell=False, verbose=True
+    randomize_position_in_cell=False, verbose=True,
+    scattering_mode="isotropic",
 ):
     """Run 2D multi-cell MC simulation.
 
@@ -684,6 +691,7 @@ def run_mc_simulation_2d_njit_wrapper(
         sigma_a_per_cell = sigma_a_per_cell.astype(np.float64)
 
     start_time = time.time()
+    scattering_mode_code = steady_2d_scattering_mode_code(scattering_mode)
 
     with seeded_numpy_execution(seed):
         if source_mode == 'internal_start':
@@ -703,7 +711,7 @@ def run_mc_simulation_2d_njit_wrapper(
                 tuple(start_cell_indices), tuple(start_position_relative),
                 sigma_t_per_cell, sigma_a_per_cell,
                 energy_threshold,
-                reflected_boundaries, randomize_position_in_cell
+                reflected_boundaries, scattering_mode_code, randomize_position_in_cell
             )
 
         elif source_mode == 'boundary_only':
@@ -715,7 +723,7 @@ def run_mc_simulation_2d_njit_wrapper(
                 num_particles,
                 sigma_t_per_cell, sigma_a_per_cell,
                 energy_threshold,
-                reflected_boundaries, angular_sampling
+                reflected_boundaries, angular_sampling, scattering_mode_code
             )
         else:
             raise ValueError(f"Unsupported source_mode for 2D MC: {source_mode}")
