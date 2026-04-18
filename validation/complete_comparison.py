@@ -7,6 +7,7 @@ import argparse
 import os
 from pathlib import Path
 import sys
+import time
 
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
@@ -19,11 +20,11 @@ from physics.multigrid_steady_2d import (
     build_uniform_angular_quadrature,
     compute_flux_error_metrics,
     load_steady_gmc_models,
-    reconstruct_fine_flux_from_surface_tally,
     reconstruct_fine_flux_with_block_sn,
     run_coarse_gmc_with_surface_tally,
     run_coarse_mc_with_surface_tally,
     run_direct_fine_mc_reference,
+    MATERIAL_PROPERTIES,
 )
 
 
@@ -35,12 +36,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fine-gmc-particles", type=int, default=50000)
     parser.add_argument("--fine-mc-particles", type=int, default=50000)
     parser.add_argument("--num-angles", type=int, default=16)
-    parser.add_argument("--sn-iters", type=int, default=6)
     parser.add_argument("--block-sn-iters", type=int, default=18)
     parser.add_argument("--block-sn-tol", type=float, default=1.0e-5)
     parser.add_argument("--device", type=str, default=None, choices=["cpu", "cuda", "mps"])
     parser.add_argument("--seed", type=int, default=52)
     parser.add_argument("--output-dir", type=str, default="validation/results/complete_comparison")
+    parser.add_argument("--sigma-s-scale", type=float, default=1.0, help="Multiply all sigma_s values by this factor")
     return parser.parse_args()
 
 
@@ -93,6 +94,14 @@ def main() -> None:
     outdir = Path(args.output_dir)
     outdir.mkdir(parents=True, exist_ok=True)
 
+    import physics.multigrid_steady_2d as _mg2d
+
+    if args.sigma_s_scale != 1.0:
+        for props in MATERIAL_PROPERTIES.values():
+            props["sigma_s"] = props["sigma_s"] * args.sigma_s_scale
+        print(f"  sigma_s scale: {args.sigma_s_scale}x  (new values: "
+              + ", ".join(f"region {k}: sigma_s={v['sigma_s']:.3g}" for k, v in MATERIAL_PROPERTIES.items()) + ")")
+
     hierarchy = build_multigrid_hierarchy(
         coarse_refinement=args.coarse_refinement,
         fine_refinement=args.fine_refinement,
@@ -107,7 +116,8 @@ def main() -> None:
     print(f"  Fine histories:   GMC={args.fine_gmc_particles}, MC={args.fine_mc_particles}")
     print()
 
-    print("[1/7] Coarse GMC with fine-face surface tally...")
+    t0 = time.perf_counter()
+    print("[1/5] Coarse GMC with fine-face surface tally...")
     coarse_gmc = run_coarse_gmc_with_surface_tally(
         hierarchy.coarse,
         hierarchy,
@@ -116,8 +126,11 @@ def main() -> None:
         num_particles=args.coarse_particles,
         seed=args.seed,
     )
+    t_gmc = time.perf_counter() - t0
+    print(f"      Done in {t_gmc:.2f}s")
 
-    print("[2/7] Coarse MC with true fine-face surface tally...")
+    t0 = time.perf_counter()
+    print("[2/5] Coarse MC with true fine-face surface tally...")
     coarse_mc = run_coarse_mc_with_surface_tally(
         hierarchy.coarse,
         hierarchy,
@@ -125,22 +138,11 @@ def main() -> None:
         num_particles=args.coarse_particles,
         seed=args.seed + 10_000,
     )
+    t_mc = time.perf_counter() - t0
+    print(f"      Done in {t_mc:.2f}s")
 
-    print("[3/7] Old local S_n on GMC and MC surface data...")
-    refined_gmc_old = reconstruct_fine_flux_from_surface_tally(
-        hierarchy,
-        coarse_gmc["surface_tally"],
-        quadrature,
-        num_source_iterations=args.sn_iters,
-    )
-    refined_mc_old = reconstruct_fine_flux_from_surface_tally(
-        hierarchy,
-        coarse_mc["surface_tally"],
-        quadrature,
-        num_source_iterations=args.sn_iters,
-    )
-
-    print("[4/7] Block-S_n A/B on the same GMC and MC surface data...")
+    print("[3/5] Block-S_n on GMC and MC surface data...")
+    t0 = time.perf_counter()
     refined_gmc_block = reconstruct_fine_flux_with_block_sn(
         hierarchy,
         coarse_gmc["surface_tally"],
@@ -149,6 +151,8 @@ def main() -> None:
         num_source_iterations=args.block_sn_iters,
         tolerance=args.block_sn_tol,
     )
+    t_sn_gmc = time.perf_counter() - t0
+    t0 = time.perf_counter()
     refined_mc_block = reconstruct_fine_flux_with_block_sn(
         hierarchy,
         coarse_mc["surface_tally"],
@@ -157,33 +161,36 @@ def main() -> None:
         num_source_iterations=args.block_sn_iters,
         tolerance=args.block_sn_tol,
     )
+    t_sn_mc = time.perf_counter() - t0
+    print(f"      Done in {t_sn_gmc + t_sn_mc:.2f}s (GMC: {t_sn_gmc:.2f}s, MC: {t_sn_mc:.2f}s)")
 
-    print("[5/7] Fine GMC direct...")
-    fine_gmc = run_coarse_gmc_with_surface_tally(
-        hierarchy.fine,
-        hierarchy,
-        models,
-        quadrature,
-        num_particles=args.fine_gmc_particles,
-        seed=args.seed + 500,
-    )
+    # print("[4/5] Fine GMC direct...")
+    # fine_gmc = run_coarse_gmc_with_surface_tally(
+    #     hierarchy.fine,
+    #     hierarchy,
+    #     models,
+    #     quadrature,
+    #     num_particles=args.fine_gmc_particles,
+    #     seed=args.seed + 500,
+    # )
 
-    print("[6/7] Fine MC reference...")
+    t0 = time.perf_counter()
+    print("[4/5] Fine MC reference...")
     fine_mc_result = run_direct_fine_mc_reference(
         hierarchy.fine,
         num_particles=args.fine_mc_particles,
         seed=args.seed + 1000,
     )
-    print("[7/7] Aggregating surface and reconstruction diagnostics...")
+    t_fine_mc = time.perf_counter() - t0
+    print(f"      Done in {t_fine_mc:.2f}s")
+    print("[4/5] Aggregating surface and reconstruction diagnostics...")
 
     # Extract fluxes
     coarse_gmc_flux = coarse_gmc["coarse_flux"]
     coarse_mc_flux = coarse_mc["coarse_flux"]
-    fine_sn_from_gmc = refined_gmc_old["fine_flux"]
-    fine_sn_from_mc = refined_mc_old["fine_flux"]
     fine_block_from_gmc = refined_gmc_block["fine_flux"]
     fine_block_from_mc = refined_mc_block["fine_flux"]
-    fine_gmc_flux = fine_gmc["coarse_flux"]
+    # fine_gmc_flux = fine_gmc["coarse_flux"]
     fine_mc_flux = fine_mc_result["flux"]
     gmc_surface = coarse_gmc["surface_tally"]
     mc_surface = coarse_mc["surface_tally"]
@@ -213,15 +220,10 @@ def main() -> None:
         mc_surface_by_face.reshape(-1),
         gmc_surface_by_face.reshape(-1),
     )
-    metrics["sn_from_gmc_vs_fine_mc"] = compute_flux_error_metrics(fine_mc_flux, fine_sn_from_gmc)
-    metrics["sn_from_mc_vs_fine_mc"] = compute_flux_error_metrics(fine_mc_flux, fine_sn_from_mc)
     metrics["block_sn_from_gmc_vs_fine_mc"] = compute_flux_error_metrics(fine_mc_flux, fine_block_from_gmc)
     metrics["block_sn_from_mc_vs_fine_mc"] = compute_flux_error_metrics(fine_mc_flux, fine_block_from_mc)
-    metrics["fine_gmc_vs_fine_mc"] = compute_flux_error_metrics(fine_mc_flux, fine_gmc_flux)
-    metrics["sn_from_gmc_vs_sn_from_mc"] = compute_flux_error_metrics(fine_sn_from_mc, fine_sn_from_gmc)
+    # metrics["fine_gmc_vs_fine_mc"] = compute_flux_error_metrics(fine_mc_flux, fine_gmc_flux)
     metrics["block_sn_from_gmc_vs_block_sn_from_mc"] = compute_flux_error_metrics(fine_block_from_mc, fine_block_from_gmc)
-    metrics["old_vs_block_from_gmc"] = compute_flux_error_metrics(fine_block_from_gmc, fine_sn_from_gmc)
-    metrics["old_vs_block_from_mc"] = compute_flux_error_metrics(fine_block_from_mc, fine_sn_from_mc)
     metrics["coarse_gmc_vs_coarse_mc"] = compute_flux_error_metrics(coarse_mc_flux, coarse_gmc_flux)
 
     print("\n[1. Coarse-surface diagnostics: GMC vs MC]")
@@ -238,15 +240,7 @@ def main() -> None:
     print(f"  GMC incoming current sum : {np.sum(gmc_surface.crossing_weight):.6e}")
     print(f"  MC incoming current sum  : {np.sum(mc_surface.crossing_weight):.6e}")
 
-    print("\n[2. Old S_n from GMC vs Fine MC Reference]")
-    for key, value in metrics["sn_from_gmc_vs_fine_mc"].items():
-        print(f"  {key:<12s}: {value:.6e}")
-
-    print("\n[3. Old S_n from MC vs Fine MC Reference]")
-    for key, value in metrics["sn_from_mc_vs_fine_mc"].items():
-        print(f"  {key:<12s}: {value:.6e}")
-
-    print("\n[4. Block S_n from GMC and MC vs Fine MC Reference]")
+    print("\n[2. Block S_n from GMC and MC vs Fine MC Reference]")
     print("  From GMC surface:")
     for key, value in metrics["block_sn_from_gmc_vs_fine_mc"].items():
         print(f"    {key:<12s}: {value:.6e}")
@@ -254,39 +248,31 @@ def main() -> None:
     for key, value in metrics["block_sn_from_mc_vs_fine_mc"].items():
         print(f"    {key:<12s}: {value:.6e}")
 
-    print("\n[5. Fine GMC vs Fine MC Reference]")
-    for key, value in metrics["fine_gmc_vs_fine_mc"].items():
+    print("\n[3. Fine GMC vs Fine MC Reference]")
+    # for key, value in metrics["fine_gmc_vs_fine_mc"].items():
+    #     print(f"  {key:<12s}: {value:.6e}")
+
+    print("\n[4. Block S_n: GMC surface vs MC surface]")
+    for key, value in metrics["block_sn_from_gmc_vs_block_sn_from_mc"].items():
         print(f"  {key:<12s}: {value:.6e}")
 
-    print("\n[6. Same-SN comparisons between GMC and MC surfaces]")
-    print("  Old S_n:")
-    for key, value in metrics["sn_from_gmc_vs_sn_from_mc"].items():
-        print(f"    {key:<12s}: {value:.6e}")
-    print("  Block S_n:")
-    for key, value in metrics["block_sn_from_gmc_vs_block_sn_from_mc"].items():
-        print(f"    {key:<12s}: {value:.6e}")
-
-    print("\n[7. Same-surface A/B: old S_n vs block S_n]")
-    print("  From GMC surface:")
-    for key, value in metrics["old_vs_block_from_gmc"].items():
-        print(f"    {key:<12s}: {value:.6e}")
-    print("  From MC surface:")
-    for key, value in metrics["old_vs_block_from_mc"].items():
-        print(f"    {key:<12s}: {value:.6e}")
-
-    print("\n[8. Coarse scalar flux: GMC vs MC]")
+    print("\n[5. Coarse scalar flux: GMC vs MC]")
     for key, value in metrics["coarse_gmc_vs_coarse_mc"].items():
         print(f"  {key:<12s}: {value:.6e}")
 
     print("\n[Flux Statistics]")
     print(f"  Coarse GMC:       mean={np.mean(coarse_gmc_flux):.6e}, max={np.max(coarse_gmc_flux):.6e}")
     print(f"  Coarse MC:        mean={np.mean(coarse_mc_flux):.6e}, max={np.max(coarse_mc_flux):.6e}")
-    print(f"  Old S_n GMC:      mean={np.mean(fine_sn_from_gmc):.6e}, max={np.max(fine_sn_from_gmc):.6e}")
-    print(f"  Old S_n MC:       mean={np.mean(fine_sn_from_mc):.6e}, max={np.max(fine_sn_from_mc):.6e}")
     print(f"  Block S_n GMC:    mean={np.mean(fine_block_from_gmc):.6e}, max={np.max(fine_block_from_gmc):.6e}")
     print(f"  Block S_n MC:     mean={np.mean(fine_block_from_mc):.6e}, max={np.max(fine_block_from_mc):.6e}")
-    print(f"  Fine GMC:         mean={np.mean(fine_gmc_flux):.6e}, max={np.max(fine_gmc_flux):.6e}")
+    # print(f"  Fine GMC:         mean={np.mean(fine_gmc_flux):.6e}, max={np.max(fine_gmc_flux):.6e}")
     print(f"  Fine MC:          mean={np.mean(fine_mc_flux):.6e}, max={np.max(fine_mc_flux):.6e}")
+
+    print("\n[Timing — end-to-end to fine solution]")
+    print(f"  GMC + Block S_n      : {t_gmc + t_sn_gmc:.2f}s  (transport: {t_gmc:.2f}s, S_n: {t_sn_gmc:.2f}s)")
+    print(f"  MC  + Block S_n      : {t_mc  + t_sn_mc:.2f}s  (transport: {t_mc:.2f}s, S_n: {t_sn_mc:.2f}s)")
+    print(f"  Fine MC reference    : {t_fine_mc:.2f}s")
+    print(f"  Total                : {t_gmc + t_mc + t_sn_gmc + t_sn_mc + t_fine_mc:.2f}s")
 
     # Save results
     np.savez_compressed(
@@ -301,11 +287,9 @@ def main() -> None:
         mc_surface_current_by_face=mc_surface_by_face,
         gmc_surface_angular_flux=gmc_surface.angular_flux,
         mc_surface_angular_flux=mc_surface.angular_flux,
-        fine_sn_old_from_gmc=fine_sn_from_gmc,
-        fine_sn_old_from_mc=fine_sn_from_mc,
         fine_sn_block_from_gmc=fine_block_from_gmc,
         fine_sn_block_from_mc=fine_block_from_mc,
-        fine_gmc_flux=fine_gmc_flux,
+        # fine_gmc_flux=fine_gmc_flux,
         fine_mc_flux=fine_mc_flux,
         metrics=metrics,
     )
@@ -321,19 +305,14 @@ def main() -> None:
     _plot_map(bx_coarse, by_coarse, gmc_surface_current, outdir / "surface_current_gmc.png", title="Incoming Surface Current: GMC", log_scale=True, cmap="magma")
     _plot_map(bx_coarse, by_coarse, mc_surface_current, outdir / "surface_current_mc.png", title="Incoming Surface Current: MC", log_scale=True, cmap="magma")
     _plot_error_map(bx_coarse, by_coarse, mc_surface_current, gmc_surface_current, outdir / "surface_current_error_gmc_vs_mc.png", title="Surface Current Error: GMC vs MC")
-    _plot_map(bx_fine, by_fine, fine_sn_from_gmc, outdir / "fine_sn_old_from_gmc.png", title="Old S_n from GMC")
-    _plot_map(bx_fine, by_fine, fine_sn_from_mc, outdir / "fine_sn_old_from_mc.png", title="Old S_n from MC")
     _plot_map(bx_fine, by_fine, fine_block_from_gmc, outdir / "fine_sn_block_from_gmc.png", title="Block S_n from GMC")
     _plot_map(bx_fine, by_fine, fine_block_from_mc, outdir / "fine_sn_block_from_mc.png", title="Block S_n from MC")
-    _plot_map(bx_fine, by_fine, fine_gmc_flux, outdir / "fine_gmc.png", title="Fine GMC")
+    # _plot_map(bx_fine, by_fine, fine_gmc_flux, outdir / "fine_gmc.png", title="Fine GMC")
     _plot_map(bx_fine, by_fine, fine_mc_flux, outdir / "fine_mc.png", title="Fine MC Reference")
 
-    _plot_error_map(bx_fine, by_fine, fine_mc_flux, fine_sn_from_gmc, outdir / "error_old_sn_gmc_vs_mc.png", title="Error: Old S_n(GMC) vs MC")
-    _plot_error_map(bx_fine, by_fine, fine_mc_flux, fine_sn_from_mc, outdir / "error_old_sn_mc_vs_mc.png", title="Error: Old S_n(MC) vs MC")
     _plot_error_map(bx_fine, by_fine, fine_mc_flux, fine_block_from_gmc, outdir / "error_block_sn_gmc_vs_mc.png", title="Error: Block S_n(GMC) vs MC")
     _plot_error_map(bx_fine, by_fine, fine_mc_flux, fine_block_from_mc, outdir / "error_block_sn_mc_vs_mc.png", title="Error: Block S_n(MC) vs MC")
-    _plot_error_map(bx_fine, by_fine, fine_block_from_gmc, fine_sn_from_gmc, outdir / "error_old_vs_block_from_gmc.png", title="Error: Old vs Block S_n from GMC")
-    _plot_error_map(bx_fine, by_fine, fine_block_from_mc, fine_sn_from_mc, outdir / "error_old_vs_block_from_mc.png", title="Error: Old vs Block S_n from MC")
+    # _plot_error_map(bx_fine, by_fine, fine_mc_flux, fine_gmc_flux, outdir / "error_fine_gmc_vs_mc.png", title="Error: Fine GMC vs MC")
 
     print(f"\nSaved results to {outdir}")
 

@@ -583,6 +583,7 @@ def run_coarse_gmc_with_surface_tally(
     cell_heights_t = torch.from_numpy(problem.cell_heights.astype(np.float32)).to(device)
     sigma_a_t = torch.from_numpy(problem.sigma_a_map.astype(np.float32)).to(device)
     sigma_s_t = torch.from_numpy(problem.sigma_s_map.astype(np.float32)).to(device).clamp_min(1.0e-6)
+    sigma_t_t = torch.from_numpy(problem.sigma_t_map.astype(np.float32)).to(device).clamp_min(1.0e-6)
 
     part = torch.zeros((num_particles, 8), dtype=torch.float32, device=device)
     part[:, 6] = 1.0
@@ -604,6 +605,7 @@ def run_coarse_gmc_with_surface_tally(
         H = cell_heights_t[iy]
         sigma_s = sigma_s_t[iy, ix]
         sigma_a = sigma_a_t[iy, ix]
+        sigma_t = sigma_t_t[iy, ix]
         if randomize_start_pos:
             x_in = torch.rand(active.numel(), device=device) * W
             y_in = torch.rand(active.numel(), device=device) * H
@@ -732,6 +734,7 @@ def run_coarse_gmc_with_surface_tally(
         H = cell_heights_t[iy]
         sigma_s = sigma_s_t[iy, ix]
         sigma_a = sigma_a_t[iy, ix]
+        sigma_t = sigma_t_t[iy, ix]
 
         zeros_pos = torch.zeros_like(pos)
         px = torch.where(face == FACE_LEFT, zeros_pos, torch.where(face == FACE_RIGHT, W, pos))
@@ -863,8 +866,22 @@ def run_coarse_gmc_with_surface_tally(
 
 
 def _sample_isotropic_direction_2d(rng: np.random.Generator) -> Tuple[float, float]:
-    theta = 2.0 * math.pi * float(rng.random())
-    return math.cos(theta), math.sin(theta)
+    """Sample a 2D direction from 3D isotropic scattering projected onto the x-y plane.
+
+    A 3D isotropic direction has mu_z = cos(polar) uniform in [-1,1] and azimuth phi
+    uniform in [0, 2pi].  The in-plane components are u = sin(polar)*cos(phi),
+    v = sin(polar)*sin(phi), which is what the training data uses.  A purely-2D
+    uniform-angle sample would give ||(u,v)|| = 1 always, which is inconsistent with
+    the 3D-projected model.
+    """
+    mu_z = 2.0 * float(rng.random()) - 1.0          # uniform in [-1, 1]
+    phi = 2.0 * math.pi * float(rng.random())
+    t = math.sqrt(max(0.0, 1.0 - mu_z * mu_z))      # sin(polar)
+    u = t * math.cos(phi)
+    v = t * math.sin(phi)
+    if abs(u) + abs(v) < 1.0e-12:
+        u = 1.0e-6
+    return u, v
 
 
 def _distance_to_rect_boundary(
