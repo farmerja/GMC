@@ -1,0 +1,33 @@
+{
+  "batch_size": 256,
+  "best_val_loss": 0.2299424707889557,
+  "distillation_mode": "direct_teacher_supervision",
+  "epochs": 100,
+  "final_val_loss": 0.2299424707889557,
+  "learning_rate": 0.001,
+  "runtime_seconds": 146.68835401535034,
+  "scattering_mode": "isotropic",
+  "seed": 42,
+  "source_type": "boundary",
+  "student_config": {
+    "cond_dim": 5,
+    "depth": 3,
+    "expansion_factor": 2,
+    "hidden_dim": 16,
+    "num_steps": 1,
+    "target_dim": 5
+  },
+  "student_num_steps": 1,
+  "support_samples": 65536,
+  "support_sampling": "lhs",
+  "task_name": "steady2d",
+  "teacher_checkpoint": "ml/models/2d_boundary/best_model.pth",
+  "teacher_num_steps": 6,
+  "teacher_ode_method": "rk4",
+  "teacher_time_grid_kind": "schedule",
+  "teacher_time_grid_schedule": "steady2d_default",
+  "teacher_time_grid_split": 0.8,
+  "teacher_train_sampling": "random",
+  "val_ratio": 0.1,
+  "weight_decay": 1e-05
+}

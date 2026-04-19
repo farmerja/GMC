@@ -23,6 +23,7 @@ from typing import Dict, Optional, Tuple
 import numpy as np
 import torch
 
+from ml.ode_grid import build_teacher_time_grid
 from physics.mc2d import calculate_boundaries_2d, run_mc_simulation_2d_njit_wrapper
 from physics.steady_2d_scattering import (
     STEADY_2D_SCATTERING_TAG,
@@ -128,14 +129,65 @@ class LocalSNSolution:
 class SteadyModelBundle:
     device: str
     scattering_mode: str
-    boundary_solver: object
-    internal_solver: object
+    model_mode: str
+    boundary_sampler: object
+    internal_sampler: object
     boundary_norm: Dict[str, float]
     internal_norm: Dict[str, float]
     boundary_cond_dim: int
     internal_cond_dim: int
     boundary_target_dim: int
     internal_target_dim: int
+
+
+class _FlowSteadyTargetSampler:
+    """Teacher sampler adapter for steady-2D GMC transport."""
+
+    def __init__(self, model: torch.nn.Module, *, device: str, cond_dim: int, target_dim: int):
+        from flow_matching.solver import ODESolver
+        from ml.model import WrappedModel
+
+        self.device = str(device)
+        self.cond_dim = int(cond_dim)
+        self.target_dim = int(target_dim)
+        self.model = model.to(self.device)
+        self.wrapped_model = WrappedModel(self.model).to(self.device)
+        self.solver = ODESolver(velocity_model=self.wrapped_model)
+        self.time_grid, self.step_size = _build_time_grid(self.device)
+
+    @torch.inference_mode()
+    def sample_target(self, conditions: torch.Tensor, *, noise: torch.Tensor) -> torch.Tensor:
+        cond = conditions.to(self.device, dtype=torch.float32)
+        latent = noise.to(self.device, dtype=torch.float32)
+        x_init = torch.cat([cond, latent], dim=1)
+        self.model.eval()
+        self.wrapped_model.eval()
+        out = self.solver.sample(
+            time_grid=self.time_grid,
+            x_init=x_init,
+            method="rk4",
+            step_size=self.step_size,
+            return_intermediates=False,
+        )
+        return out[:, self.cond_dim :]
+
+
+class _StudentSteadyTargetSampler:
+    """Distilled student sampler adapter for steady-2D GMC transport."""
+
+    def __init__(self, model: torch.nn.Module, *, device: str, cond_dim: int, target_dim: int):
+        self.device = str(device)
+        self.cond_dim = int(cond_dim)
+        self.target_dim = int(target_dim)
+        self.model = model.to(self.device)
+        self.model.eval()
+
+    @torch.inference_mode()
+    def sample_target(self, conditions: torch.Tensor, *, noise: torch.Tensor) -> torch.Tensor:
+        return self.model(
+            conditions.to(self.device, dtype=torch.float32),
+            noise.to(self.device, dtype=torch.float32),
+        )
 
 
 def _coord_to_idx(coord: float, total_cells: int, domain_size: float) -> int:
@@ -446,8 +498,7 @@ def enforce_outward_angle_from_face(
 
 
 def _build_time_grid(device: str) -> Tuple[torch.Tensor, torch.Tensor]:
-    t_grid = torch.tensor([0.0, 0.2, 0.4, 0.6, 0.8, 0.9, 1.0], device=device, dtype=torch.float32)
-    step_size = t_grid[1] - t_grid[0]
+    t_grid, step_size = build_teacher_time_grid(device, schedule="steady2d_default")
     return t_grid, step_size
 
 
@@ -465,38 +516,149 @@ def _assert_steady_2d_norm_mode(norm_params: Dict[str, float], scattering_mode: 
         )
 
 
+def _normalize_steady_model_mode(model_mode: str) -> Tuple[str, Optional[int]]:
+    normalized = str(model_mode).strip().lower().replace("-", "_")
+    if normalized == "teacher":
+        return normalized, None
+    if normalized.startswith("student_"):
+        suffix = normalized[len("student_") :]
+        try:
+            num_steps = int(suffix)
+        except ValueError as exc:
+            raise ValueError(
+                f"Unsupported steady GMC model_mode='{model_mode}'. Expected 'teacher' or 'student_<steps>'."
+            ) from exc
+        if num_steps not in {1, 2, 4}:
+            raise ValueError(
+                f"Unsupported student step count in model_mode='{model_mode}'. Only student_1, student_2, and student_4 are supported."
+            )
+        return normalized, num_steps
+    raise ValueError(f"Unsupported steady GMC model_mode='{model_mode}'. Expected 'teacher' or 'student_<steps>'.")
+
+
+def _load_student_sampler(
+    *,
+    device: str,
+    source_type: str,
+    scattering_mode: str,
+    train_sampling: str,
+    student_num_steps: int,
+    student_artifact_root: str,
+):
+    from ml.distillation.artifacts import resolve_student_checkpoint_path
+    from ml.distillation.student import load_student_checkpoint
+    from ml.utils import compute_model_dims
+
+    checkpoint_path = resolve_student_checkpoint_path(
+        "steady2d",
+        source_type,
+        student_num_steps,
+        scattering_mode=scattering_mode,
+        artifact_root=student_artifact_root,
+    )
+    model, config, metadata = load_student_checkpoint(checkpoint_path, map_location=device)
+    expected_input_dim, expected_cond_dim = compute_model_dims(
+        "2d",
+        source_type,
+        train_sampling=train_sampling,
+        scattering_mode=scattering_mode,
+    )
+    expected_target_dim = int(expected_input_dim - expected_cond_dim)
+    if int(config.cond_dim) != int(expected_cond_dim) or int(config.target_dim) != int(expected_target_dim):
+        raise ValueError(
+            f"Student checkpoint {checkpoint_path} has incompatible dims: "
+            f"cond_dim={config.cond_dim}, target_dim={config.target_dim}, "
+            f"expected cond_dim={expected_cond_dim}, target_dim={expected_target_dim}."
+        )
+    saved_source = str(metadata.get("source_type", source_type)).strip().lower()
+    saved_mode = str(metadata.get("scattering_mode", scattering_mode)).strip().lower()
+    saved_sampling = str(metadata.get("teacher_train_sampling", train_sampling)).strip().lower()
+    if saved_source != source_type:
+        raise ValueError(
+            f"Student checkpoint {checkpoint_path} was trained for source_type='{saved_source}', not '{source_type}'."
+        )
+    if saved_mode != scattering_mode:
+        raise ValueError(
+            f"Student checkpoint {checkpoint_path} was trained for scattering_mode='{saved_mode}', not '{scattering_mode}'."
+        )
+    if saved_sampling != train_sampling:
+        raise ValueError(
+            f"Student checkpoint {checkpoint_path} was trained with teacher_train_sampling='{saved_sampling}', "
+            f"not '{train_sampling}'."
+        )
+    return _StudentSteadyTargetSampler(
+        model,
+        device=device,
+        cond_dim=config.cond_dim,
+        target_dim=config.target_dim,
+    ), int(config.cond_dim), int(config.target_dim)
+
+
 def load_steady_gmc_models(
     device: Optional[str] = None,
     *,
     scattering_mode: str = "isotropic",
     train_sampling: str = "random",
+    model_mode: str = "teacher",
+    student_artifact_root: str = "ml/student_artifacts",
 ) -> SteadyModelBundle:
-    from flow_matching.solver import ODESolver
-    from ml.model import WrappedModel
     from ml.utils import load_model, load_norm_params_for_data_dim
 
     scattering_mode = normalize_steady_2d_scattering_mode(scattering_mode)
     resolved_device = str(device or ("cuda" if torch.cuda.is_available() else "cpu"))
-    boundary_model, boundary_input_dim, boundary_cond_dim = load_model(
-        resolved_device,
-        hidden_dim=160,
-        depth=5,
-        expansion_factor=1,
-        source_type="boundary",
-        data_dim="2d",
-        train_sampling=train_sampling,
-        scattering_mode=scattering_mode,
-    )
-    internal_model, internal_input_dim, internal_cond_dim = load_model(
-        resolved_device,
-        hidden_dim=160,
-        depth=5,
-        expansion_factor=1,
-        source_type="internal",
-        data_dim="2d",
-        train_sampling=train_sampling,
-        scattering_mode=scattering_mode,
-    )
+    normalized_model_mode, student_num_steps = _normalize_steady_model_mode(model_mode)
+    if normalized_model_mode == "teacher":
+        boundary_model, boundary_input_dim, boundary_cond_dim = load_model(
+            resolved_device,
+            hidden_dim=160,
+            depth=5,
+            expansion_factor=1,
+            source_type="boundary",
+            data_dim="2d",
+            train_sampling=train_sampling,
+            scattering_mode=scattering_mode,
+        )
+        internal_model, internal_input_dim, internal_cond_dim = load_model(
+            resolved_device,
+            hidden_dim=160,
+            depth=5,
+            expansion_factor=1,
+            source_type="internal",
+            data_dim="2d",
+            train_sampling=train_sampling,
+            scattering_mode=scattering_mode,
+        )
+        boundary_sampler = _FlowSteadyTargetSampler(
+            boundary_model,
+            device=resolved_device,
+            cond_dim=boundary_cond_dim,
+            target_dim=int(boundary_input_dim - boundary_cond_dim),
+        )
+        internal_sampler = _FlowSteadyTargetSampler(
+            internal_model,
+            device=resolved_device,
+            cond_dim=internal_cond_dim,
+            target_dim=int(internal_input_dim - internal_cond_dim),
+        )
+        boundary_target_dim = int(boundary_input_dim - boundary_cond_dim)
+        internal_target_dim = int(internal_input_dim - internal_cond_dim)
+    else:
+        boundary_sampler, boundary_cond_dim, boundary_target_dim = _load_student_sampler(
+            device=resolved_device,
+            source_type="boundary",
+            scattering_mode=scattering_mode,
+            train_sampling=train_sampling,
+            student_num_steps=int(student_num_steps),
+            student_artifact_root=student_artifact_root,
+        )
+        internal_sampler, internal_cond_dim, internal_target_dim = _load_student_sampler(
+            device=resolved_device,
+            source_type="internal",
+            scattering_mode=scattering_mode,
+            train_sampling=train_sampling,
+            student_num_steps=int(student_num_steps),
+            student_artifact_root=student_artifact_root,
+        )
     boundary_norm, _ = load_norm_params_for_data_dim(
         "2d",
         "boundary",
@@ -514,14 +676,15 @@ def load_steady_gmc_models(
     return SteadyModelBundle(
         device=resolved_device,
         scattering_mode=scattering_mode,
-        boundary_solver=ODESolver(velocity_model=WrappedModel(boundary_model).to(resolved_device)),
-        internal_solver=ODESolver(velocity_model=WrappedModel(internal_model).to(resolved_device)),
+        model_mode=normalized_model_mode,
+        boundary_sampler=boundary_sampler,
+        internal_sampler=internal_sampler,
         boundary_norm=boundary_norm,
         internal_norm=internal_norm,
         boundary_cond_dim=boundary_cond_dim,
         internal_cond_dim=internal_cond_dim,
-        boundary_target_dim=int(boundary_input_dim - boundary_cond_dim),
-        internal_target_dim=int(internal_input_dim - internal_cond_dim),
+        boundary_target_dim=boundary_target_dim,
+        internal_target_dim=internal_target_dim,
     )
 
 
@@ -556,9 +719,7 @@ def _prepare_boundary_conditions(
         uv_to_polar,
     )
 
-    phi_in, r_in = uv_to_polar(ux_m.detach().cpu().numpy(), uy_m.detach().cpu().numpy())
-    phi_in_t = torch.from_numpy(phi_in).to(W.device)
-    r_in_t = torch.from_numpy(r_in).to(W.device)
+    phi_in_t, r_in_t = uv_to_polar(ux_m, uy_m)
     W_opt = W * sigma_s
     H_opt = H * sigma_s
     return torch.stack(
@@ -592,9 +753,7 @@ def _prepare_internal_conditions(
         uv_to_polar,
     )
 
-    phi_in, r_in = uv_to_polar(u.detach().cpu().numpy(), v.detach().cpu().numpy())
-    phi_in_t = torch.from_numpy(phi_in).to(W.device)
-    r_in_t = torch.from_numpy(r_in).to(W.device)
+    phi_in_t, r_in_t = uv_to_polar(u, v)
     W_opt = W * sigma_s
     H_opt = H * sigma_s
     return torch.stack(
@@ -629,7 +788,6 @@ def run_coarse_gmc_with_surface_tally(
     device = models.device
     torch.manual_seed(seed)
     np.random.seed(seed)
-    t_grid, step_size = _build_time_grid(device)
     tally = initialize_surface_tallies(hierarchy, quadrature)
 
     cell_widths_t = torch.from_numpy(problem.cell_widths.astype(np.float32)).to(device)
@@ -677,16 +835,7 @@ def run_coarse_gmc_with_surface_tally(
             models.internal_norm,
         )
         noise = torch.randn(active.numel(), models.internal_target_dim, device=device)
-        x0 = torch.cat([cond, noise], dim=1)
-        with torch.no_grad():
-            out = models.internal_solver.sample(
-                time_grid=t_grid,
-                x_init=x0,
-                method="rk4",
-                step_size=step_size,
-                return_intermediates=False,
-            )
-        pred = out[:, models.internal_cond_dim:]
+        pred = models.internal_sampler.sample_target(cond, noise=noise)
         x_out = denorm_position_relative(pred[:, 0]) * W
         y_out = denorm_position_relative(pred[:, 1]) * H
         phi_out = denorm_angle_phi(pred[:, 2])
@@ -809,18 +958,9 @@ def run_coarse_gmc_with_surface_tally(
 
         cond = _prepare_boundary_conditions(Wm, Hm, yn, ux_m, uy_m, sigma_s, models.boundary_norm)
         noise = torch.randn(active.numel(), models.boundary_target_dim, device=device)
-        x0 = torch.cat([cond, noise], dim=1)
-        with torch.no_grad():
-            out = models.boundary_solver.sample(
-                time_grid=t_grid,
-                x_init=x0,
-                method="rk4",
-                step_size=step_size,
-                return_intermediates=False,
-            )
         from ml.transform import denorm_angle_phi, denorm_log_feature, denorm_position_relative, denorm_radius_r, polar_to_uv
 
-        pred = out[:, models.boundary_cond_dim:]
+        pred = models.boundary_sampler.sample_target(cond, noise=noise)
         x_rel = denorm_position_relative(pred[:, 0])
         y_rel = denorm_position_relative(pred[:, 1])
         phi_out = denorm_angle_phi(pred[:, 2])

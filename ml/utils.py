@@ -11,6 +11,7 @@ import torch
 
 from flow_matching.solver import ODESolver
 from ml.model import WrappedModel, get_model
+from ml.ode_grid import build_uniform_time_grid as _build_uniform_time_grid_impl
 from ml.transform import (
     direction_feature_count_2d,
     load_normalization_params,
@@ -363,6 +364,7 @@ def load_model(
     train_sampling="random",
     scheduler_type="condOT",
     scattering_mode="isotropic",
+    checkpoint_path=None,
 ):
     if data_dim == "2d":
         scattering_mode = normalize_steady_2d_scattering_mode(scattering_mode)
@@ -380,21 +382,24 @@ def load_model(
     print(f"Loading model for {data_dim} {source_type} source (input_dim={input_dim}, cond_dim={cond_dim}{mode_suffix})")
     scheduler_suffix = f"_{scheduler_type}" if scheduler_type != "condOT" else ""
     sampling_suffix = f"_{train_sampling}" if train_sampling != "random" else ""
-    model_dirs = steady_2d_model_dir_candidates(data_dim, source_type, scattering_mode=scattering_mode)
-    model_paths = list(
-        dict.fromkeys(
-            path
-            for model_dir in model_dirs
-            for path in (
-                os.path.join(model_dir, f"best_model{scheduler_suffix}{sampling_suffix}.pth"),
-                os.path.join(model_dir, f"trained_model_final{scheduler_suffix}{sampling_suffix}.pth"),
-                os.path.join(model_dir, f"best_model{scheduler_suffix}.pth"),
-                os.path.join(model_dir, f"trained_model_final{scheduler_suffix}.pth"),
-                os.path.join(model_dir, "best_model.pth"),
-                os.path.join(model_dir, "trained_model_final.pth"),
+    if checkpoint_path is not None:
+        model_paths = [checkpoint_path]
+    else:
+        model_dirs = steady_2d_model_dir_candidates(data_dim, source_type, scattering_mode=scattering_mode)
+        model_paths = list(
+            dict.fromkeys(
+                path
+                for model_dir in model_dirs
+                for path in (
+                    os.path.join(model_dir, f"best_model{scheduler_suffix}{sampling_suffix}.pth"),
+                    os.path.join(model_dir, f"trained_model_final{scheduler_suffix}{sampling_suffix}.pth"),
+                    os.path.join(model_dir, f"best_model{scheduler_suffix}.pth"),
+                    os.path.join(model_dir, f"trained_model_final{scheduler_suffix}.pth"),
+                    os.path.join(model_dir, "best_model.pth"),
+                    os.path.join(model_dir, "trained_model_final.pth"),
+                )
             )
         )
-    )
 
     model = None
     loaded_model_path = None
@@ -473,14 +478,7 @@ def load_model(
 
 
 def build_uniform_time_grid(num_steps, device):
-    if num_steps <= 1:
-        return torch.tensor([0.0, 1.0], device=device), None
-    base_steps = max(1, num_steps // 2)
-    fine_steps = num_steps - base_steps
-    base_grid = torch.linspace(0, 0.8, base_steps + 1, device=device)[:-1]
-    fine_grid = torch.linspace(0.8, 1.0, fine_steps + 1, device=device)
-    time_grid = torch.cat([base_grid, fine_grid])
-    return time_grid, time_grid[1] - time_grid[0]
+    return _build_uniform_time_grid_impl(num_steps, device=device)
 
 
 def run_uniform_ode_inference(model, x_init, device, ode_method, num_steps, batch_size=None, show_timing=True):

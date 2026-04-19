@@ -103,6 +103,15 @@ def test_anisotropic_scatter_sampler_is_forward_biased_and_zero_guarded():
     assert v_g == pytest.approx(0.0)
 
 
+def test_normalize_steady_model_mode_accepts_teacher_and_supported_students():
+    assert mg._normalize_steady_model_mode("teacher") == ("teacher", None)
+    assert mg._normalize_steady_model_mode("student_4") == ("student_4", 4)
+    assert mg._normalize_steady_model_mode("student-2") == ("student_2", 2)
+
+    with pytest.raises(ValueError, match="Unsupported"):
+        mg._normalize_steady_model_mode("student_3")
+
+
 def test_solve_local_sn_tiny_homogeneous_case_is_stable_and_symmetric():
     quadrature = mg.build_uniform_angular_quadrature(8)
     incoming = np.zeros((4, 2, quadrature.theta_centers.size), dtype=np.float64)

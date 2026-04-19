@@ -6,6 +6,7 @@ from physics import multigrid_steady_2d as mg
 from physics.mc2d import calculate_boundaries_2d, run_mc_simulation_2d_njit_wrapper
 from validation import lattice_anisotropic_gmc_56x56 as anisotropic_poc_driver
 from validation import lattice_multigrid_steady as multigrid_driver
+from validation import steady2d_distilled_lattice as distilled_driver
 
 
 def test_mc2d_wrapper_smoke_accounting():
@@ -240,3 +241,75 @@ def test_anisotropic_56x56_driver_main_smoke_with_stubs(tmp_path, monkeypatch):
     assert seen["model_mode"] == "anisotropic"
     assert seen["train_sampling"] == "lhs"
     assert seen["mc_mode"] == "anisotropic"
+
+
+def test_distilled_lattice_driver_main_smoke_with_stubs(tmp_path, monkeypatch):
+    seen_modes = []
+    seen_artifact_roots = []
+    problem = mg.build_rect_lattice_problem(refinement=1)
+    hierarchy = mg.make_single_level_hierarchy(problem)
+
+    class DummyQuadrature:
+        theta_centers = np.linspace(0.0, 2.0 * np.pi, 4, endpoint=False)
+
+    monkeypatch.setattr(distilled_driver, "build_rect_lattice_problem", lambda refinement: problem)
+    monkeypatch.setattr(distilled_driver, "make_single_level_hierarchy", lambda _problem: hierarchy)
+    monkeypatch.setattr(distilled_driver, "build_uniform_angular_quadrature", lambda *_args, **_kwargs: DummyQuadrature())
+
+    def fake_load_models(*_args, **kwargs):
+        seen_modes.append(kwargs.get("model_mode"))
+        seen_artifact_roots.append(kwargs.get("student_artifact_root"))
+        return object()
+
+    monkeypatch.setattr(distilled_driver, "load_steady_gmc_models", fake_load_models)
+
+    def fake_run_gmc(*_args, **_kwargs):
+        return {
+            "coarse_flux": np.ones_like(problem.sigma_t_map, dtype=np.float64),
+            "totals": {"left": 1, "right": 2, "top": 3, "bottom": 4, "absorb": 5},
+        }
+
+    monkeypatch.setattr(distilled_driver, "run_coarse_gmc_with_surface_tally", fake_run_gmc)
+    monkeypatch.setattr(
+        distilled_driver,
+        "run_direct_fine_mc_reference",
+        lambda *_args, **_kwargs: {
+            "flux": np.full_like(problem.sigma_t_map, 2.0, dtype=np.float64),
+            "stats": (6, 7, 8, 9, 10, 0, 0, 0),
+        },
+    )
+    monkeypatch.setattr(
+        distilled_driver,
+        "compute_flux_error_metrics",
+        lambda *_args, **_kwargs: {"l1": 1.0, "l2": 2.0, "rel_l2": 3.0, "max_abs": 4.0},
+    )
+    monkeypatch.setattr(
+        distilled_driver,
+        "parse_args",
+        lambda: type(
+            "Args",
+            (),
+            {
+                "refinement": 1,
+                "gmc_particles": 10,
+                "mc_particles": 11,
+                "num_angles": 4,
+                "device": "cpu",
+                "train_sampling": "random",
+                "scattering_mode": "isotropic",
+                "model_modes": ["teacher", "student_2"],
+                "student_artifact_root": str(tmp_path / "students"),
+                "seed": 1,
+                "output_dir": str(tmp_path),
+            },
+        )(),
+    )
+
+    distilled_driver.main()
+    assert (Path(tmp_path) / "summary.json").exists()
+    payload = np.load(Path(tmp_path) / "steady2d_distilled_lattice_results.npz")
+    assert "teacher_flux" in payload.files
+    assert "student_2_flux" in payload.files
+    assert "mc_flux" in payload.files
+    assert seen_modes == ["teacher", "student_2"]
+    assert all(root == str(tmp_path / "students") for root in seen_artifact_roots)

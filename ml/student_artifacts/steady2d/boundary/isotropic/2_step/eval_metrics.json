@@ -1,0 +1,113 @@
+{
+  "checkpoint": "ml/student_artifacts/steady2d/boundary/isotropic/2_step/best_student.pth",
+  "condition_slice_metrics": {
+    "cond_0": [
+      {
+        "count": 128,
+        "lower": -3.912505626678467,
+        "mae": 0.893386721611023,
+        "upper": -0.6708834171295166
+      },
+      {
+        "count": 128,
+        "lower": -0.6708834171295166,
+        "mae": 0.8444831967353821,
+        "upper": 0.0014833314344286919
+      },
+      {
+        "count": 128,
+        "lower": 0.0014833314344286919,
+        "mae": 0.8231582641601562,
+        "upper": 0.6732846945524216
+      },
+      {
+        "count": 128,
+        "lower": 0.6732846945524216,
+        "mae": 0.8740422129631042,
+        "upper": 3.0210936069488525
+      }
+    ],
+    "cond_1": [
+      {
+        "count": 128,
+        "lower": -3.001101016998291,
+        "mae": 0.7577119469642639,
+        "upper": -0.6726271212100983
+      },
+      {
+        "count": 128,
+        "lower": -0.6726271212100983,
+        "mae": 0.7371465563774109,
+        "upper": 0.0006170228589326143
+      },
+      {
+        "count": 128,
+        "lower": 0.0006170228589326143,
+        "mae": 0.940201997756958,
+        "upper": 0.6705091744661331
+      },
+      {
+        "count": 128,
+        "lower": 0.6705091744661331,
+        "mae": 1.0000100135803223,
+        "upper": 3.051827907562256
+      }
+    ]
+  },
+  "loss": 1.8191449642181396,
+  "mae": 0.8587676882743835,
+  "mean_bias_by_dim": [
+    -0.34816232323646545,
+    0.020987562835216522,
+    0.20387446880340576,
+    0.05064016953110695,
+    0.2745192050933838
+  ],
+  "metadata": {
+    "batch_size": 256,
+    "distillation_mode": "direct_teacher_supervision",
+    "epochs": 8,
+    "learning_rate": 0.001,
+    "runtime_seconds": 0.48390769958496094,
+    "scattering_mode": "isotropic",
+    "seed": 42,
+    "source_type": "boundary",
+    "student_num_steps": 2,
+    "support_samples": 2048,
+    "support_sampling": "lhs",
+    "task_name": "steady2d",
+    "teacher_checkpoint": "ml/models/2d_boundary/best_model.pth",
+    "teacher_num_steps": 6,
+    "teacher_ode_method": "rk4",
+    "teacher_time_grid_kind": "schedule",
+    "teacher_time_grid_schedule": "steady2d_default",
+    "teacher_time_grid_split": 0.8,
+    "teacher_train_sampling": "random",
+    "val_ratio": 0.1,
+    "weight_decay": 1e-05
+  },
+  "scattering_mode": "isotropic",
+  "seed": 123,
+  "source_type": "boundary",
+  "std_ratio_by_dim": [
+    0.7689570784568787,
+    0.9479419589042664,
+    0.8097770810127258,
+    0.8646360635757446,
+    0.801569402217865
+  ],
+  "student_num_steps": 2,
+  "student_runtime": {
+    "runtime_seconds": 0.003295166650786996,
+    "samples_per_second": 155379.09133600793
+  },
+  "student_speedup_vs_teacher": 36.048594079042864,
+  "support_samples": 512,
+  "support_sampling": "lhs",
+  "task_name": "steady2d",
+  "teacher_checkpoint": "ml/models/2d_boundary/best_model.pth",
+  "teacher_runtime": {
+    "runtime_seconds": 0.11878612501701961,
+    "samples_per_second": 4310.267717939624
+  }
+}
