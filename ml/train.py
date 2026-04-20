@@ -26,20 +26,23 @@ from ml.transform import (
 )
 from ml.utils import (
     DATA_DIM_CHOICES,
+    SCATTERING_MODEL_DATA_DIMS,
     TIME_DEPENDENT_DATA_DIMS,
     TWO_D_TIME_DEPENDENT_DATA_DIMS,
     analytic_log_bounds as _analytic_log_bounds,
     available_cpu_count as _available_cpu_count,
+    normalize_scattering_mode_for_data_dim,
     norm_params_base_path,
+    resolve_scattering_parameter_for_data_dim,
     safe_get_sim_data,
     save_norm_params_artifacts as _save_norm_params_artifacts,
+    scattering_mode_supported_for_data_dim,
     setup_environment,
     steady_2d_model_dir,
     steady_2d_training_dir,
 )
 from physics.steady_2d_scattering import (
     STEADY_2D_SCATTERING_TAG,
-    normalize_steady_2d_scattering_mode,
 )
 from physics.mc_data_gen import (
     get_simulation_data, get_internal_source_simulation_data,
@@ -66,13 +69,14 @@ def prepare_data(device, data_dim='2d', source_type='boundary', batch_size=2048,
                  direction_encoding_2d='polar',
                  angular_sampling=0,
                  scattering_mode='isotropic',
+                 g_hg=None,
                  sampling='random',
                  train_workers=None, val_workers=None):
     print(f"Loading simulation data for {data_dim} {source_type} source...")
     print(f"  Number of neutrons: {num_neutrons}")
     print(f"  Sampling method: {sampling.upper()}")
     direction_encoding_2d = str(direction_encoding_2d).strip().lower()
-    scattering_mode = normalize_steady_2d_scattering_mode(scattering_mode) if data_dim == '2d' else scattering_mode
+    scattering_mode, resolved_g_hg = resolve_scattering_parameter_for_data_dim(data_dim, scattering_mode, g_hg)
     if direction_encoding_2d != 'polar':
         raise ValueError(
             f"Unsupported direction_encoding_2d='{direction_encoding_2d}'. "
@@ -82,6 +86,10 @@ def prepare_data(device, data_dim='2d', source_type='boundary', batch_size=2048,
         print(f"  Path budget range: [{min_path_budget}, {max_path_budget}]")
     if data_dim == '2d' or data_dim in TWO_D_TIME_DEPENDENT_DATA_DIMS:
         print(f"  2D direction encoding: {direction_encoding_2d}")
+    if data_dim in SCATTERING_MODEL_DATA_DIMS:
+        print(f"  Scattering mode: {scattering_mode}")
+        if scattering_mode == 'anisotropic-hg':
+            print(f"  HG asymmetry parameter g: {resolved_g_hg:.3f}")
     if data_dim == '2d':
         print(f"  2D steady scattering mode: {scattering_mode} ({STEADY_2D_SCATTERING_TAG})")
 
@@ -151,6 +159,7 @@ def prepare_data(device, data_dim='2d', source_type='boundary', batch_size=2048,
                 min_height=min_height, max_height=max_height,
                 sampling=sampling,
                 scattering_mode=scattering_mode,
+                g_hg=resolved_g_hg,
             )
             data_type_str = '2d_boundary'
             sim_data = sim_data[sim_data["exited"] == 1].copy()
@@ -168,8 +177,14 @@ def prepare_data(device, data_dim='2d', source_type='boundary', batch_size=2048,
                 'direction_encoding_2d': direction_encoding_2d,
                 'steady_2d_scattering_mode': scattering_mode,
                 'steady_2d_scattering_tag': STEADY_2D_SCATTERING_TAG,
+                'steady_2d_scattering_hg_g': resolved_g_hg,
             }
-            norm_params_path = norm_params_base_path('2d', 'boundary', scattering_mode=scattering_mode)
+            norm_params_path = norm_params_base_path(
+                '2d',
+                'boundary',
+                scattering_mode=scattering_mode,
+                g_hg=resolved_g_hg,
+            )
             if sampling_suffix:
                 norm_params_path = norm_params_path.replace(".npy", f"{sampling_suffix}.npy")
             _save_norm_params_artifacts(
@@ -186,6 +201,7 @@ def prepare_data(device, data_dim='2d', source_type='boundary', batch_size=2048,
                 min_height=min_height, max_height=max_height,
                 sampling=sampling,
                 scattering_mode=scattering_mode,
+                g_hg=resolved_g_hg,
             )
             data_type_str = '2d_internal'
             sim_data = sim_data[sim_data["exited"] == 1].copy()
@@ -203,8 +219,14 @@ def prepare_data(device, data_dim='2d', source_type='boundary', batch_size=2048,
                 'direction_encoding_2d': direction_encoding_2d,
                 'steady_2d_scattering_mode': scattering_mode,
                 'steady_2d_scattering_tag': STEADY_2D_SCATTERING_TAG,
+                'steady_2d_scattering_hg_g': resolved_g_hg,
             }
-            norm_params_path = norm_params_base_path('2d', 'internal', scattering_mode=scattering_mode)
+            norm_params_path = norm_params_base_path(
+                '2d',
+                'internal',
+                scattering_mode=scattering_mode,
+                g_hg=resolved_g_hg,
+            )
             if sampling_suffix:
                 norm_params_path = norm_params_path.replace(".npy", f"{sampling_suffix}.npy")
             _save_norm_params_artifacts(
@@ -221,7 +243,9 @@ def prepare_data(device, data_dim='2d', source_type='boundary', batch_size=2048,
                 min_width=min_thick_or_width, max_width=max_thick_or_width,
                 min_height=min_height, max_height=max_height,
                 min_depth=min_depth, max_depth=max_depth,
-                sampling=sampling
+                sampling=sampling,
+                scattering_mode=scattering_mode,
+                g_hg=resolved_g_hg,
             )
             data_type_str = '3d_boundary'
             sim_data = sim_data[sim_data["exited"] == 1].copy()
@@ -238,8 +262,17 @@ def prepare_data(device, data_dim='2d', source_type='boundary', batch_size=2048,
                 'width_lower': w_lower, 'width_upper': w_upper,
                 'height_lower': h_lower, 'height_upper': h_upper,
                 'depth_lower': d_lower, 'depth_upper': d_upper,
+                'scattering_mode': scattering_mode,
+                'scattering_hg_g': resolved_g_hg,
             }
-            norm_params_path = f"ml/data/norm_params_3d_boundary{sampling_suffix}.npy"
+            norm_params_path = norm_params_base_path(
+                '3d',
+                'boundary',
+                scattering_mode=scattering_mode,
+                g_hg=resolved_g_hg,
+            )
+            if sampling_suffix:
+                norm_params_path = norm_params_path.replace(".npy", f"{sampling_suffix}.npy")
             _save_norm_params_artifacts(
                 norm_params_path, norm_params,
                 "3D boundary",
@@ -253,7 +286,9 @@ def prepare_data(device, data_dim='2d', source_type='boundary', batch_size=2048,
                 min_width=min_thick_or_width, max_width=max_thick_or_width,
                 min_height=min_height, max_height=max_height,
                 min_depth=min_depth, max_depth=max_depth,
-                sampling=sampling
+                sampling=sampling,
+                scattering_mode=scattering_mode,
+                g_hg=resolved_g_hg,
             )
             data_type_str = '3d_internal'
             sim_data = sim_data[sim_data["exited"] == 1].copy()
@@ -270,8 +305,17 @@ def prepare_data(device, data_dim='2d', source_type='boundary', batch_size=2048,
                 'width_lower': w_lower, 'width_upper': w_upper,
                 'height_lower': h_lower, 'height_upper': h_upper,
                 'depth_lower': d_lower, 'depth_upper': d_upper,
+                'scattering_mode': scattering_mode,
+                'scattering_hg_g': resolved_g_hg,
             }
-            norm_params_path = f"ml/data/norm_params_3d_internal{sampling_suffix}.npy"
+            norm_params_path = norm_params_base_path(
+                '3d',
+                'internal',
+                scattering_mode=scattering_mode,
+                g_hg=resolved_g_hg,
+            )
+            if sampling_suffix:
+                norm_params_path = norm_params_path.replace(".npy", f"{sampling_suffix}.npy")
             _save_norm_params_artifacts(
                 norm_params_path, norm_params,
                 "3D internal",
@@ -287,7 +331,9 @@ def prepare_data(device, data_dim='2d', source_type='boundary', batch_size=2048,
                 min_height=min_height, max_height=max_height,
                 min_depth=min_depth, max_depth=max_depth,
                 min_path_budget=min_path_budget, max_path_budget=max_path_budget,
-                sampling=sampling
+                sampling=sampling,
+                scattering_mode=scattering_mode,
+                g_hg=resolved_g_hg,
             )
             data_type_str = '3d_timedep_boundary'
             sim_data = sim_data[(sim_data["space_exit"] == 1) | (sim_data["time_exit"] == 1)].copy()
@@ -308,9 +354,18 @@ def prepare_data(device, data_dim='2d', source_type='boundary', batch_size=2048,
                 'L_center': L_center, 'L_scale': L_scale,
                 'use_sincos_circular': True,
                 'use_L_over_budget': True,
-                'time_lower': LL, 'time_upper': LU, 
+                'time_lower': LL, 'time_upper': LU,
+                'scattering_mode': scattering_mode,
+                'scattering_hg_g': resolved_g_hg,
             }
-            norm_params_path = f"ml/data/norm_params_3d_timedep_boundary{sampling_suffix}.npy"
+            norm_params_path = norm_params_base_path(
+                '3d_timedep',
+                'boundary',
+                scattering_mode=scattering_mode,
+                g_hg=resolved_g_hg,
+            )
+            if sampling_suffix:
+                norm_params_path = norm_params_path.replace(".npy", f"{sampling_suffix}.npy")
             _save_norm_params_artifacts(
                 norm_params_path, norm_params,
                 "3D timedep boundary",
@@ -324,7 +379,9 @@ def prepare_data(device, data_dim='2d', source_type='boundary', batch_size=2048,
                 min_height=min_height, max_height=max_height,
                 min_depth=min_depth, max_depth=max_depth,
                 min_path_budget=min_path_budget, max_path_budget=max_path_budget,
-                sampling=sampling
+                sampling=sampling,
+                scattering_mode=scattering_mode,
+                g_hg=resolved_g_hg,
             )
             data_type_str = '3d_timedep_internal'
             sim_data = sim_data[(sim_data["space_exit"] == 1) | (sim_data["time_exit"] == 1)].copy()
@@ -346,8 +403,17 @@ def prepare_data(device, data_dim='2d', source_type='boundary', batch_size=2048,
                 'use_sincos_circular': True,
                 'use_L_over_budget': True,
                 'time_lower': LL, 'time_upper': LU,
+                'scattering_mode': scattering_mode,
+                'scattering_hg_g': resolved_g_hg,
             }
-            norm_params_path = f"ml/data/norm_params_3d_timedep_internal{sampling_suffix}.npy"
+            norm_params_path = norm_params_base_path(
+                '3d_timedep',
+                'internal',
+                scattering_mode=scattering_mode,
+                g_hg=resolved_g_hg,
+            )
+            if sampling_suffix:
+                norm_params_path = norm_params_path.replace(".npy", f"{sampling_suffix}.npy")
             _save_norm_params_artifacts(
                 norm_params_path, norm_params,
                 "3D timedep internal",
@@ -694,10 +760,12 @@ def train(num_epochs=50, batch_size=2048, hidden_dim=128, depth=4, expansion_fac
           direction_encoding_2d='polar',
           angular_sampling=0,
           scattering_mode='isotropic',
+          g_hg=None,
           sampling='random',
           train_workers=None, val_workers=None):
 
     device = setup_environment()
+    scattering_mode, resolved_g_hg = resolve_scattering_parameter_for_data_dim(data_dim, scattering_mode, g_hg)
     non_blocking = str(device).startswith("cuda")
     train_loader, val_loader, norm_params, input_dim, cond_dim = prepare_data(
         device, data_dim, source_type, batch_size,
@@ -710,15 +778,16 @@ def train(num_epochs=50, batch_size=2048, hidden_dim=128, depth=4, expansion_fac
         direction_encoding_2d=direction_encoding_2d,
         angular_sampling=angular_sampling,
         scattering_mode=scattering_mode,
+        g_hg=resolved_g_hg,
         sampling=sampling,
         train_workers=train_workers,
         val_workers=val_workers,
     )
 
-    model_dir = steady_2d_model_dir(data_dim, source_type, scattering_mode=scattering_mode)
+    model_dir = steady_2d_model_dir(data_dim, source_type, scattering_mode=scattering_mode, g_hg=resolved_g_hg)
     os.makedirs(model_dir, exist_ok=True)
 
-    training_dir = steady_2d_training_dir(data_dim, source_type, scattering_mode=scattering_mode)
+    training_dir = steady_2d_training_dir(data_dim, source_type, scattering_mode=scattering_mode, g_hg=resolved_g_hg)
     os.makedirs(training_dir, exist_ok=True)
 
     print(f"Models will be saved in: {model_dir}")
@@ -908,8 +977,11 @@ def parse_args():
                         help='Boundary angular sampling for timedep datasets: 0=uniform-u (ML), 1=cosine-law (physical)')
     parser.add_argument('--direction_encoding_2d', type=str, default='polar', choices=['polar'],
                         help='Encoding for 2D direction channels. Fixed to polar.')
-    parser.add_argument('--scattering_mode', type=str, default='isotropic', choices=['isotropic', 'anisotropic'],
+    parser.add_argument('--scattering_mode', type=str, default='isotropic',
+                        choices=['isotropic', 'anisotropic', 'anisotropic-linear', 'anisotropic-hg'],
                         help='2D steady-state scattering kernel for data/model assets.')
+    parser.add_argument('--g_hg', type=float, default=None,
+                        help='Henyey-Greenstein asymmetry parameter for steady 2D HG mode; required when scattering_mode=anisotropic-hg.')
 
     parser.add_argument('--num_epochs', type=int, default=70, help='Number of training epochs')
     parser.add_argument('--batch_size', type=int, default=1024, help='Batch size for training')
@@ -935,12 +1007,19 @@ def parse_args():
 def main(args=None):
     if args is None:
         args = parse_args()
-    if args.data_dim != '2d' and args.scattering_mode != 'isotropic':
-        raise ValueError("scattering_mode is currently only supported for steady 2D training.")
+    if not scattering_mode_supported_for_data_dim(args.data_dim) and args.scattering_mode != 'isotropic':
+        raise ValueError("scattering_mode is currently only supported for 2d, 3d, and 3d_timedep training.")
+    if not scattering_mode_supported_for_data_dim(args.data_dim) and args.g_hg is not None:
+        raise ValueError("g_hg is currently only supported for 2d, 3d, and 3d_timedep training.")
+    normalized_mode = normalize_scattering_mode_for_data_dim(args.data_dim, args.scattering_mode)
+    if scattering_mode_supported_for_data_dim(args.data_dim) and normalized_mode == 'anisotropic-hg' and args.g_hg is None:
+        raise ValueError("anisotropic-hg training requires an explicit --g_hg value.")
 
     print(f"Starting training for {args.data_dim} {args.source_type} source with {args.scheduler} scheduler")
-    if args.data_dim == '2d':
-        print(f"2D steady scattering mode: {args.scattering_mode} ({STEADY_2D_SCATTERING_TAG})")
+    if scattering_mode_supported_for_data_dim(args.data_dim):
+        print(f"Scattering mode: {normalized_mode}")
+        if args.data_dim == '2d':
+            print(f"2D steady scattering mode: {normalized_mode} ({STEADY_2D_SCATTERING_TAG})")
     if args.data_dim in TIME_DEPENDENT_DATA_DIMS:
         print(f"Path-length budget parameters: min={args.min_path_budget}, max={args.max_path_budget}")
 
@@ -975,6 +1054,7 @@ def main(args=None):
         direction_encoding_2d=args.direction_encoding_2d,
         angular_sampling=args.angular_sampling,
         scattering_mode=args.scattering_mode,
+        g_hg=args.g_hg,
         sampling=args.sampling,
         train_workers=args.train_workers,
         val_workers=args.val_workers,

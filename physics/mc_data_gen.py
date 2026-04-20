@@ -30,9 +30,16 @@ from .mc2dtimetriangle import (
     simulate_single_cell_2d_triangle_timedep_boundary,
 )
 from .mc2dtime import simulate_single_cell_2d_time_dependent, SRC_INTERNAL as SRC2D_INTERNAL, SRC_BOUNDARY_X0 as SRC2D_BOUNDARY
-from .mc3d import simulate_single_cell_3d_boundary_source, simulate_single_cell_3d_internal_source
+from .mc3d import (
+    resolve_3d_scattering_parameters,
+    simulate_single_cell_3d_boundary_source,
+    simulate_single_cell_3d_internal_source,
+)
 from .mc3dtime import simulate_single_cell_3d_time_dependent, SRC_INTERNAL as SRC3D_INTERNAL, SRC_BOUNDARY_X0 as SRC3D_BOUNDARY
-from .steady_2d_scattering import steady_2d_scattering_mode_code
+from .steady_2d_scattering import (
+    resolve_steady_2d_hg_parameter,
+    steady_2d_scattering_mode_code,
+)
 
 
 def _generate_cond_samples(num_neutrons: int, num_dims: int, sampling: str = 'random'):
@@ -270,9 +277,14 @@ def get_2d_boundary_simulation_data(
     max_height: float = 10.0,
     sampling: str = 'random',
     scattering_mode: str = "isotropic",
+    g_hg: float | None = None,
 ) -> pd.DataFrame:
     """Get 2D boundary source steady-state simulation data."""
-    print(f"Generating 2D single-cell boundary source data ({num_neutrons} neutrons, scattering_mode={scattering_mode})...")
+    resolved_g_hg = resolve_steady_2d_hg_parameter(scattering_mode, g_hg)
+    print(
+        f"Generating 2D single-cell boundary source data "
+        f"({num_neutrons} neutrons, scattering_mode={scattering_mode}, g_hg={resolved_g_hg:.3f})..."
+    )
     cond_samples = _generate_cond_samples(num_neutrons, 5, sampling)
     start_time = time.time()
     results = simulate_single_cell_2d_boundary_source(
@@ -285,6 +297,7 @@ def get_2d_boundary_simulation_data(
         max_height=max_height,
         cond_samples=cond_samples,
         scattering_mode_code=steady_2d_scattering_mode_code(scattering_mode),
+        g_hg=resolved_g_hg,
     )
     end_time = time.time()
     print(f"2D Boundary data generation took {end_time - start_time:.2f} seconds.")
@@ -323,9 +336,14 @@ def get_2d_internal_source_simulation_data(
     max_height: float = 10.0,
     sampling: str = 'random',
     scattering_mode: str = "isotropic",
+    g_hg: float | None = None,
 ) -> pd.DataFrame:
     """Get 2D internal source steady-state simulation data."""
-    print(f"Generating 2D single-cell internal source data ({num_neutrons} neutrons, scattering_mode={scattering_mode})...")
+    resolved_g_hg = resolve_steady_2d_hg_parameter(scattering_mode, g_hg)
+    print(
+        f"Generating 2D single-cell internal source data "
+        f"({num_neutrons} neutrons, scattering_mode={scattering_mode}, g_hg={resolved_g_hg:.3f})..."
+    )
     cond_samples = _generate_cond_samples(num_neutrons, 6, sampling)
     start_time = time.time()
     results = simulate_single_cell_2d_internal_source(
@@ -338,6 +356,7 @@ def get_2d_internal_source_simulation_data(
         max_height=max_height,
         cond_samples=cond_samples,
         scattering_mode_code=steady_2d_scattering_mode_code(scattering_mode),
+        g_hg=resolved_g_hg,
     )
     end_time = time.time()
     print(f"2D Internal data generation took {end_time - start_time:.2f} seconds.")
@@ -471,9 +490,18 @@ def get_3d_boundary_simulation_data(
     max_depth: float = 10.0,
     angular_sampling: int = 1,
     sampling: str = 'random',
+    scattering_mode: str = "isotropic",
+    g_hg: float | None = None,
 ) -> pd.DataFrame:
     """Get 3D boundary-source single-cell steady-state simulation data."""
-    print(f"Generating 3D single-cell boundary source data ({num_neutrons} neutrons)...")
+    scattering_mode, scattering_mode_code, resolved_g_hg = resolve_3d_scattering_parameters(
+        scattering_mode=scattering_mode,
+        g_hg=g_hg,
+    )
+    print(
+        f"Generating 3D single-cell boundary source data "
+        f"({num_neutrons} neutrons, scattering_mode={scattering_mode}, g_hg={resolved_g_hg:.3f})..."
+    )
     cond_samples = _generate_cond_samples(num_neutrons, 7, sampling)
     start = time.time()
     results = simulate_single_cell_3d_boundary_source(
@@ -488,6 +516,8 @@ def get_3d_boundary_simulation_data(
         max_depth=max_depth,
         angular_sampling=angular_sampling,
         cond_samples=cond_samples,
+        scattering_mode_code=scattering_mode_code,
+        g_hg=resolved_g_hg,
     )
     end = time.time()
     print(f"3D Boundary data generation took {end - start:.2f} seconds.")
@@ -535,9 +565,18 @@ def get_3d_internal_source_simulation_data(
     min_depth: float = 0.01,
     max_depth: float = 10.0,
     sampling: str = 'random',
+    scattering_mode: str = "isotropic",
+    g_hg: float | None = None,
 ) -> pd.DataFrame:
     """Get 3D internal-source single-cell steady-state simulation data."""
-    print(f"Generating 3D single-cell internal source data ({num_neutrons} neutrons)...")
+    scattering_mode, scattering_mode_code, resolved_g_hg = resolve_3d_scattering_parameters(
+        scattering_mode=scattering_mode,
+        g_hg=g_hg,
+    )
+    print(
+        f"Generating 3D single-cell internal source data "
+        f"({num_neutrons} neutrons, scattering_mode={scattering_mode}, g_hg={resolved_g_hg:.3f})..."
+    )
     cond_samples = _generate_cond_samples(num_neutrons, 8, sampling)
     start = time.time()
     results = simulate_single_cell_3d_internal_source(
@@ -551,6 +590,8 @@ def get_3d_internal_source_simulation_data(
         min_depth=min_depth,
         max_depth=max_depth,
         cond_samples=cond_samples,
+        scattering_mode_code=scattering_mode_code,
+        g_hg=resolved_g_hg,
     )
     end = time.time()
     print(f"3D Internal data generation took {end - start:.2f} seconds.")
@@ -609,11 +650,20 @@ def get_3d_time_dependent_data(
     max_path_budget: float = 0.1,
     angular_sampling: int = 1,
     sampling: str = 'random',
+    scattering_mode: str = "isotropic",
+    g_hg: float | None = None,
 ) -> pd.DataFrame:
     """Get 3D time-dependent single-cell data (internal or boundary source)."""
     src_flag = SRC3D_INTERNAL if source == "internal" else SRC3D_BOUNDARY
+    scattering_mode, scattering_mode_code, resolved_g_hg = resolve_3d_scattering_parameters(
+        scattering_mode=scattering_mode,
+        g_hg=g_hg,
+    )
 
-    print(f"Generating 3D time-dependent BUDGET {source} source data ({num_neutrons} neutrons)...")
+    print(
+        f"Generating 3D time-dependent BUDGET {source} source data "
+        f"({num_neutrons} neutrons, scattering_mode={scattering_mode}, g_hg={resolved_g_hg:.3f})..."
+    )
     print(f"  Width/Height/Depth ranges: [{min_width},{max_width}] / [{min_height},{max_height}] / [{min_depth},{max_depth}]")
     print(f"  Path budget range: [{min_path_budget}, {max_path_budget}]")
 
@@ -635,6 +685,8 @@ def get_3d_time_dependent_data(
         cond_samples=cond_samples,
         source_type=src_flag,
         angular_sampling=angular_sampling,
+        scattering_mode_code=scattering_mode_code,
+        g_hg=resolved_g_hg,
     )
     end = time.time()
     print(f"3D Time-dependent {source} data generation took {end - start:.2f} seconds.")

@@ -18,9 +18,12 @@ from .mc3d import (
     _sample_isotropic_dir_3d_from_unit,
     _sample_incoming_hemisphere_plus_x,
     _sample_incoming_hemisphere_plus_x_from_unit,
+    _sample_scattered_dir_3d,
     _track_length_contribution,
     find_cell_indices_3d_njit,
+    resolve_3d_scattering_parameters,
 )
+from .steady_2d_scattering import sample_scattered_direction_3d_from_unit
 
 # Source-type flags (Numba-friendly ints)
 SRC_INTERNAL = 0          # uniform in volume
@@ -36,7 +39,7 @@ def _log_uniform_from_unit(u: float, log_min: float, log_max: float) -> float:
 # Single-cell time-dependent (path-length budget)
 # ---------------------------------------------------------------------------
 
-@njit(parallel=True)
+@njit
 def simulate_single_cell_3d_time_dependent(
     num_neutrons: int,
     scatter_ratio: float = 1.0,
@@ -52,6 +55,8 @@ def simulate_single_cell_3d_time_dependent(
     cond_samples=None,
     source_type: int = SRC_INTERNAL,
     angular_sampling: int = 1,
+    scattering_mode_code: int = 0,
+    g_hg: float = 0.0,
 ):
     """3D time-dependent (path-length budget) single-cell MC.
 
@@ -225,7 +230,16 @@ def simulate_single_cell_3d_time_dependent(
                 absorbed = 1.0
                 break
 
-            u, v, w = _sample_isotropic_dir_3d(eps)
+            u, v, w = sample_scattered_direction_3d_from_unit(
+                u,
+                v,
+                w,
+                np.random.random(),
+                np.random.random(),
+                scattering_mode_code,
+                g_hg,
+                eps,
+            )
 
         data[i, 10] = x
         data[i, 11] = y
@@ -256,6 +270,8 @@ def simulate_single_cell_3d_time_dependent_boundary(
     max_path_budget: float = 0.1,
     angular_sampling: int = 1,
     cond_samples=None,
+    scattering_mode_code: int = 0,
+    g_hg: float = 0.0,
 ):
     """Deprecated: kept for API compatibility.
 
@@ -277,6 +293,8 @@ def simulate_single_cell_3d_time_dependent_boundary(
         cond_samples=cond_samples,
         source_type=SRC_BOUNDARY_X0,
         angular_sampling=angular_sampling,
+        scattering_mode_code=scattering_mode_code,
+        g_hg=g_hg,
     )
 
 
@@ -298,6 +316,8 @@ def multi_cell_mc_time_dependent_3d_njit(
     reflect_xmin, reflect_xmax, reflect_ymin, reflect_ymax, reflect_zmin, reflect_zmax,
     particle_velocity,
     max_time, num_time_bins,
+    scattering_mode_code=0,
+    g_hg=0.0,
 ):
     """Time-dependent 3D MC with per-cell materials and (x,y)-only mesh tallies.
 
@@ -487,7 +507,7 @@ def multi_cell_mc_time_dependent_3d_njit(
             elif is_time_crossing:
                 pass
             else:
-                u, v, w = _sample_isotropic_dir_3d(eps)
+                u, v, w = _sample_scattered_dir_3d(direction[0], direction[1], direction[2], scattering_mode_code, g_hg, eps)
                 direction[0] = u
                 direction[1] = v
                 direction[2] = w
@@ -523,6 +543,8 @@ def run_mc_time_dependent_3d_xy_wrapper(
     boundary_reflective_faces=None,
     return_energy=False,
     verbose=True,
+    scattering_mode="isotropic",
+    g_hg=None,
 ):
     """Time-dependent 3D transport with per-cell materials and (x,y)-mesh tallies."""
     if seed is not None:
@@ -565,6 +587,11 @@ def run_mc_time_dependent_3d_xy_wrapper(
     if sigma_a_per_cell.ndim == 1:
         sigma_a_per_cell = sigma_a_per_cell.reshape(num_cells_z, num_cells_y, num_cells_x)
 
+    scattering_mode, scattering_mode_code, resolved_g_hg = resolve_3d_scattering_parameters(
+        scattering_mode=scattering_mode,
+        g_hg=g_hg,
+    )
+
     if verbose:
         print(
             f"\nRunning Numba 3D time-dependent MC (xy-tally) with {num_particles} particles, "
@@ -587,14 +614,20 @@ def run_mc_time_dependent_3d_xy_wrapper(
         sigma_t_per_cell.astype(np.float64),
         sigma_a_per_cell.astype(np.float64),
         float(energy_threshold),
-        reflect_xmin, reflect_xmax, reflect_ymin, reflect_ymax, reflect_zmin, reflect_zmax,
-        float(particle_velocity),
-        float(max_time), int(num_time_bins),
-    )
+            reflect_xmin, reflect_xmax, reflect_ymin, reflect_ymax, reflect_zmin, reflect_zmax,
+            float(particle_velocity),
+            float(max_time), int(num_time_bins),
+            scattering_mode_code,
+            resolved_g_hg,
+        )
     end = time.time()
 
     if verbose:
         print(f"Numba 3D time-dependent MC took {end - start:.3f} seconds.")
+        if scattering_mode_code != 0:
+            print(f"  Scattering mode:        {scattering_mode}")
+        if scattering_mode_code == 2:
+            print(f"  HG asymmetry parameter: {resolved_g_hg:.3f}")
 
     if return_energy:
         return tl_raw / num_particles, edep_raw / num_particles, stats

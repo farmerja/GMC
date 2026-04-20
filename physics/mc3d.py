@@ -8,6 +8,11 @@ from numba import njit, prange
 
 from ._seed import seeded_numpy_execution
 from .mc1d import sample_unit
+from .steady_2d_scattering import (
+    resolve_steady_2d_hg_parameter,
+    sample_scattered_direction_3d_from_unit,
+    steady_2d_scattering_mode_code,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -26,6 +31,38 @@ def _sample_isotropic_dir_3d(eps: float = 1e-12):
     if abs(u) < eps and abs(v) < eps and abs(w) < eps:
         w = eps
     return u, v, w
+
+
+@njit(inline="always")
+def _sample_scattered_dir_3d(
+    current_u: float,
+    current_v: float,
+    current_w: float,
+    scattering_mode_code: int = 0,
+    g_hg: float = 0.0,
+    eps: float = 1.0e-12,
+):
+    return sample_scattered_direction_3d_from_unit(
+        current_u,
+        current_v,
+        current_w,
+        np.random.random(),
+        np.random.random(),
+        scattering_mode_code,
+        g_hg,
+        eps,
+    )
+
+
+def resolve_3d_scattering_parameters(
+    scattering_mode: str = "isotropic",
+    g_hg: float | None = None,
+) -> tuple[str, int, float]:
+    """Resolve user-facing 3D scattering configuration into kernel-friendly values."""
+    mode = str(scattering_mode).strip().lower()
+    mode_code = steady_2d_scattering_mode_code(mode)
+    resolved_g_hg = resolve_steady_2d_hg_parameter(mode, g_hg)
+    return mode, mode_code, resolved_g_hg
 
 
 @njit
@@ -130,7 +167,7 @@ def find_cell_indices_3d_njit(pos, cell_boundaries_x, cell_boundaries_y, cell_bo
 # Single-cell steady-state (boundary source and internal source)
 # ---------------------------------------------------------------------------
 
-@njit(parallel=True)
+@njit
 def simulate_single_cell_3d_boundary_source(
     num_neutrons: int,
     scatter_ratio: float = 1.0,
@@ -143,6 +180,8 @@ def simulate_single_cell_3d_boundary_source(
     max_depth: float = 10.0,
     angular_sampling: int = 1,
     cond_samples=None,
+    scattering_mode_code: int = 0,
+    g_hg: float = 0.0,
 ):
     """3D boundary source. Particles enter from the x=0 plane.
 
@@ -264,12 +303,21 @@ def simulate_single_cell_3d_boundary_source(
                 data[i, 16] = absorbed
                 break
 
-            u, v, w = _sample_isotropic_dir_3d(eps)
+            u, v, w = sample_scattered_direction_3d_from_unit(
+                u,
+                v,
+                w,
+                np.random.random(),
+                np.random.random(),
+                scattering_mode_code,
+                g_hg,
+                eps,
+            )
 
     return data
 
 
-@njit(parallel=True)
+@njit
 def simulate_single_cell_3d_internal_source(
     num_neutrons: int,
     scatter_ratio: float = 1.0,
@@ -281,6 +329,8 @@ def simulate_single_cell_3d_internal_source(
     min_depth: float = 0.01,
     max_depth: float = 10.0,
     cond_samples=None,
+    scattering_mode_code: int = 0,
+    g_hg: float = 0.0,
 ):
     """3D internal source. Particles start uniformly within the volume.
 
@@ -423,7 +473,9 @@ def multi_cell_mc_boundary_source_3d_njit(
     sigma_t_per_cell, sigma_a_per_cell,
     energy_threshold,
     reflect_xmin, reflect_xmax, reflect_ymin, reflect_ymax, reflect_zmin, reflect_zmax,
-    angular_sampling
+    angular_sampling,
+    scattering_mode_code=0,
+    g_hg=0.0,
 ):
     """3D MC on a Cartesian mesh, boundary source at x=0.
 
@@ -588,7 +640,7 @@ def multi_cell_mc_boundary_source_3d_njit(
                             direction[2] = -direction[2]
                             pos[2] = boundary_eps if is_zmin else total_depth - boundary_eps
             else:
-                u, v, w = _sample_isotropic_dir_3d(eps)
+                u, v, w = _sample_scattered_dir_3d(direction[0], direction[1], direction[2], scattering_mode_code, g_hg, eps)
                 direction[0] = u
                 direction[1] = v
                 direction[2] = w
@@ -615,7 +667,9 @@ def multi_cell_mc_internal_source_3d_njit(
     sigma_t_per_cell, sigma_a_per_cell,
     energy_threshold,
     reflect_xmin, reflect_xmax, reflect_ymin, reflect_ymax, reflect_zmin, reflect_zmax,
-    randomize_start_pos=False
+    randomize_start_pos=False,
+    scattering_mode_code=0,
+    g_hg=0.0,
 ):
     """3D MC on a Cartesian mesh, internal point-in-cell source.
 
@@ -791,7 +845,7 @@ def multi_cell_mc_internal_source_3d_njit(
                             direction[2] = -direction[2]
                             pos[2] = boundary_eps if is_zmin else total_depth - boundary_eps
             else:
-                u, v, w = _sample_isotropic_dir_3d(eps)
+                u, v, w = _sample_scattered_dir_3d(direction[0], direction[1], direction[2], scattering_mode_code, g_hg, eps)
                 direction[0] = u
                 direction[1] = v
                 direction[2] = w
@@ -818,6 +872,8 @@ def multi_cell_mc_volume_box_source_3d_njit(
     sigma_t_per_cell, sigma_a_per_cell,
     energy_threshold,
     reflect_xmin, reflect_xmax, reflect_ymin, reflect_ymax, reflect_zmin, reflect_zmax,
+    scattering_mode_code=0,
+    g_hg=0.0,
 ):
     """3D MC on a Cartesian mesh, uniform isotropic source in an axis-aligned box.
 
@@ -981,7 +1037,7 @@ def multi_cell_mc_volume_box_source_3d_njit(
                             direction[2] = -direction[2]
                             pos[2] = boundary_eps if is_zmin else total_depth - boundary_eps
             else:
-                u, v, w = _sample_isotropic_dir_3d(eps)
+                u, v, w = _sample_scattered_dir_3d(direction[0], direction[1], direction[2], scattering_mode_code, g_hg, eps)
                 direction[0] = u
                 direction[1] = v
                 direction[2] = w
@@ -1014,7 +1070,9 @@ def run_mc_simulation_3d_njit_wrapper(
     reflected_boundaries=False, angular_sampling=1,
     boundary_reflective_faces=None,
     sigma_t_per_cell=None, sigma_a_per_cell=None,
-    randomize_position_in_cell=False, verbose=True
+    randomize_position_in_cell=False, verbose=True,
+    scattering_mode="isotropic",
+    g_hg=None,
 ):
     """Python wrapper for 3D mesh MC Numba kernels.
 
@@ -1036,6 +1094,11 @@ def run_mc_simulation_3d_njit_wrapper(
             sigma_t_per_cell = sigma_t_per_cell.reshape(num_cells_z, num_cells_y, num_cells_x)
         if sigma_a_per_cell.ndim == 1:
             sigma_a_per_cell = sigma_a_per_cell.reshape(num_cells_z, num_cells_y, num_cells_x)
+
+    scattering_mode, scattering_mode_code, resolved_g_hg = resolve_3d_scattering_parameters(
+        scattering_mode=scattering_mode,
+        g_hg=g_hg,
+    )
 
     if boundary_reflective_faces is None:
         reflect_xmin = reflected_boundaries
@@ -1071,7 +1134,9 @@ def run_mc_simulation_3d_njit_wrapper(
                 sigma_t_per_cell, sigma_a_per_cell,
                 energy_threshold,
                 reflect_xmin, reflect_xmax, reflect_ymin, reflect_ymax, reflect_zmin, reflect_zmax,
-                angular_sampling
+                angular_sampling,
+                scattering_mode_code,
+                resolved_g_hg,
             )
 
         elif source_mode == "internal_start":
@@ -1110,7 +1175,9 @@ def run_mc_simulation_3d_njit_wrapper(
                 sigma_t_per_cell, sigma_a_per_cell,
                 energy_threshold,
                 reflect_xmin, reflect_xmax, reflect_ymin, reflect_ymax, reflect_zmin, reflect_zmax,
-                randomize_position_in_cell
+                randomize_position_in_cell,
+                scattering_mode_code,
+                resolved_g_hg,
             )
 
         elif source_mode == "volume_box":
@@ -1142,6 +1209,8 @@ def run_mc_simulation_3d_njit_wrapper(
                 sigma_t_per_cell, sigma_a_per_cell,
                 energy_threshold,
                 reflect_xmin, reflect_xmax, reflect_ymin, reflect_ymax, reflect_zmin, reflect_zmax,
+                scattering_mode_code,
+                resolved_g_hg,
             )
 
         else:
@@ -1150,6 +1219,10 @@ def run_mc_simulation_3d_njit_wrapper(
     end_time = time.time()
     if verbose:
         print(f"Numba 3D mesh MC took {end_time - start_time:.3f} seconds.")
+        if scattering_mode_code != 0:
+            print(f"  Scattering mode:        {scattering_mode}")
+        if scattering_mode_code == 2:
+            print(f"  HG asymmetry parameter: {resolved_g_hg:.3f}")
 
     (
         exited_xmin, exited_xmax, exited_ymin, exited_ymax, exited_zmin, exited_zmax,

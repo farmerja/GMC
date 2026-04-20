@@ -38,8 +38,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num-angles", type=int, default=16)
     parser.add_argument("--block-sn-iters", type=int, default=18)
     parser.add_argument("--block-sn-tol", type=float, default=1.0e-5)
+    parser.add_argument("--enable-sn-refinement", action="store_true", default=False,
+                        help="Enable Block-S_n multigrid refinement (only compatible with isotropic scattering)")
     parser.add_argument("--device", type=str, default=None, choices=["cpu", "cuda", "mps"])
-    parser.add_argument("--scattering-mode", type=str, default="isotropic", choices=["isotropic", "anisotropic"])
+    parser.add_argument("--scattering-mode", type=str, default="isotropic", 
+                        choices=["isotropic", "anisotropic", "anisotropic-linear", "anisotropic-hg"],
+                        help="Scattering physics mode. Note: anisotropic modes require GMC models trained with anisotropic data")
+    parser.add_argument("--g-hg", type=float, default=0.0, 
+                        help="Henyey-Greenstein asymmetry parameter (only used for anisotropic-hg mode): "
+                             "g=0 is isotropic, g→1 is forward-peaked, g→-1 is backward-peaked")
     parser.add_argument("--seed", type=int, default=52)
     parser.add_argument("--output-dir", type=str, default="validation/results/complete_comparison")
     parser.add_argument("--sigma-s-scale", type=float, default=1.0, help="Multiply all sigma_s values by this factor")
@@ -117,8 +124,23 @@ def main() -> None:
     print(f"  Coarse histories: {args.coarse_particles}")
     print(f"  Fine histories:   GMC={args.fine_gmc_particles}, MC={args.fine_mc_particles}")
     print(f"  Scattering mode:  {args.scattering_mode}")
+    if args.scattering_mode == "anisotropic-hg":
+        print(f"  HG parameter g:   {args.g_hg:.3f}")
+    
+    # Determine if S_n refinement should run
+    skip_sn_refinement = True
+    skip_reason = ""
     if anisotropic_mode:
-        print("  Block-SN refinement: skipped (current steady 2D SN assumes isotropic scattering and surface tally omits projected radius r)")
+        skip_reason = "anisotropic scattering not compatible with current S_n implementation"
+    elif not args.enable_sn_refinement:
+        skip_reason = "S_n refinement disabled (use --enable-sn-refinement to enable)"
+    else:
+        skip_sn_refinement = False
+    
+    if skip_sn_refinement:
+        print(f"  Block-S_n refinement: SKIPPED ({skip_reason})")
+    else:
+        print(f"  Block-S_n refinement: ENABLED")
     print()
 
     t0 = time.perf_counter()
@@ -143,12 +165,13 @@ def main() -> None:
         num_particles=args.coarse_particles,
         seed=args.seed + 10_000,
         scattering_mode=args.scattering_mode,
+        g_hg=args.g_hg,
     )
     t_mc = time.perf_counter() - t0
     print(f"      Done in {t_mc:.2f}s")
 
-    if anisotropic_mode:
-        print("[3/5] Skipping Block-S_n on anisotropic surface data...")
+    if skip_sn_refinement:
+        print(f"[3/5] Skipping Block-S_n refinement ({skip_reason})...")
         refined_gmc_block = None
         refined_mc_block = None
         t_sn_gmc = 0.0
@@ -194,6 +217,7 @@ def main() -> None:
         num_particles=args.fine_mc_particles,
         seed=args.seed + 1000,
         scattering_mode=args.scattering_mode,
+        g_hg=args.g_hg,
     )
     t_fine_mc = time.perf_counter() - t0
     print(f"      Done in {t_fine_mc:.2f}s")
@@ -234,11 +258,11 @@ def main() -> None:
         mc_surface_by_face.reshape(-1),
         gmc_surface_by_face.reshape(-1),
     )
-    if not anisotropic_mode:
+    if not skip_sn_refinement:
         metrics["block_sn_from_gmc_vs_fine_mc"] = compute_flux_error_metrics(fine_mc_flux, fine_block_from_gmc)
         metrics["block_sn_from_mc_vs_fine_mc"] = compute_flux_error_metrics(fine_mc_flux, fine_block_from_mc)
     # metrics["fine_gmc_vs_fine_mc"] = compute_flux_error_metrics(fine_mc_flux, fine_gmc_flux)
-    if not anisotropic_mode:
+    if not skip_sn_refinement:
         metrics["block_sn_from_gmc_vs_block_sn_from_mc"] = compute_flux_error_metrics(fine_block_from_mc, fine_block_from_gmc)
     metrics["coarse_gmc_vs_coarse_mc"] = compute_flux_error_metrics(coarse_mc_flux, coarse_gmc_flux)
 
@@ -256,7 +280,7 @@ def main() -> None:
     print(f"  GMC incoming current sum : {np.sum(gmc_surface.crossing_weight):.6e}")
     print(f"  MC incoming current sum  : {np.sum(mc_surface.crossing_weight):.6e}")
 
-    if not anisotropic_mode:
+    if not skip_sn_refinement:
         print("\n[2. Block S_n from GMC and MC vs Fine MC Reference]")
         print("  From GMC surface:")
         for key, value in metrics["block_sn_from_gmc_vs_fine_mc"].items():
@@ -269,7 +293,7 @@ def main() -> None:
     # for key, value in metrics["fine_gmc_vs_fine_mc"].items():
     #     print(f"  {key:<12s}: {value:.6e}")
 
-    if not anisotropic_mode:
+    if not skip_sn_refinement:
         print("\n[4. Block S_n: GMC surface vs MC surface]")
         for key, value in metrics["block_sn_from_gmc_vs_block_sn_from_mc"].items():
             print(f"  {key:<12s}: {value:.6e}")
@@ -281,14 +305,14 @@ def main() -> None:
     print("\n[Flux Statistics]")
     print(f"  Coarse GMC:       mean={np.mean(coarse_gmc_flux):.6e}, max={np.max(coarse_gmc_flux):.6e}")
     print(f"  Coarse MC:        mean={np.mean(coarse_mc_flux):.6e}, max={np.max(coarse_mc_flux):.6e}")
-    if not anisotropic_mode:
+    if not skip_sn_refinement:
         print(f"  Block S_n GMC:    mean={np.mean(fine_block_from_gmc):.6e}, max={np.max(fine_block_from_gmc):.6e}")
         print(f"  Block S_n MC:     mean={np.mean(fine_block_from_mc):.6e}, max={np.max(fine_block_from_mc):.6e}")
     # print(f"  Fine GMC:         mean={np.mean(fine_gmc_flux):.6e}, max={np.max(fine_gmc_flux):.6e}")
     print(f"  Fine MC:          mean={np.mean(fine_mc_flux):.6e}, max={np.max(fine_mc_flux):.6e}")
 
     print("\n[Timing — end-to-end to fine solution]")
-    if not anisotropic_mode:
+    if not skip_sn_refinement:
         print(f"  GMC + Block S_n      : {t_gmc + t_sn_gmc:.2f}s  (transport: {t_gmc:.2f}s, S_n: {t_sn_gmc:.2f}s)")
         print(f"  MC  + Block S_n      : {t_mc  + t_sn_mc:.2f}s  (transport: {t_mc:.2f}s, S_n: {t_sn_mc:.2f}s)")
     print(f"  Fine MC reference    : {t_fine_mc:.2f}s")
@@ -298,7 +322,7 @@ def main() -> None:
     np.savez_compressed(
         outdir / "complete_comparison.npz",
         scattering_mode=np.asarray(args.scattering_mode),
-        sn_compatible=np.asarray(not anisotropic_mode),
+        sn_compatible=np.asarray(not skip_sn_refinement),
         coarse_gmc_track=coarse_gmc["coarse_track"],
         coarse_mc_track=coarse_mc["coarse_track"],
         coarse_gmc_flux=coarse_gmc_flux,
@@ -330,7 +354,7 @@ def main() -> None:
     # _plot_map(bx_fine, by_fine, fine_gmc_flux, outdir / "fine_gmc.png", title="Fine GMC")
     _plot_map(bx_fine, by_fine, fine_mc_flux, outdir / "fine_mc.png", title="Fine MC Reference")
 
-    if not anisotropic_mode:
+    if not skip_sn_refinement:
         _plot_map(bx_fine, by_fine, fine_block_from_gmc, outdir / "fine_sn_block_from_gmc.png", title="Block S_n from GMC")
         _plot_map(bx_fine, by_fine, fine_block_from_mc, outdir / "fine_sn_block_from_mc.png", title="Block S_n from MC")
         _plot_error_map(bx_fine, by_fine, fine_mc_flux, fine_block_from_gmc, outdir / "error_block_sn_gmc_vs_mc.png", title="Error: Block S_n(GMC) vs MC")

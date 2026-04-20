@@ -1,6 +1,11 @@
+import pytest
+
 from ml import utils as ml_utils
 from physics.steady_2d_scattering import (
     STEADY_2D_ANISOTROPIC_ASSET_ROOT,
+    STEADY_2D_HG_ASSET_ROOT,
+    STEADY_2D_HG_G_LIMIT,
+    resolve_steady_2d_hg_parameter,
     steady_2d_model_dir,
     steady_2d_model_dir_candidates,
     steady_2d_norm_params_base_path,
@@ -9,27 +14,51 @@ from physics.steady_2d_scattering import (
 )
 
 
-def test_anisotropic_steady_2d_assets_use_isolated_layout():
+def test_explicit_steady_2d_assets_use_distinct_layouts():
     assert steady_2d_model_dir("boundary", scattering_mode="anisotropic") == (
         f"{STEADY_2D_ANISOTROPIC_ASSET_ROOT}/models/2d_boundary"
     )
-    assert steady_2d_training_dir("internal", scattering_mode="anisotropic") == (
+    assert steady_2d_model_dir("boundary", scattering_mode="anisotropic-linear") == (
+        f"{STEADY_2D_ANISOTROPIC_ASSET_ROOT}/models/2d_boundary"
+    )
+    assert steady_2d_model_dir("boundary", scattering_mode="anisotropic-hg", g_hg=0.61) == (
+        f"{STEADY_2D_HG_ASSET_ROOT}/g_p0_610000/models/2d_boundary"
+    )
+
+    assert steady_2d_training_dir("internal", scattering_mode="anisotropic-linear") == (
         f"{STEADY_2D_ANISOTROPIC_ASSET_ROOT}/training_results/2d_internal"
     )
-    assert steady_2d_norm_params_base_path("boundary", scattering_mode="anisotropic") == (
+    assert steady_2d_training_dir("internal", scattering_mode="anisotropic-hg", g_hg=0.61) == (
+        f"{STEADY_2D_HG_ASSET_ROOT}/g_p0_610000/training_results/2d_internal"
+    )
+
+    assert steady_2d_norm_params_base_path("boundary", scattering_mode="anisotropic-linear") == (
         f"{STEADY_2D_ANISOTROPIC_ASSET_ROOT}/data/norm_params_2d_boundary.npy"
     )
-    assert steady_2d_model_dir_candidates("boundary", scattering_mode="anisotropic") == (
+    assert steady_2d_norm_params_base_path("boundary", scattering_mode="anisotropic-hg", g_hg=0.61) == (
+        f"{STEADY_2D_HG_ASSET_ROOT}/g_p0_610000/data/norm_params_2d_boundary.npy"
+    )
+
+
+def test_linear_mode_keeps_safe_legacy_fallback_but_hg_does_not():
+    assert steady_2d_model_dir_candidates("boundary", scattering_mode="anisotropic-linear") == (
         f"{STEADY_2D_ANISOTROPIC_ASSET_ROOT}/models/2d_boundary",
         "ml/models/2d_boundary_steady2d-v2_anisotropic",
     )
-    assert steady_2d_norm_params_base_path_candidates("internal", scattering_mode="anisotropic") == (
+    assert steady_2d_norm_params_base_path_candidates("internal", scattering_mode="anisotropic-linear") == (
         f"{STEADY_2D_ANISOTROPIC_ASSET_ROOT}/data/norm_params_2d_internal.npy",
         "ml/data/norm_params_2d_internal_steady2d-v2_anisotropic.npy",
     )
 
+    assert steady_2d_model_dir_candidates("boundary", scattering_mode="anisotropic-hg", g_hg=0.61) == (
+        f"{STEADY_2D_HG_ASSET_ROOT}/g_p0_610000/models/2d_boundary",
+    )
+    assert steady_2d_norm_params_base_path_candidates("internal", scattering_mode="anisotropic-hg", g_hg=0.61) == (
+        f"{STEADY_2D_HG_ASSET_ROOT}/g_p0_610000/data/norm_params_2d_internal.npy",
+    )
 
-def test_load_norm_params_for_data_dim_falls_back_to_legacy_anisotropic_path(monkeypatch):
+
+def test_load_norm_params_for_data_dim_falls_back_to_legacy_linear_path(monkeypatch):
     attempts = []
     primary = f"{STEADY_2D_ANISOTROPIC_ASSET_ROOT}/data/norm_params_2d_boundary.npy"
     legacy = "ml/data/norm_params_2d_boundary_steady2d-v2_anisotropic.npy"
@@ -37,9 +66,9 @@ def test_load_norm_params_for_data_dim_falls_back_to_legacy_anisotropic_path(mon
     def fake_load_normalization_params(base_path, train_sampling="random"):
         attempts.append((base_path, train_sampling))
         if base_path == primary:
-            raise FileNotFoundError("new anisotropic asset missing")
+            raise FileNotFoundError("new linear asset missing")
         if base_path == legacy:
-            return {"steady_2d_scattering_mode": "anisotropic"}, legacy.replace(".npy", ".npz")
+            return {"steady_2d_scattering_mode": "anisotropic-linear"}, legacy.replace(".npy", ".npz")
         raise AssertionError(f"unexpected path: {base_path}")
 
     monkeypatch.setattr(ml_utils, "load_normalization_params", fake_load_normalization_params)
@@ -51,6 +80,42 @@ def test_load_norm_params_for_data_dim_falls_back_to_legacy_anisotropic_path(mon
         scattering_mode="anisotropic",
     )
 
-    assert norm_params["steady_2d_scattering_mode"] == "anisotropic"
+    assert norm_params["steady_2d_scattering_mode"] == "anisotropic-linear"
     assert loaded_path == legacy.replace(".npy", ".npz")
     assert attempts == [(primary, "random"), (legacy, "random")]
+
+
+def test_load_norm_params_for_data_dim_does_not_fallback_hg_to_linear_assets(monkeypatch):
+    attempts = []
+    primary = f"{STEADY_2D_HG_ASSET_ROOT}/g_p0_610000/data/norm_params_2d_boundary.npy"
+
+    def fake_load_normalization_params(base_path, train_sampling="random"):
+        attempts.append((base_path, train_sampling))
+        raise FileNotFoundError(base_path)
+
+    monkeypatch.setattr(ml_utils, "load_normalization_params", fake_load_normalization_params)
+
+    with pytest.raises(FileNotFoundError):
+        ml_utils.load_norm_params_for_data_dim(
+            "2d",
+            "boundary",
+            train_sampling="random",
+            scattering_mode="anisotropic-hg",
+            g_hg=0.61,
+        )
+
+    assert attempts == [(primary, "random")]
+
+
+def test_resolve_steady_2d_hg_parameter_requires_explicit_open_interval_value():
+    assert resolve_steady_2d_hg_parameter("isotropic", 0.7) == 0.0
+    assert resolve_steady_2d_hg_parameter("anisotropic-hg", 0.42) == 0.42
+    assert resolve_steady_2d_hg_parameter("anisotropic-hg", 0.9995) == STEADY_2D_HG_G_LIMIT
+    assert resolve_steady_2d_hg_parameter("anisotropic-hg", -0.9995) == -STEADY_2D_HG_G_LIMIT
+
+    with pytest.raises(ValueError):
+        resolve_steady_2d_hg_parameter("anisotropic-hg", None)
+    with pytest.raises(ValueError):
+        resolve_steady_2d_hg_parameter("anisotropic-hg", 1.0)
+    with pytest.raises(ValueError):
+        resolve_steady_2d_hg_parameter("anisotropic-hg", -1.0)

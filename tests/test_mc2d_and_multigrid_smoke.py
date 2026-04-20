@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from physics import multigrid_steady_2d as mg
 from physics.mc2d import calculate_boundaries_2d, run_mc_simulation_2d_njit_wrapper
@@ -165,7 +166,7 @@ def test_multigrid_driver_main_smoke_with_stubs(tmp_path, monkeypatch):
 
 
 def test_anisotropic_56x56_driver_main_smoke_with_stubs(tmp_path, monkeypatch):
-    seen = {"model_mode": None, "train_sampling": None, "mc_mode": None}
+    seen = {"model_mode": None, "train_sampling": None, "model_g_hg": None, "mc_mode": None, "mc_g_hg": None}
     problem = mg.build_rect_lattice_problem(refinement=1)
     hierarchy = mg.make_single_level_hierarchy(problem)
 
@@ -182,6 +183,7 @@ def test_anisotropic_56x56_driver_main_smoke_with_stubs(tmp_path, monkeypatch):
     def fake_load_models(*_args, **kwargs):
         seen["model_mode"] = kwargs.get("scattering_mode")
         seen["train_sampling"] = kwargs.get("train_sampling")
+        seen["model_g_hg"] = kwargs.get("g_hg")
         return object()
 
     monkeypatch.setattr(anisotropic_poc_driver, "load_steady_gmc_models", fake_load_models)
@@ -197,6 +199,7 @@ def test_anisotropic_56x56_driver_main_smoke_with_stubs(tmp_path, monkeypatch):
 
     def fake_run_direct_fine_mc_reference(*_args, **kwargs):
         seen["mc_mode"] = kwargs.get("scattering_mode")
+        seen["mc_g_hg"] = kwargs.get("g_hg")
         return {
             "flux": np.full_like(problem.sigma_t_map, 2.0, dtype=np.float64),
             "stats": (5, 6, 7, 8, 9, 0, 0, 0),
@@ -221,6 +224,8 @@ def test_anisotropic_56x56_driver_main_smoke_with_stubs(tmp_path, monkeypatch):
                 "sigma_s_scale": 1.5,
                 "device": "cpu",
                 "train_sampling": "lhs",
+                "scattering_mode": "anisotropic-hg",
+                "g_hg": 0.61,
                 "seed": 1,
                 "output_dir": str(tmp_path),
             },
@@ -228,15 +233,46 @@ def test_anisotropic_56x56_driver_main_smoke_with_stubs(tmp_path, monkeypatch):
     )
 
     anisotropic_poc_driver.main()
-    output_path = Path(tmp_path) / "anisotropic_gmc_vs_mc_56x56.npz"
+    output_path = Path(tmp_path) / "lattice_56x56_gmc_vs_mc_anisotropic_hg_g_p0_610000.npz"
     assert output_path.exists()
     payload = np.load(output_path)
     assert payload["refinement"] == 8
     assert not bool(payload["sn_compatible"])
     assert float(payload["sigma_s_scale"]) == 1.5
     assert str(payload["train_sampling"]) == "lhs"
+    assert str(payload["scattering_mode"]) == "anisotropic-hg"
+    assert str(payload["scattering_label"]) == "anisotropic-hg (g=0.610)"
+    assert float(payload["g_hg"]) == 0.61
     assert payload["gmc_exit_counts"].tolist() == [1, 2, 3, 4]
     assert payload["mc_exit_counts"].tolist() == [5, 6, 7, 8]
-    assert seen["model_mode"] == "anisotropic"
+    assert seen["model_mode"] == "anisotropic-hg"
     assert seen["train_sampling"] == "lhs"
-    assert seen["mc_mode"] == "anisotropic"
+    assert seen["model_g_hg"] == 0.61
+    assert seen["mc_mode"] == "anisotropic-hg"
+    assert seen["mc_g_hg"] == 0.61
+
+
+def test_anisotropic_56x56_driver_requires_g_for_hg(monkeypatch):
+    monkeypatch.setattr(
+        anisotropic_poc_driver,
+        "parse_args",
+        lambda: type(
+            "Args",
+            (),
+            {
+                "gmc_particles": 10,
+                "mc_particles": 10,
+                "num_angles": 4,
+                "sigma_s_scale": 1.0,
+                "device": "cpu",
+                "train_sampling": "random",
+                "scattering_mode": "anisotropic-hg",
+                "g_hg": None,
+                "seed": 1,
+                "output_dir": "unused",
+            },
+        )(),
+    )
+
+    with pytest.raises(ValueError, match="--g-hg is required"):
+        anisotropic_poc_driver.main()

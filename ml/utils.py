@@ -21,6 +21,7 @@ from ml.transform import (
 from physics.steady_2d_scattering import (
     STEADY_2D_SCATTERING_TAG,
     normalize_steady_2d_scattering_mode,
+    resolve_steady_2d_hg_parameter,
     steady_2d_model_dir as resolve_steady_2d_model_dir,
     steady_2d_model_dir_candidates as resolve_steady_2d_model_dir_candidates,
     steady_2d_norm_params_base_path as resolve_steady_2d_norm_params_base_path,
@@ -56,12 +57,48 @@ TWO_D_TIME_DEPENDENT_DATA_DIMS = {
     "2d_triangle_timedep",
     "2d_quad_timedep",
 }
+SCATTERING_MODEL_DATA_DIMS = {"2d", "3d", "3d_timedep"}
+THREE_D_SCATTERING_DATA_DIMS = {"3d", "3d_timedep"}
+THREE_D_SCATTERING_TAG = "scatter3d-v1"
 PLOT_TITLES_ENABLED = True
 
 
 def set_plot_titles_enabled(enabled):
     global PLOT_TITLES_ENABLED
     PLOT_TITLES_ENABLED = bool(enabled)
+
+
+def scattering_mode_supported_for_data_dim(data_dim):
+    return data_dim in SCATTERING_MODEL_DATA_DIMS
+
+
+def normalize_scattering_mode_for_data_dim(data_dim, scattering_mode="isotropic"):
+    if not scattering_mode_supported_for_data_dim(data_dim):
+        return str(scattering_mode).strip().lower()
+    return normalize_steady_2d_scattering_mode(scattering_mode)
+
+
+def resolve_scattering_parameter_for_data_dim(data_dim, scattering_mode="isotropic", g_hg=None):
+    mode = normalize_scattering_mode_for_data_dim(data_dim, scattering_mode)
+    if not scattering_mode_supported_for_data_dim(data_dim):
+        return mode, 0.0
+    return mode, resolve_steady_2d_hg_parameter(mode, g_hg)
+
+
+def _scattering_hg_storage_component(g_hg):
+    sign = "p" if float(g_hg) >= 0.0 else "m"
+    magnitude = f"{abs(float(g_hg)):.6f}".replace(".", "_")
+    return f"g_{sign}{magnitude}"
+
+
+def _three_d_scattering_suffix(scattering_mode="isotropic", g_hg=None):
+    mode, resolved_g_hg = resolve_scattering_parameter_for_data_dim("3d", scattering_mode, g_hg)
+    if mode == "isotropic":
+        return ""
+    suffix = f"_{THREE_D_SCATTERING_TAG}_{mode.replace('-', '_')}"
+    if mode == "anisotropic-hg":
+        suffix += f"_{_scattering_hg_storage_component(resolved_g_hg)}"
+    return suffix
 
 
 def setup_environment(seed=41, *, allow_mps=True, inference=False):
@@ -110,10 +147,16 @@ def available_cpu_count():
 
 def safe_get_sim_data(func, **kwargs):
     params = inspect.signature(func).parameters
-    if "sampling" not in inspect.signature(func).parameters:
+    accepts_var_kwargs = any(
+        param.kind == inspect.Parameter.VAR_KEYWORD
+        for param in params.values()
+    )
+    if not accepts_var_kwargs and "sampling" not in params:
         kwargs.pop("sampling", None)
-    if "scattering_mode" not in params:
+    if not accepts_var_kwargs and "scattering_mode" not in params:
         kwargs.pop("scattering_mode", None)
+    if not accepts_var_kwargs and "g_hg" not in params:
+        kwargs.pop("g_hg", None)
     return func(**kwargs)
 
 
@@ -142,10 +185,24 @@ def setup_test_environment(
     data_dim="2d",
     infer_sampling="random",
     train_sampling="random",
+    scattering_mode="isotropic",
+    g_hg=None,
 ):
+    steady_2d_suffix = ""
+    if scattering_mode_supported_for_data_dim(data_dim):
+        normalized_mode, resolved_g_hg = resolve_scattering_parameter_for_data_dim(
+            data_dim,
+            scattering_mode,
+            g_hg,
+        )
+        if normalized_mode != "isotropic":
+            steady_2d_suffix = f"_{normalized_mode.replace('-', '_')}"
+            if normalized_mode == "anisotropic-hg":
+                hg_label = f"{resolved_g_hg:+.3f}".replace("+", "p").replace("-", "m").replace(".", "_")
+                steady_2d_suffix += f"_g_{hg_label}"
     test_dir = (
         f"ml/testing_results/cfm_test_{data_dim}_{source_type}_{scheduler_type}"
-        f"_train-{train_sampling}_infer-{infer_sampling}"
+        f"{steady_2d_suffix}_train-{train_sampling}_infer-{infer_sampling}"
     )
     os.makedirs(test_dir, exist_ok=True)
     device = setup_environment(seed=42, allow_mps=False, inference=True)
@@ -183,23 +240,27 @@ def generate_target_noise(samples, cond_features, target_dim, batch_size, device
     return torch.tensor(noise_np, dtype=torch.float32, device=device)
 
 
-def steady_2d_model_dir(data_dim, source_type, scattering_mode="isotropic"):
+def steady_2d_model_dir(data_dim, source_type, scattering_mode="isotropic", g_hg=None):
     if data_dim == "2d":
-        return resolve_steady_2d_model_dir(source_type, scattering_mode=scattering_mode)
+        return resolve_steady_2d_model_dir(source_type, scattering_mode=scattering_mode, g_hg=g_hg)
+    if data_dim in THREE_D_SCATTERING_DATA_DIMS:
+        return f"ml/models/{data_dim}_{source_type}{_three_d_scattering_suffix(scattering_mode, g_hg)}"
     return f"ml/models/{data_dim}_{source_type}"
 
 
-def steady_2d_training_dir(data_dim, source_type, scattering_mode="isotropic"):
+def steady_2d_training_dir(data_dim, source_type, scattering_mode="isotropic", g_hg=None):
     if data_dim == "2d":
-        return resolve_steady_2d_training_dir(source_type, scattering_mode=scattering_mode)
+        return resolve_steady_2d_training_dir(source_type, scattering_mode=scattering_mode, g_hg=g_hg)
+    if data_dim in THREE_D_SCATTERING_DATA_DIMS:
+        return f"ml/training_results/{data_dim}_{source_type}{_three_d_scattering_suffix(scattering_mode, g_hg)}"
     return f"ml/training_results/{data_dim}_{source_type}"
 
 
-def norm_params_base_path(data_dim, source_type, scattering_mode="isotropic"):
+def norm_params_base_path(data_dim, source_type, scattering_mode="isotropic", g_hg=None):
     if data_dim == "1d_timedep":
         return f"ml/data/norm_params_1d_timedep_{source_type}.npy"
     if data_dim == "2d":
-        return resolve_steady_2d_norm_params_base_path(source_type, scattering_mode=scattering_mode)
+        return resolve_steady_2d_norm_params_base_path(source_type, scattering_mode=scattering_mode, g_hg=g_hg)
     if data_dim == "2d_timedep":
         return f"ml/data/norm_params_2d_timedep_{source_type}.npy"
     if data_dim == "2d_triangle_timedep":
@@ -207,14 +268,19 @@ def norm_params_base_path(data_dim, source_type, scattering_mode="isotropic"):
     if data_dim == "2d_quad_timedep":
         return "ml/data/norm_params_2d_quad_timedep_internal.npy"
     if data_dim == "3d":
-        return f"ml/data/norm_params_3d_{source_type}.npy"
+        return f"ml/data/norm_params_3d_{source_type}{_three_d_scattering_suffix(scattering_mode, g_hg)}.npy"
     if data_dim == "3d_timedep":
-        return f"ml/data/norm_params_3d_timedep_{source_type}.npy"
+        return f"ml/data/norm_params_3d_timedep_{source_type}{_three_d_scattering_suffix(scattering_mode, g_hg)}.npy"
     raise ValueError(f"Unsupported data_dim='{data_dim}'")
 
 
-def load_norm_params_for_data_dim(data_dim, source_type, train_sampling, scattering_mode="isotropic"):
-    candidates = norm_params_base_path_candidates(data_dim, source_type, scattering_mode=scattering_mode)
+def load_norm_params_for_data_dim(data_dim, source_type, train_sampling, scattering_mode="isotropic", g_hg=None):
+    candidates = norm_params_base_path_candidates(
+        data_dim,
+        source_type,
+        scattering_mode=scattering_mode,
+        g_hg=g_hg,
+    )
     last_error = None
     for base_path in candidates:
         try:
@@ -228,23 +294,32 @@ def load_norm_params_for_data_dim(data_dim, source_type, train_sampling, scatter
     )
 
 
-def load_norm_params_only(data_dim, source_type, train_sampling, scattering_mode="isotropic"):
+def load_norm_params_only(data_dim, source_type, train_sampling, scattering_mode="isotropic", g_hg=None):
     norm_params, _ = load_norm_params_for_data_dim(
         data_dim,
         source_type,
         train_sampling,
         scattering_mode=scattering_mode,
+        g_hg=g_hg,
     )
     return norm_params
 
 
-def load_norm_params_or_abort(data_dim, source_type, train_sampling, description, scattering_mode="isotropic"):
+def load_norm_params_or_abort(
+    data_dim,
+    source_type,
+    train_sampling,
+    description,
+    scattering_mode="isotropic",
+    g_hg=None,
+):
     try:
         return load_norm_params_only(
             data_dim,
             source_type,
             train_sampling,
             scattering_mode=scattering_mode,
+            g_hg=g_hg,
         )
     except FileNotFoundError:
         print(f"FATAL: normalization parameters for {description} not found. Cannot proceed.")
@@ -259,16 +334,16 @@ def resolve_norm_params_file(base_path, train_sampling="random"):
     return resolve_norm_params_base_path(base_path, train_sampling=train_sampling)
 
 
-def steady_2d_model_dir_candidates(data_dim, source_type, scattering_mode="isotropic"):
+def steady_2d_model_dir_candidates(data_dim, source_type, scattering_mode="isotropic", g_hg=None):
     if data_dim == "2d":
-        return resolve_steady_2d_model_dir_candidates(source_type, scattering_mode=scattering_mode)
-    return (steady_2d_model_dir(data_dim, source_type, scattering_mode=scattering_mode),)
+        return resolve_steady_2d_model_dir_candidates(source_type, scattering_mode=scattering_mode, g_hg=g_hg)
+    return (steady_2d_model_dir(data_dim, source_type, scattering_mode=scattering_mode, g_hg=g_hg),)
 
 
-def norm_params_base_path_candidates(data_dim, source_type, scattering_mode="isotropic"):
+def norm_params_base_path_candidates(data_dim, source_type, scattering_mode="isotropic", g_hg=None):
     if data_dim == "2d":
-        return resolve_steady_2d_norm_params_base_path_candidates(source_type, scattering_mode=scattering_mode)
-    return (norm_params_base_path(data_dim, source_type, scattering_mode=scattering_mode),)
+        return resolve_steady_2d_norm_params_base_path_candidates(source_type, scattering_mode=scattering_mode, g_hg=g_hg)
+    return (norm_params_base_path(data_dim, source_type, scattering_mode=scattering_mode, g_hg=g_hg),)
 
 
 def compute_model_dims(data_dim, source_type, *, train_sampling="random", scattering_mode="isotropic"):
@@ -363,24 +438,36 @@ def load_model(
     train_sampling="random",
     scheduler_type="condOT",
     scattering_mode="isotropic",
+    g_hg=None,
 ):
-    if data_dim == "2d":
-        scattering_mode = normalize_steady_2d_scattering_mode(scattering_mode)
+    if scattering_mode_supported_for_data_dim(data_dim):
+        scattering_mode, g_hg = resolve_scattering_parameter_for_data_dim(data_dim, scattering_mode, g_hg)
     input_dim, cond_dim = compute_model_dims(
         data_dim,
         source_type,
         train_sampling=train_sampling,
         scattering_mode=scattering_mode,
     )
-    mode_suffix = (
-        f", scattering_mode={scattering_mode}, asset_tag={STEADY_2D_SCATTERING_TAG}"
-        if data_dim == "2d"
-        else ""
-    )
+    mode_suffix = ""
+    if data_dim == "2d":
+        mode_suffix = (
+            f", scattering_mode={scattering_mode}, asset_tag={STEADY_2D_SCATTERING_TAG}"
+            + (f", g_hg={g_hg:.6f}" if scattering_mode == "anisotropic-hg" else "")
+        )
+    elif data_dim in THREE_D_SCATTERING_DATA_DIMS and scattering_mode != "isotropic":
+        mode_suffix = (
+            f", scattering_mode={scattering_mode}, asset_tag={THREE_D_SCATTERING_TAG}"
+            + (f", g_hg={g_hg:.6f}" if scattering_mode == "anisotropic-hg" else "")
+        )
     print(f"Loading model for {data_dim} {source_type} source (input_dim={input_dim}, cond_dim={cond_dim}{mode_suffix})")
     scheduler_suffix = f"_{scheduler_type}" if scheduler_type != "condOT" else ""
     sampling_suffix = f"_{train_sampling}" if train_sampling != "random" else ""
-    model_dirs = steady_2d_model_dir_candidates(data_dim, source_type, scattering_mode=scattering_mode)
+    model_dirs = steady_2d_model_dir_candidates(
+        data_dim,
+        source_type,
+        scattering_mode=scattering_mode,
+        g_hg=g_hg,
+    )
     model_paths = list(
         dict.fromkeys(
             path

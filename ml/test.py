@@ -30,11 +30,14 @@ from ml.utils import (
     load_model,
     load_norm_params_or_abort as _load_norm_params_or_abort,
     maybe_set_plot_title,
+    normalize_scattering_mode_for_data_dim,
     plot_uniform_ecdf as _plot_uniform_ecdf,
     plot_uniform_hexbin as _plot_uniform_hexbin,
     resolve_2d_direction_encoding as _resolve_2d_direction_encoding,
+    resolve_scattering_parameter_for_data_dim,
     run_uniform_ode_inference as _run_uniform_ode_inference,
     safe_get_sim_data,
+    scattering_mode_supported_for_data_dim,
     set_plot_titles_enabled,
     setup_test_environment,
 )
@@ -50,6 +53,7 @@ from physics.mc_data_gen import (
     get_3d_time_dependent_internal_source_data,
     get_3d_time_dependent_boundary_source_data,
 )
+from physics.steady_2d_scattering import normalize_steady_2d_scattering_mode, resolve_steady_2d_hg_parameter
 
 
 def enforce_exit_physics(
@@ -866,15 +870,35 @@ def run_uniform_inference(model, input_dim, cond_dim, device, test_dir,
                           source_type='boundary', scheduler_type='condOT', train_sampling='random', infer_sampling='random',
                           batch_size=20000, ode_method='rk4', num_steps=16,
                           min_width=0.01, max_width=10.0,
-                          min_height=0.01, max_height=10.0):
+                          min_height=0.01, max_height=10.0,
+                          scattering_mode='isotropic',
+                          g_hg=None):
     print("\n--- Running Inference (Uniform Conditions) ---")
     print(f"Source Type: 2D {source_type}")
     print(f"Batch Size: {batch_size}")
     print(f"----------------------------------------------")
 
-    norm_params = _load_norm_params_or_abort('2d', source_type, train_sampling, f"2D {source_type}")
+    scattering_mode = normalize_steady_2d_scattering_mode(scattering_mode)
+    resolved_g_hg = resolve_steady_2d_hg_parameter(scattering_mode, g_hg)
+    norm_params = _load_norm_params_or_abort(
+        '2d',
+        source_type,
+        train_sampling,
+        f"2D {source_type} ({scattering_mode})",
+        scattering_mode=scattering_mode,
+        g_hg=resolved_g_hg,
+    )
     if norm_params is None:
         return
+    stored_g_hg = norm_params.get("steady_2d_scattering_hg_g")
+    print(f"Scattering mode: {scattering_mode}")
+    if scattering_mode == 'anisotropic-hg':
+        print(f"HG asymmetry parameter g: {resolved_g_hg:.3f}")
+        if stored_g_hg is not None and abs(resolved_g_hg - float(stored_g_hg)) > 1.0e-9:
+            print(
+                "Warning: runtime HG g differs from normalization metadata. "
+                f"Model assets were prepared for g={float(stored_g_hg):.3f}."
+            )
 
     cond_features = 5 if source_type == 'boundary' else 6
     target_dim = input_dim - cond_dim
@@ -957,6 +981,8 @@ def run_uniform_inference(model, input_dim, cond_dim, device, test_dir,
             min_width=min_width, max_width=max_width,
             min_height=min_height, max_height=max_height,
             sampling=infer_sampling,
+            scattering_mode=scattering_mode,
+            g_hg=resolved_g_hg,
         )
     else:
         sim_gt = safe_get_sim_data(
@@ -965,6 +991,8 @@ def run_uniform_inference(model, input_dim, cond_dim, device, test_dir,
             min_width=min_width, max_width=max_width,
             min_height=min_height, max_height=max_height,
             sampling=infer_sampling,
+            scattering_mode=scattering_mode,
+            g_hg=resolved_g_hg,
         )
     sim_gt = sim_gt[sim_gt["exited"] == 1].copy()
     if len(sim_gt) == 0:
@@ -1000,7 +1028,12 @@ def run_uniform_inference(model, input_dim, cond_dim, device, test_dir,
         'time': pred_time,
     }
     gt_data = {'x_out_norm': gt_x, 'y_out_norm': gt_y, 'u': gt_u, 'v': gt_v, 'time': gt_t}
-    compute_and_print_metrics(gt_data, pred_data, test_dir, tag=f"2d_{source_type}")
+    compute_and_print_metrics(
+        gt_data,
+        pred_data,
+        test_dir,
+        tag=f"2d_{source_type}_{scattering_mode.replace('-', '_')}",
+    )
 
 
 def plot_uniform_results_3d(gt, pred, test_dir, source_type):
@@ -1090,15 +1123,28 @@ def run_uniform_inference_3d(model, input_dim, cond_dim, device, test_dir,
                              batch_size=20000, ode_method='rk4', num_steps=16,
                              min_width=0.01, max_width=10.0,
                              min_height=0.01, max_height=10.0,
-                             min_depth=0.01, max_depth=10.0):
+                             min_depth=0.01, max_depth=10.0,
+                             scattering_mode='isotropic',
+                             g_hg=None):
     print("\n--- Running Inference (Uniform Conditions) ---")
     print(f"Source Type: 3D {source_type}")
     print(f"Batch Size: {batch_size}")
     print(f"------------------------------------------------")
 
-    norm_params = _load_norm_params_or_abort('3d', source_type, train_sampling, f"3D {source_type}")
+    scattering_mode, resolved_g_hg = resolve_scattering_parameter_for_data_dim('3d', scattering_mode, g_hg)
+    norm_params = _load_norm_params_or_abort(
+        '3d',
+        source_type,
+        train_sampling,
+        f"3D {source_type} ({scattering_mode})",
+        scattering_mode=scattering_mode,
+        g_hg=resolved_g_hg,
+    )
     if norm_params is None:
         return
+    print(f"Scattering mode: {scattering_mode}")
+    if scattering_mode == 'anisotropic-hg':
+        print(f"HG asymmetry parameter g: {resolved_g_hg:.3f}")
 
     cond_features = 7 if source_type == 'boundary' else 8
     target_dim = input_dim - cond_dim
@@ -1187,6 +1233,8 @@ def run_uniform_inference_3d(model, input_dim, cond_dim, device, test_dir,
             min_height=min_height, max_height=max_height,
             min_depth=min_depth, max_depth=max_depth,
             sampling=infer_sampling,
+            scattering_mode=scattering_mode,
+            g_hg=resolved_g_hg,
         )
     else:
         sim_gt = safe_get_sim_data(
@@ -1196,6 +1244,8 @@ def run_uniform_inference_3d(model, input_dim, cond_dim, device, test_dir,
             min_height=min_height, max_height=max_height,
             min_depth=min_depth, max_depth=max_depth,
             sampling=infer_sampling,
+            scattering_mode=scattering_mode,
+            g_hg=resolved_g_hg,
         )
     sim_gt = sim_gt[sim_gt["exited"] == 1].copy()
     if len(sim_gt) == 0:
@@ -1313,21 +1363,29 @@ def run_uniform_inference_3d_timedep(model, input_dim, cond_dim, device, test_di
                                      min_width=0.01, max_width=10.0,
                                      min_height=0.01, max_height=10.0,
                                      min_depth=0.01, max_depth=10.0,
-                                     min_path_budget=1e-5, max_path_budget=0.1):
+                                     min_path_budget=1e-5, max_path_budget=0.1,
+                                     scattering_mode='isotropic',
+                                     g_hg=None):
     print("\n--- Running Inference (Uniform Conditions, 3D Time-Dependent) ---")
     print(f"Source Type: 3D {source_type}")
     print(f"Batch Size: {batch_size}")
     print(f"Path budget range: [{min_path_budget}, {max_path_budget}]")
     print(f"---------------------------------------------------------------")
 
+    scattering_mode, resolved_g_hg = resolve_scattering_parameter_for_data_dim('3d_timedep', scattering_mode, g_hg)
     norm_params = _load_norm_params_or_abort(
         '3d_timedep',
         source_type,
         train_sampling,
         f"3D timedep {source_type}",
+        scattering_mode=scattering_mode,
+        g_hg=resolved_g_hg,
     )
     if norm_params is None:
         return
+    print(f"Scattering mode: {scattering_mode}")
+    if scattering_mode == 'anisotropic-hg':
+        print(f"HG asymmetry parameter g: {resolved_g_hg:.3f}")
 
     cond_features = 8 if source_type == 'boundary' else 9
     target_dim = input_dim - cond_dim
@@ -1441,6 +1499,8 @@ def run_uniform_inference_3d_timedep(model, input_dim, cond_dim, device, test_di
             min_depth=min_depth, max_depth=max_depth,
             min_path_budget=min_path_budget, max_path_budget=max_path_budget,
             sampling=infer_sampling,
+            scattering_mode=scattering_mode,
+            g_hg=resolved_g_hg,
         )
     else:
         sim_gt = safe_get_sim_data(
@@ -1451,6 +1511,8 @@ def run_uniform_inference_3d_timedep(model, input_dim, cond_dim, device, test_di
             min_depth=min_depth, max_depth=max_depth,
             min_path_budget=min_path_budget, max_path_budget=max_path_budget,
             sampling=infer_sampling,
+            scattering_mode=scattering_mode,
+            g_hg=resolved_g_hg,
         )
     sim_gt = sim_gt[(sim_gt["space_exit"] == 1) | (sim_gt["time_exit"] == 1)].copy()
     if len(sim_gt) == 0:
@@ -2104,20 +2166,36 @@ def parse_args():
                         help='Sampling strategy used at training time (model + norm file suffix).')
     parser.add_argument('--infer_sampling', type=str, default='random', choices=['random', 'qmc', 'lhs'],
                         help='Sampling strategy used for inference condition/noise generation.')
+    parser.add_argument('--scattering_mode', type=str, default='isotropic',
+                        choices=['isotropic', 'anisotropic', 'anisotropic-linear', 'anisotropic-hg'],
+                        help='2D steady-state scattering mode for model and MC comparison.')
+    parser.add_argument('--g_hg', type=float, default=None,
+                        help='HG asymmetry parameter for steady 2D HG comparisons; required when scattering_mode=anisotropic-hg.')
     parser.add_argument('--no_plot_titles', action='store_true',
                         help='Disable titles on all generated plots.')
     return parser.parse_args()
 
 def main():
     args = parse_args()
+    if not scattering_mode_supported_for_data_dim(args.data_dim) and args.scattering_mode != 'isotropic':
+        raise ValueError("scattering_mode is currently only supported for 2d, 3d, and 3d_timedep testing.")
+    if not scattering_mode_supported_for_data_dim(args.data_dim) and args.g_hg is not None:
+        raise ValueError("g_hg is currently only supported for 2d, 3d, and 3d_timedep testing.")
+    normalized_mode = normalize_scattering_mode_for_data_dim(args.data_dim, args.scattering_mode)
+    if scattering_mode_supported_for_data_dim(args.data_dim) and normalized_mode == 'anisotropic-hg' and args.g_hg is None:
+        raise ValueError("anisotropic-hg testing requires an explicit --g_hg value.")
     set_plot_titles_enabled(not args.no_plot_titles)
     device, test_dir = setup_test_environment(
         args.source_type, args.scheduler, args.data_dim,
-        args.infer_sampling, args.train_sampling
+        args.infer_sampling, args.train_sampling,
+        scattering_mode=args.scattering_mode,
+        g_hg=args.g_hg,
     )
     model, input_dim, cond_dim = load_model(
         device, args.hidden_dim, args.depth, args.expansion_factor,
         args.source_type, args.data_dim, args.train_sampling, args.scheduler,
+        scattering_mode=args.scattering_mode,
+        g_hg=args.g_hg,
     )
 
     if args.data_dim == '1d_timedep':
@@ -2164,7 +2242,9 @@ def main():
             batch_size=args.batch_size, ode_method=args.ode_method, num_steps=args.num_steps,
             min_width=args.min_width, max_width=args.max_width,
             min_height=args.min_height, max_height=args.max_height,
-            min_depth=args.min_depth, max_depth=args.max_depth
+            min_depth=args.min_depth, max_depth=args.max_depth,
+            scattering_mode=args.scattering_mode,
+            g_hg=args.g_hg,
         )
     elif args.data_dim == '3d_timedep':
         run_uniform_inference_3d_timedep(
@@ -2175,6 +2255,8 @@ def main():
             min_height=args.min_height, max_height=args.max_height,
             min_depth=args.min_depth, max_depth=args.max_depth,
             min_path_budget=args.min_path_budget, max_path_budget=args.max_path_budget,
+            scattering_mode=args.scattering_mode,
+            g_hg=args.g_hg,
         )
     else:
         run_uniform_inference(
@@ -2182,7 +2264,9 @@ def main():
             args.source_type, args.scheduler, args.train_sampling, args.infer_sampling,
             batch_size=args.batch_size, ode_method=args.ode_method, num_steps=args.num_steps,
             min_width=args.min_width, max_width=args.max_width,
-            min_height=args.min_height, max_height=args.max_height
+            min_height=args.min_height, max_height=args.max_height,
+            scattering_mode=args.scattering_mode,
+            g_hg=args.g_hg,
         )
 
 if __name__ == "__main__":

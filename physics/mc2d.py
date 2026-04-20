@@ -16,6 +16,7 @@ from .mc1d import sample_unit
 from ._seed import seeded_numpy_execution
 from .steady_2d_scattering import (
     guard_projected_direction_xy,
+    resolve_steady_2d_hg_parameter,
     sample_incoming_hemisphere_plus_x_direction_3d_from_unit,
     sample_isotropic_direction_3d_from_unit,
     sample_scattered_direction_3d_from_unit,
@@ -69,6 +70,7 @@ def simulate_single_cell_2d_boundary_source(
     max_height: float = 10.0,
     cond_samples=None,
     scattering_mode_code: int = 0,
+    g_hg: float = 0.0,
 ):
     """2D single-cell boundary source. Particles enter from x=0.
 
@@ -174,6 +176,7 @@ def simulate_single_cell_2d_boundary_source(
                         np.random.random(),
                         np.random.random(),
                         scattering_mode_code,
+                        g_hg,
                         eps,
                     )
                     u, v = guard_projected_direction_xy(u, v, eps)
@@ -192,6 +195,7 @@ def simulate_single_cell_2d_internal_source(
     max_height: float = 10.0,
     cond_samples=None,
     scattering_mode_code: int = 0,
+    g_hg: float = 0.0,
 ):
     """2D single-cell internal source. Particles start uniformly within cell.
 
@@ -303,6 +307,7 @@ def simulate_single_cell_2d_internal_source(
                         np.random.random(),
                         np.random.random(),
                         scattering_mode_code,
+                        g_hg,
                         eps,
                     )
                     u, v = guard_projected_direction_xy(u, v, eps)
@@ -321,7 +326,7 @@ def multi_cell_mc_boundary_source_2d_njit(
     num_particles,
     sigma_t_per_cell, sigma_a_per_cell,
     energy_threshold,
-    reflected_boundaries, angular_sampling, scattering_mode_code
+    reflected_boundaries, angular_sampling, scattering_mode_code, g_hg=0.0
 ):
     """2D multi-cell MC, boundary source at x=0. Uses per-cell XS arrays.
 
@@ -454,13 +459,11 @@ def multi_cell_mc_boundary_source_2d_njit(
                     pos[1] += direction[1] * epsilon
             else:
                 u_new, v_new, w_new = sample_scattered_direction_3d_from_unit(
-                    direction[0],
-                    direction[1],
-                    direction[2],
-                    np.random.random(),
-                    np.random.random(),
+                    u, v, w,
+                    np.random.rand(), np.random.rand(),
                     scattering_mode_code,
-                    epsilon,
+                    g_hg,
+                    epsilon
                 )
                 u_new, v_new = guard_projected_direction_xy(u_new, v_new, epsilon)
                 direction[0] = u_new
@@ -485,18 +488,17 @@ def multi_cell_mc_boundary_source_2d_njit(
 def multi_cell_mc_internal_source_2d_njit(
     num_cells_x, num_cells_y, cell_widths, cell_heights,
     cell_boundaries_x, cell_boundaries_y, total_width, total_height,
-    num_particles,
-    start_cell_indices_tuple, start_position_relative_tuple,
+    num_particles, start_cell_indices, start_position_relative,
     sigma_t_per_cell, sigma_a_per_cell,
     energy_threshold,
-    reflected_boundaries, scattering_mode_code, randomize_start_pos=False
+    reflected_boundaries, scattering_mode_code, randomize_start_pos=False, g_hg=0.0
 ):
     """2D multi-cell MC, internal point-in-cell source. Uses per-cell XS arrays.
 
     For homogeneous materials, pass constant arrays built from scatter_ratio.
     """
-    start_ix, start_iy = start_cell_indices_tuple
-    start_rx, start_ry = start_position_relative_tuple
+    start_ix, start_iy = start_cell_indices
+    start_rx, start_ry = start_position_relative
 
     energy_deposited = np.zeros((num_cells_y, num_cells_x), dtype=np.float64)
     track_length = np.zeros((num_cells_y, num_cells_x), dtype=np.float64)
@@ -630,6 +632,7 @@ def multi_cell_mc_internal_source_2d_njit(
                     np.random.random(),
                     np.random.random(),
                     scattering_mode_code,
+                    g_hg,
                     epsilon,
                 )
                 u_new, v_new = guard_projected_direction_xy(u_new, v_new, epsilon)
@@ -659,13 +662,13 @@ def run_mc_simulation_2d_njit_wrapper(
     source_mode,
     num_cells_x, num_cells_y, cell_widths, cell_heights,
     cell_boundaries_x, cell_boundaries_y, total_width, total_height,
-    num_particles,
-    start_cell_indices, start_position_relative,
+    num_particles, start_cell_indices, start_position_relative,
     scatter_ratio, energy_threshold, seed,
     reflected_boundaries, angular_sampling=1,
     sigma_t_per_cell=None, sigma_a_per_cell=None,
     randomize_position_in_cell=False, verbose=True,
     scattering_mode="isotropic",
+    g_hg=0.0,
 ):
     """Run 2D multi-cell MC simulation.
 
@@ -692,6 +695,7 @@ def run_mc_simulation_2d_njit_wrapper(
 
     start_time = time.time()
     scattering_mode_code = steady_2d_scattering_mode_code(scattering_mode)
+    resolved_g_hg = resolve_steady_2d_hg_parameter(scattering_mode, g_hg)
 
     with seeded_numpy_execution(seed):
         if source_mode == 'internal_start':
@@ -711,7 +715,7 @@ def run_mc_simulation_2d_njit_wrapper(
                 tuple(start_cell_indices), tuple(start_position_relative),
                 sigma_t_per_cell, sigma_a_per_cell,
                 energy_threshold,
-                reflected_boundaries, scattering_mode_code, randomize_position_in_cell
+                reflected_boundaries, scattering_mode_code, randomize_position_in_cell, resolved_g_hg
             )
 
         elif source_mode == 'boundary_only':
@@ -723,7 +727,7 @@ def run_mc_simulation_2d_njit_wrapper(
                 num_particles,
                 sigma_t_per_cell, sigma_a_per_cell,
                 energy_threshold,
-                reflected_boundaries, angular_sampling, scattering_mode_code
+                reflected_boundaries, angular_sampling, scattering_mode_code, resolved_g_hg
             )
         else:
             raise ValueError(f"Unsupported source_mode for 2D MC: {source_mode}")
@@ -731,6 +735,8 @@ def run_mc_simulation_2d_njit_wrapper(
     end_time = time.time()
     if verbose:
         print(f"2D MC took {end_time - start_time:.3f} seconds.")
+        if scattering_mode_code == 2:
+            print(f"  HG asymmetry parameter g: {resolved_g_hg:.3f}")
 
     exited_left, exited_right, exited_bottom, exited_top, absorbed, travel_steps, boundary_reflections, warning_flags = stats
 

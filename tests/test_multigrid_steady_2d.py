@@ -247,5 +247,5 @@ def test_run_direct_fine_mc_reference_forwards_scattering_mode(monkeypatch):
     )
 
     assert calls
-    assert set(calls) == {"anisotropic"}
+    assert set(calls) == {"anisotropic-linear"}
     assert result["flux"].shape == hierarchy.fine.material_map.shape
