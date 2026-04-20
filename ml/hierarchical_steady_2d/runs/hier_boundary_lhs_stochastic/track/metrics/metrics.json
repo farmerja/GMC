@@ -1,0 +1,18 @@
+{
+  "best": {
+    "avg_pred_std_total_track_length_log10": 0.3422646224498749,
+    "epoch": 20,
+    "loss": 0.1702401777982712,
+    "mae_total_track_length": 0.2569930851459503,
+    "mae_total_track_length_log10": 0.21100395917892456
+  },
+  "best_val_loss": 0.1702401777982712,
+  "final": {
+    "avg_pred_std_total_track_length_log10": 0.3422646224498749,
+    "loss": 0.1702401777982712,
+    "mae_total_track_length": 0.2569930851459503,
+    "mae_total_track_length_log10": 0.21100395917892456
+  },
+  "final_val_loss": 0.1702401777982712,
+  "task": "track"
+}

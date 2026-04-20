@@ -7,10 +7,8 @@ arrays from scatter_ratio when no per-cell data is provided).
 """
 
 import numpy as np
-import matplotlib.pyplot as plt
 import time
 from numba import njit, prange
-from matplotlib.colors import LogNorm
 
 from .mc1d import sample_unit
 from ._seed import seeded_numpy_execution
@@ -755,6 +753,9 @@ def run_mc_simulation_2d_njit_wrapper(
 def plot_2d_energy_deposition(energy_deposited, cell_boundaries_x, cell_boundaries_y,
                                title="2D Energy Deposition"):
     """Plot 2D energy deposition using pcolormesh with log colour scale."""
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import LogNorm
+
     X, Y = np.meshgrid(cell_boundaries_x, cell_boundaries_y)
 
     valid_energy = energy_deposited[energy_deposited > 0]

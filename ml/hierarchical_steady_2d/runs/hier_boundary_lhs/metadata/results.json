@@ -1,0 +1,61 @@
+{
+  "run_dir": "ml/hierarchical_steady_2d/runs/hier_boundary_lhs",
+  "tasks": {
+    "face": {
+      "best": {
+        "accuracy": 0.4430556944305569,
+        "accuracy_face_0": 0.8107976653696498,
+        "accuracy_face_1": 0.053180914512922464,
+        "accuracy_face_2": 0.20653866113129216,
+        "accuracy_face_3": 0.3035897435897436,
+        "epoch": 17,
+        "loss": 1.0532309476548034
+      },
+      "best_val_loss": 1.0532309476548034,
+      "final": {
+        "accuracy": 0.4410558944105589,
+        "accuracy_face_0": 0.5311284046692607,
+        "accuracy_face_1": 0.46669980119284293,
+        "accuracy_face_2": 0.30825116761805915,
+        "accuracy_face_3": 0.3558974358974359,
+        "loss": 1.0532431813457372
+      },
+      "final_val_loss": 1.0532431813457372,
+      "task": "face"
+    },
+    "joint": {
+      "best": {
+        "epoch": 19,
+        "loss": 0.4056452989798762,
+        "mae_exit_face_coord_local_norm": 0.11691257357597351,
+        "mae_final_dir_u": 0.2778260111808777,
+        "mae_final_dir_v": 0.3505024015903473
+      },
+      "best_val_loss": 0.4056452989798762,
+      "final": {
+        "loss": 0.4062439267658708,
+        "mae_exit_face_coord_local_norm": 0.11870501190423965,
+        "mae_final_dir_u": 0.27802759408950806,
+        "mae_final_dir_v": 0.3510405421257019
+      },
+      "final_val_loss": 0.4062439267658708,
+      "task": "joint"
+    },
+    "track": {
+      "best": {
+        "epoch": 20,
+        "loss": 0.15491688406302945,
+        "mae_total_track_length": 0.2581629157066345,
+        "mae_total_track_length_log10": 0.214638352394104
+      },
+      "best_val_loss": 0.15491688406302945,
+      "final": {
+        "loss": 0.15491688406302945,
+        "mae_total_track_length": 0.2581629157066345,
+        "mae_total_track_length_log10": 0.214638352394104
+      },
+      "final_val_loss": 0.15491688406302945,
+      "task": "track"
+    }
+  }
+}

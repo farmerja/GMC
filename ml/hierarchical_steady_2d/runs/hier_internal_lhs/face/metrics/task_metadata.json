@@ -1,0 +1,27 @@
+{
+  "conditioning_mode": "base_only",
+  "input_dim": 13,
+  "input_names": [
+    "width_log10",
+    "height_log10",
+    "initial_pos_x_norm",
+    "initial_pos_y_norm",
+    "initial_dir_u",
+    "initial_dir_v",
+    "ballistic_length_log10",
+    "ballistic_face_coord_local_norm",
+    "scatter_before_exit_prob",
+    "ballistic_face_is_left",
+    "ballistic_face_is_right",
+    "ballistic_face_is_top",
+    "ballistic_face_is_bottom"
+  ],
+  "num_train": 90000,
+  "num_val": 10000,
+  "output_dim": 4,
+  "target_kind": "classification",
+  "target_names": [
+    "exit_face"
+  ],
+  "task": "face"
+}

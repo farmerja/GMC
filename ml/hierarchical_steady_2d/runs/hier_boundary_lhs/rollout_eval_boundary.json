@@ -1,0 +1,45 @@
+{
+  "device": "cpu",
+  "diagnostics": {
+    "face_bottom_fraction": 0.279541015625,
+    "face_left_fraction": 0.1185302734375,
+    "face_right_fraction": 0.32373046875,
+    "face_top_fraction": 0.2781982421875,
+    "scatter_fraction_sampled": 0.2564697265625,
+    "scatter_probability_mean": 0.25731361953844123
+  },
+  "face_sampling": "categorical",
+  "mean_ks_stat": 0.14736328125,
+  "mean_wasserstein": 0.04202587654880162,
+  "metrics": {
+    "time": {
+      "ks_stat": 0.0150146484375,
+      "wasserstein": 0.08107308149408762
+    },
+    "u": {
+      "ks_stat": 0.046630859375,
+      "wasserstein": 0.0396118066786647
+    },
+    "v": {
+      "ks_stat": 0.0731201171875,
+      "wasserstein": 0.06588610212760529
+    },
+    "x_out_norm": {
+      "ks_stat": 0.32373046875,
+      "wasserstein": 0.011152907845335657
+    },
+    "y_out_norm": {
+      "ks_stat": 0.2783203125,
+      "wasserstein": 0.012405484598314817
+    }
+  },
+  "model_batch_size": 512,
+  "num_samples": 8192,
+  "run_dir": "ml/hierarchical_steady_2d/runs/hier_boundary_lhs",
+  "runtime_seconds": 0.01833650004118681,
+  "samples_per_second": 446759.1951353538,
+  "sampling": "lhs",
+  "seed": 123,
+  "sigma_t": 1.0,
+  "source_type": "boundary"
+}

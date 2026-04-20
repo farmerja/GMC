@@ -9,11 +9,16 @@ from pathlib import Path
 import sys
 import time
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+os.environ.setdefault("MPLCONFIGDIR", str(REPO_ROOT / "validation" / "results" / ".matplotlib"))
+os.environ.setdefault("XDG_CACHE_HOME", str(REPO_ROOT / "validation" / "results" / ".cache"))
+os.environ.setdefault("MPLBACKEND", "Agg")
+
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 import numpy as np
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ml.distillation.artifacts import save_json
 from physics.multigrid_steady_2d import (
@@ -54,6 +59,9 @@ def parse_args() -> argparse.Namespace:
         help="Model variants to run, e.g. teacher student_4 student_2 student_1",
     )
     parser.add_argument("--student-artifact-root", type=str, default="ml/student_artifacts")
+    parser.add_argument("--hierarchical-run-root", type=str, default="ml/hierarchical_steady_2d/runs")
+    parser.add_argument("--hierarchical-boundary-run", type=str, default="hier_boundary_lhs_stochastic")
+    parser.add_argument("--hierarchical-internal-run", type=str, default="hier_internal_lhs_stochastic")
     parser.add_argument("--seed", type=int, default=52)
     parser.add_argument(
         "--output-dir",
@@ -151,13 +159,22 @@ def main() -> None:
     print("[2/2] Running GMC modes...")
     for mode in args.model_modes:
         print(f"  - {mode}")
-        models = load_steady_gmc_models(
-            args.device,
-            scattering_mode=args.scattering_mode,
-            train_sampling=args.train_sampling,
-            model_mode=mode,
-            student_artifact_root=args.student_artifact_root,
-        )
+        load_kwargs = {
+            "device": args.device,
+            "scattering_mode": args.scattering_mode,
+            "train_sampling": args.train_sampling,
+            "model_mode": mode,
+            "student_artifact_root": args.student_artifact_root,
+        }
+        if mode == "hierarchical":
+            load_kwargs.update(
+                {
+                    "hierarchical_run_root": args.hierarchical_run_root,
+                    "hierarchical_boundary_run": args.hierarchical_boundary_run,
+                    "hierarchical_internal_run": args.hierarchical_internal_run,
+                }
+            )
+        models = load_steady_gmc_models(**load_kwargs)
         started = time.perf_counter()
         result = run_coarse_gmc_with_surface_tally(
             problem,

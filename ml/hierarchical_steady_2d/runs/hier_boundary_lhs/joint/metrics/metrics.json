@@ -1,0 +1,18 @@
+{
+  "best": {
+    "epoch": 19,
+    "loss": 0.4056452989798762,
+    "mae_exit_face_coord_local_norm": 0.11691257357597351,
+    "mae_final_dir_u": 0.2778260111808777,
+    "mae_final_dir_v": 0.3505024015903473
+  },
+  "best_val_loss": 0.4056452989798762,
+  "final": {
+    "loss": 0.4062439267658708,
+    "mae_exit_face_coord_local_norm": 0.11870501190423965,
+    "mae_final_dir_u": 0.27802759408950806,
+    "mae_final_dir_v": 0.3510405421257019
+  },
+  "final_val_loss": 0.4062439267658708,
+  "task": "joint"
+}

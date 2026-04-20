@@ -1,0 +1,73 @@
+{
+  "run_dir": "ml/hierarchical_steady_2d/runs/hier_boundary_500k",
+  "tasks": {
+    "face": {
+      "best": {
+        "accuracy": 0.45149097018059636,
+        "accuracy_face_0": 0.7781910728269381,
+        "accuracy_face_1": 0.06750801282051282,
+        "accuracy_face_2": 0.3258404005313171,
+        "accuracy_face_3": 0.2869973463972239,
+        "epoch": 81,
+        "loss": 1.0444933056023138
+      },
+      "best_val_loss": 1.0444933056023138,
+      "final": {
+        "accuracy": 0.4519709605807884,
+        "accuracy_face_0": 0.5138018794048551,
+        "accuracy_face_1": 0.5376602564102564,
+        "accuracy_face_2": 0.3410646776335956,
+        "accuracy_face_3": 0.34649928556848336,
+        "loss": 1.0451822600072198
+      },
+      "final_val_loss": 1.0451822600072198,
+      "task": "face"
+    },
+    "joint": {
+      "best": {
+        "avg_pred_std_exit_face_coord_local_norm": 0.48254069685935974,
+        "avg_pred_std_final_dir_u": 0.5553745031356812,
+        "avg_pred_std_final_dir_v": 0.7108355760574341,
+        "epoch": 86,
+        "gaussian_nll": 0.7524060110984231,
+        "loss": 0.7524060110984231,
+        "mae_exit_face_coord_local_norm": 0.10783633589744568,
+        "mae_final_dir_u": 0.27863338589668274,
+        "mae_final_dir_v": 0.34918496012687683
+      },
+      "best_val_loss": 0.7524060110984231,
+      "final": {
+        "avg_pred_std_exit_face_coord_local_norm": 0.4632914066314697,
+        "avg_pred_std_final_dir_u": 0.5584042072296143,
+        "avg_pred_std_final_dir_v": 0.7164519429206848,
+        "gaussian_nll": 0.7593439105727602,
+        "loss": 0.7593439105727602,
+        "mae_exit_face_coord_local_norm": 0.10715455561876297,
+        "mae_final_dir_u": 0.2784765958786011,
+        "mae_final_dir_v": 0.3491302728652954
+      },
+      "final_val_loss": 0.7593439105727602,
+      "task": "joint"
+    },
+    "track": {
+      "best": {
+        "avg_pred_std_total_track_length_log10": 0.20855742692947388,
+        "epoch": 99,
+        "gaussian_nll": -0.5759317715695704,
+        "loss": -0.5759317715695704,
+        "mae_total_track_length": 0.1909037083387375,
+        "mae_total_track_length_log10": 0.10870929062366486
+      },
+      "best_val_loss": -0.5759317715695704,
+      "final": {
+        "avg_pred_std_total_track_length_log10": 0.20280450582504272,
+        "gaussian_nll": -0.5564098528298312,
+        "loss": -0.5564098528298312,
+        "mae_total_track_length": 0.19397690892219543,
+        "mae_total_track_length_log10": 0.11046863347291946
+      },
+      "final_val_loss": -0.5564098528298312,
+      "task": "track"
+    }
+  }
+}

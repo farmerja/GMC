@@ -1,0 +1,61 @@
+{
+  "run_dir": "ml/hierarchical_steady_2d/runs/hier_internal_lhs",
+  "tasks": {
+    "face": {
+      "best": {
+        "accuracy": 0.4832,
+        "accuracy_face_0": 0.4294330518697226,
+        "accuracy_face_1": 0.5469061876247505,
+        "accuracy_face_2": 0.4636,
+        "accuracy_face_3": 0.49242424242424243,
+        "epoch": 18,
+        "loss": 0.9827683102607727
+      },
+      "best_val_loss": 0.9827683102607727,
+      "final": {
+        "accuracy": 0.4758,
+        "accuracy_face_0": 0.5536791314837153,
+        "accuracy_face_1": 0.4055888223552894,
+        "accuracy_face_2": 0.452,
+        "accuracy_face_3": 0.49242424242424243,
+        "loss": 0.9832545614242554
+      },
+      "final_val_loss": 0.9832545614242554,
+      "task": "face"
+    },
+    "joint": {
+      "best": {
+        "epoch": 19,
+        "loss": 0.42884610333442685,
+        "mae_exit_face_coord_local_norm": 0.11005766689777374,
+        "mae_final_dir_u": 0.32237210869789124,
+        "mae_final_dir_v": 0.3221997618675232
+      },
+      "best_val_loss": 0.42884610333442685,
+      "final": {
+        "loss": 0.42911423797607423,
+        "mae_exit_face_coord_local_norm": 0.10951153934001923,
+        "mae_final_dir_u": 0.3223787248134613,
+        "mae_final_dir_v": 0.3230428397655487
+      },
+      "final_val_loss": 0.42911423797607423,
+      "task": "joint"
+    },
+    "track": {
+      "best": {
+        "epoch": 20,
+        "loss": 0.10900973005294799,
+        "mae_total_track_length": 0.33174949884414673,
+        "mae_total_track_length_log10": 0.18807871639728546
+      },
+      "best_val_loss": 0.10900973005294799,
+      "final": {
+        "loss": 0.10900973005294799,
+        "mae_total_track_length": 0.33174949884414673,
+        "mae_total_track_length_log10": 0.18807871639728546
+      },
+      "final_val_loss": 0.10900973005294799,
+      "task": "track"
+    }
+  }
+}

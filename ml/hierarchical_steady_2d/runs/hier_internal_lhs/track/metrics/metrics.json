@@ -1,0 +1,16 @@
+{
+  "best": {
+    "epoch": 20,
+    "loss": 0.10900973005294799,
+    "mae_total_track_length": 0.33174949884414673,
+    "mae_total_track_length_log10": 0.18807871639728546
+  },
+  "best_val_loss": 0.10900973005294799,
+  "final": {
+    "loss": 0.10900973005294799,
+    "mae_total_track_length": 0.33174949884414673,
+    "mae_total_track_length_log10": 0.18807871639728546
+  },
+  "final_val_loss": 0.10900973005294799,
+  "task": "track"
+}

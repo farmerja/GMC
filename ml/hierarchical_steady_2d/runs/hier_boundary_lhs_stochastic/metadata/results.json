@@ -1,0 +1,69 @@
+{
+  "run_dir": "ml/hierarchical_steady_2d/runs/hier_boundary_lhs_stochastic",
+  "tasks": {
+    "face": {
+      "best": {
+        "accuracy": 0.444,
+        "accuracy_face_0": 0.6789577187807276,
+        "accuracy_face_1": 0.18501984126984128,
+        "accuracy_face_2": 0.35923309788092833,
+        "accuracy_face_3": 0.3066184074457084,
+        "epoch": 18,
+        "loss": 1.0521996606826782
+      },
+      "best_val_loss": 1.0521996606826782,
+      "final": {
+        "accuracy": 0.4459,
+        "accuracy_face_0": 0.7227138643067846,
+        "accuracy_face_1": 0.15476190476190477,
+        "accuracy_face_2": 0.33249243188698285,
+        "accuracy_face_3": 0.28335056876938985,
+        "loss": 1.0526174764633178
+      },
+      "final_val_loss": 1.0526174764633178,
+      "task": "face"
+    },
+    "joint": {
+      "best": {
+        "avg_pred_std_exit_face_coord_local_norm": 0.5022076368331909,
+        "avg_pred_std_final_dir_u": 0.5602112412452698,
+        "avg_pred_std_final_dir_v": 0.7124347686767578,
+        "epoch": 19,
+        "loss": 0.767425634765625,
+        "mae_exit_face_coord_local_norm": 0.11380502581596375,
+        "mae_final_dir_u": 0.2787226438522339,
+        "mae_final_dir_v": 0.3500480353832245
+      },
+      "best_val_loss": 0.767425634765625,
+      "final": {
+        "avg_pred_std_exit_face_coord_local_norm": 0.5068843364715576,
+        "avg_pred_std_final_dir_u": 0.5638945698738098,
+        "avg_pred_std_final_dir_v": 0.7078011631965637,
+        "loss": 0.772266277217865,
+        "mae_exit_face_coord_local_norm": 0.11345036327838898,
+        "mae_final_dir_u": 0.2790266275405884,
+        "mae_final_dir_v": 0.3495234251022339
+      },
+      "final_val_loss": 0.772266277217865,
+      "task": "joint"
+    },
+    "track": {
+      "best": {
+        "avg_pred_std_total_track_length_log10": 0.3422646224498749,
+        "epoch": 20,
+        "loss": 0.1702401777982712,
+        "mae_total_track_length": 0.2569930851459503,
+        "mae_total_track_length_log10": 0.21100395917892456
+      },
+      "best_val_loss": 0.1702401777982712,
+      "final": {
+        "avg_pred_std_total_track_length_log10": 0.3422646224498749,
+        "loss": 0.1702401777982712,
+        "mae_total_track_length": 0.2569930851459503,
+        "mae_total_track_length_log10": 0.21100395917892456
+      },
+      "final_val_loss": 0.1702401777982712,
+      "task": "track"
+    }
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "conditioning_mode": "teacher_forced_face_and_joint",
+  "input_dim": 20,
+  "input_names": [
+    "width_log10",
+    "height_log10",
+    "initial_pos_x_norm",
+    "initial_pos_y_norm",
+    "initial_dir_u",
+    "initial_dir_v",
+    "ballistic_length_log10",
+    "ballistic_face_coord_local_norm",
+    "scatter_before_exit_prob",
+    "ballistic_face_is_left",
+    "ballistic_face_is_right",
+    "ballistic_face_is_top",
+    "ballistic_face_is_bottom",
+    "condition_face_is_left",
+    "condition_face_is_right",
+    "condition_face_is_top",
+    "condition_face_is_bottom",
+    "condition_exit_face_coord_local_norm",
+    "condition_final_dir_u",
+    "condition_final_dir_v"
+  ],
+  "model_family": "diagonal_gaussian",
+  "num_train": 449999,
+  "num_val": 50001,
+  "output_dim": 1,
+  "target_kind": "regression",
+  "target_names": [
+    "total_track_length_log10"
+  ],
+  "task": "track"
+}

@@ -1,0 +1,62 @@
+{
+  "base_feature_mean": [
+    -0.4984082281589508,
+    -0.500142514705658,
+    0.0,
+    0.5002733469009399,
+    0.5000746846199036,
+    0.0003070118837058544,
+    -0.8961198329925537,
+    0.30591046810150146,
+    0.25627827644348145
+  ],
+  "base_feature_names": [
+    "width_log10",
+    "height_log10",
+    "initial_pos_x_norm",
+    "initial_pos_y_norm",
+    "initial_dir_u",
+    "initial_dir_v",
+    "ballistic_length_log10",
+    "ballistic_face_coord_local_norm",
+    "scatter_before_exit_prob"
+  ],
+  "base_feature_std": [
+    0.865822970867157,
+    0.8669646978378296,
+    1.0,
+    0.2889194190502167,
+    0.28854450583457947,
+    0.5772891044616699,
+    0.8366106748580933,
+    0.30062445998191833,
+    0.30537816882133484
+  ],
+  "joint_target_mean": [
+    0.383405476808548,
+    -0.04927360266447067,
+    -0.0003476367855910212
+  ],
+  "joint_target_names": [
+    "exit_face_coord_local_norm",
+    "final_dir_u",
+    "final_dir_v"
+  ],
+  "joint_target_std": [
+    0.3108846843242645,
+    0.5883950591087341,
+    0.5809186100959778
+  ],
+  "sigma_t": 1.0,
+  "source": "boundary",
+  "track_target_mean": [
+    -0.9307100176811218
+  ],
+  "track_target_names": [
+    "total_track_length_log10"
+  ],
+  "track_target_std": [
+    0.83937007188797
+  ],
+  "version": 1
+}

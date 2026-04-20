@@ -1,0 +1,50 @@
+{
+  "device": "cpu",
+  "diagnostics": {
+    "direction_outward_reflect_fraction_given_scatter": 0.009809932556713672,
+    "direction_tiny_reset_fraction_given_scatter": 0.0,
+    "direction_unit_disk_clip_fraction_given_scatter": 0.2164316370324954,
+    "face_bottom_fraction": 0.2523193359375,
+    "face_left_fraction": 0.2513427734375,
+    "face_right_fraction": 0.244140625,
+    "face_top_fraction": 0.252197265625,
+    "joint_coord_clip_fraction_given_scatter": 0.06499080318822809,
+    "scatter_fraction_sampled": 0.1990966796875,
+    "scatter_probability_mean": 0.20067631463881302,
+    "track_lower_bound_clip_fraction_given_scatter": 0.19251992642550583
+  },
+  "face_sampling": "categorical",
+  "mean_ks_stat": 0.1074951171875,
+  "mean_wasserstein": 0.015265970372572596,
+  "metrics": {
+    "time": {
+      "ks_stat": 0.0081787109375,
+      "wasserstein": 0.04515070134462938
+    },
+    "u": {
+      "ks_stat": 0.0128173828125,
+      "wasserstein": 0.01126224673700435
+    },
+    "v": {
+      "ks_stat": 0.0150146484375,
+      "wasserstein": 0.010124656249487022
+    },
+    "x_out_norm": {
+      "ks_stat": 0.2467041015625,
+      "wasserstein": 0.004823434692517975
+    },
+    "y_out_norm": {
+      "ks_stat": 0.2547607421875,
+      "wasserstein": 0.004968812839224254
+    }
+  },
+  "model_batch_size": 512,
+  "num_samples": 8192,
+  "run_dir": "ml/hierarchical_steady_2d/runs/hier_internal_lhs_stochastic",
+  "runtime_seconds": 0.016046041040681303,
+  "samples_per_second": 510530.9140884619,
+  "sampling": "lhs",
+  "seed": 123,
+  "sigma_t": 1.0,
+  "source_type": "internal"
+}

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
+from pathlib import Path
 from typing import Dict, Optional, Tuple
 
 import numpy as np
@@ -188,6 +189,91 @@ class _StudentSteadyTargetSampler:
             conditions.to(self.device, dtype=torch.float32),
             noise.to(self.device, dtype=torch.float32),
         )
+
+
+class _HierarchicalSteadyTargetSampler:
+    """Adapter that exposes the legacy steady-2D sampler contract for the hierarchical add-on."""
+
+    def __init__(self, runtime_sampler, *, device: str, source_type: str, norm_params: Dict[str, float], cond_dim: int, target_dim: int):
+        self.runtime_sampler = runtime_sampler
+        self.device = str(device)
+        self.source_type = str(source_type)
+        self.norm_params = dict(norm_params)
+        self.cond_dim = int(cond_dim)
+        self.target_dim = int(target_dim)
+
+    @torch.inference_mode()
+    def sample_target(self, conditions: torch.Tensor, *, noise: torch.Tensor) -> torch.Tensor:
+        from ml.transform import (
+            denorm_angle_phi,
+            denorm_height,
+            denorm_log_feature,
+            denorm_position_relative,
+            denorm_radius_r,
+            denorm_width,
+            normalize_angle_phi,
+            normalize_log_feature,
+            normalize_position_relative,
+            normalize_radius_r,
+            polar_to_uv,
+            uv_to_polar,
+        )
+
+        cond_np = conditions.detach().cpu().numpy().astype(np.float64, copy=False)
+        if cond_np.ndim != 2 or cond_np.shape[1] != self.cond_dim:
+            raise ValueError(f"Expected conditions shape [batch, {self.cond_dim}], got {tuple(cond_np.shape)}")
+        if noise.ndim != 2 or noise.shape[0] != cond_np.shape[0]:
+            raise ValueError(f"Expected noise shape [batch, {self.target_dim}], got {tuple(noise.shape)}")
+
+        width = denorm_width(cond_np[:, 0], self.norm_params["width_lower"], self.norm_params["width_upper"])
+        height = denorm_height(cond_np[:, 1], self.norm_params["height_lower"], self.norm_params["height_upper"])
+        if self.source_type == "boundary":
+            y_rel = denorm_position_relative(cond_np[:, 2])
+            phi_in = denorm_angle_phi(cond_np[:, 3])
+            r_in = denorm_radius_r(cond_np[:, 4])
+            initial_x = np.zeros_like(width)
+            initial_y = y_rel * height
+        else:
+            x_rel = denorm_position_relative(cond_np[:, 2])
+            y_rel = denorm_position_relative(cond_np[:, 3])
+            phi_in = denorm_angle_phi(cond_np[:, 4])
+            r_in = denorm_radius_r(cond_np[:, 5])
+            initial_x = x_rel * width
+            initial_y = y_rel * height
+        initial_u, initial_v = polar_to_uv(phi_in, r_in)
+
+        noise_np = noise.detach().cpu().numpy()
+        seed = int(np.uint32(np.abs(np.sum(noise_np.astype(np.float64) * 1.0e6)) % (2**32 - 1)))
+        sampled = self.runtime_sampler.sample_batch(
+            width=width,
+            height=height,
+            initial_x=initial_x,
+            initial_y=initial_y,
+            initial_u=initial_u,
+            initial_v=initial_v,
+            sigma_t=np.ones_like(width, dtype=np.float64),
+            seed=seed,
+        )
+
+        x_rel_out = np.clip(sampled.x_out.astype(np.float64) / np.maximum(width, 1.0e-12), 0.0, 1.0)
+        y_rel_out = np.clip(sampled.y_out.astype(np.float64) / np.maximum(height, 1.0e-12), 0.0, 1.0)
+        phi_out, r_out = uv_to_polar(sampled.u_out.astype(np.float64), sampled.v_out.astype(np.float64))
+
+        target_np = np.stack(
+            [
+                normalize_position_relative(x_rel_out),
+                normalize_position_relative(y_rel_out),
+                normalize_angle_phi(phi_out),
+                normalize_radius_r(r_out),
+                normalize_log_feature(
+                    np.maximum(sampled.track_length.astype(np.float64), 1.0e-12),
+                    self.norm_params,
+                    "time",
+                ),
+            ],
+            axis=1,
+        ).astype(np.float32, copy=False)
+        return torch.from_numpy(target_np).to(self.device)
 
 
 def _coord_to_idx(coord: float, total_cells: int, domain_size: float) -> int:
@@ -520,20 +606,24 @@ def _normalize_steady_model_mode(model_mode: str) -> Tuple[str, Optional[int]]:
     normalized = str(model_mode).strip().lower().replace("-", "_")
     if normalized == "teacher":
         return normalized, None
+    if normalized in {"hierarchical", "hier"}:
+        return "hierarchical", None
     if normalized.startswith("student_"):
         suffix = normalized[len("student_") :]
         try:
             num_steps = int(suffix)
         except ValueError as exc:
             raise ValueError(
-                f"Unsupported steady GMC model_mode='{model_mode}'. Expected 'teacher' or 'student_<steps>'."
+                f"Unsupported steady GMC model_mode='{model_mode}'. Expected 'teacher', 'hierarchical', or 'student_<steps>'."
             ) from exc
         if num_steps not in {1, 2, 4}:
             raise ValueError(
                 f"Unsupported student step count in model_mode='{model_mode}'. Only student_1, student_2, and student_4 are supported."
             )
         return normalized, num_steps
-    raise ValueError(f"Unsupported steady GMC model_mode='{model_mode}'. Expected 'teacher' or 'student_<steps>'.")
+    raise ValueError(
+        f"Unsupported steady GMC model_mode='{model_mode}'. Expected 'teacher', 'hierarchical', or 'student_<steps>'."
+    )
 
 
 def _load_student_sampler(
@@ -594,6 +684,32 @@ def _load_student_sampler(
     ), int(config.cond_dim), int(config.target_dim)
 
 
+def _load_hierarchical_sampler(
+    *,
+    device: str,
+    source_type: str,
+    norm_params: Dict[str, float],
+    cond_dim: int,
+    target_dim: int,
+    run_dir: str,
+):
+    from ml.hierarchical_steady_2d.runtime import HierarchicalSteady2DSampler
+
+    runtime_sampler = HierarchicalSteady2DSampler.from_run_dir(
+        run_dir,
+        source_type=source_type,
+        device=device,
+    )
+    return _HierarchicalSteadyTargetSampler(
+        runtime_sampler,
+        device=device,
+        source_type=source_type,
+        norm_params=norm_params,
+        cond_dim=cond_dim,
+        target_dim=target_dim,
+    ), int(cond_dim), int(target_dim)
+
+
 def load_steady_gmc_models(
     device: Optional[str] = None,
     *,
@@ -601,12 +717,30 @@ def load_steady_gmc_models(
     train_sampling: str = "random",
     model_mode: str = "teacher",
     student_artifact_root: str = "ml/student_artifacts",
+    hierarchical_run_root: str = "ml/hierarchical_steady_2d/runs",
+    hierarchical_boundary_run: str = "hier_boundary_lhs_stochastic",
+    hierarchical_internal_run: str = "hier_internal_lhs_stochastic",
 ) -> SteadyModelBundle:
     from ml.utils import load_model, load_norm_params_for_data_dim
 
     scattering_mode = normalize_steady_2d_scattering_mode(scattering_mode)
     resolved_device = str(device or ("cuda" if torch.cuda.is_available() else "cpu"))
     normalized_model_mode, student_num_steps = _normalize_steady_model_mode(model_mode)
+    boundary_norm, _ = load_norm_params_for_data_dim(
+        "2d",
+        "boundary",
+        train_sampling=train_sampling,
+        scattering_mode=scattering_mode,
+    )
+    internal_norm, _ = load_norm_params_for_data_dim(
+        "2d",
+        "internal",
+        train_sampling=train_sampling,
+        scattering_mode=scattering_mode,
+    )
+    _assert_steady_2d_norm_mode(boundary_norm, scattering_mode, "Boundary")
+    _assert_steady_2d_norm_mode(internal_norm, scattering_mode, "Internal")
+
     if normalized_model_mode == "teacher":
         boundary_model, boundary_input_dim, boundary_cond_dim = load_model(
             resolved_device,
@@ -642,6 +776,39 @@ def load_steady_gmc_models(
         )
         boundary_target_dim = int(boundary_input_dim - boundary_cond_dim)
         internal_target_dim = int(internal_input_dim - internal_cond_dim)
+    elif normalized_model_mode == "hierarchical":
+        if scattering_mode != "isotropic":
+            raise ValueError("Hierarchical steady-2D runtime currently supports only isotropic scattering.")
+        from ml.utils import compute_model_dims
+
+        boundary_input_dim, boundary_cond_dim = compute_model_dims(
+            "2d",
+            "boundary",
+            train_sampling=train_sampling,
+            scattering_mode=scattering_mode,
+        )
+        internal_input_dim, internal_cond_dim = compute_model_dims(
+            "2d",
+            "internal",
+            train_sampling=train_sampling,
+            scattering_mode=scattering_mode,
+        )
+        boundary_sampler, boundary_cond_dim, boundary_target_dim = _load_hierarchical_sampler(
+            device=resolved_device,
+            source_type="boundary",
+            norm_params=boundary_norm,
+            cond_dim=boundary_cond_dim,
+            target_dim=int(boundary_input_dim - boundary_cond_dim),
+            run_dir=str(Path(hierarchical_run_root) / hierarchical_boundary_run),
+        )
+        internal_sampler, internal_cond_dim, internal_target_dim = _load_hierarchical_sampler(
+            device=resolved_device,
+            source_type="internal",
+            norm_params=internal_norm,
+            cond_dim=internal_cond_dim,
+            target_dim=int(internal_input_dim - internal_cond_dim),
+            run_dir=str(Path(hierarchical_run_root) / hierarchical_internal_run),
+        )
     else:
         boundary_sampler, boundary_cond_dim, boundary_target_dim = _load_student_sampler(
             device=resolved_device,
@@ -659,20 +826,6 @@ def load_steady_gmc_models(
             student_num_steps=int(student_num_steps),
             student_artifact_root=student_artifact_root,
         )
-    boundary_norm, _ = load_norm_params_for_data_dim(
-        "2d",
-        "boundary",
-        train_sampling=train_sampling,
-        scattering_mode=scattering_mode,
-    )
-    internal_norm, _ = load_norm_params_for_data_dim(
-        "2d",
-        "internal",
-        train_sampling=train_sampling,
-        scattering_mode=scattering_mode,
-    )
-    _assert_steady_2d_norm_mode(boundary_norm, scattering_mode, "Boundary")
-    _assert_steady_2d_norm_mode(internal_norm, scattering_mode, "Internal")
     return SteadyModelBundle(
         device=resolved_device,
         scattering_mode=scattering_mode,

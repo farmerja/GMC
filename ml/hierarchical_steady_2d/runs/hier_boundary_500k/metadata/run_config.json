@@ -1,0 +1,28 @@
+{
+  "batch_size": 4096,
+  "depth": 3,
+  "device": "cpu",
+  "distribution": 0,
+  "dropout": 0.0,
+  "epochs": 100,
+  "hidden_dim": 128,
+  "learning_rate": 0.001,
+  "max_height": 10.0,
+  "max_width": 10.0,
+  "min_height": 0.01,
+  "min_width": 0.01,
+  "num_neutrons": 500000,
+  "output_root": "ml/hierarchical_steady_2d/runs",
+  "run_name": "hier_boundary_500k",
+  "sampling": "lhs",
+  "seed": 0,
+  "sigma_t": 1.0,
+  "source": "boundary",
+  "tasks": [
+    "face",
+    "joint",
+    "track"
+  ],
+  "val_ratio": 0.1,
+  "weight_decay": 1e-05
+}

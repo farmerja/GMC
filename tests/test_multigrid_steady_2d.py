@@ -105,6 +105,8 @@ def test_anisotropic_scatter_sampler_is_forward_biased_and_zero_guarded():
 
 def test_normalize_steady_model_mode_accepts_teacher_and_supported_students():
     assert mg._normalize_steady_model_mode("teacher") == ("teacher", None)
+    assert mg._normalize_steady_model_mode("hierarchical") == ("hierarchical", None)
+    assert mg._normalize_steady_model_mode("hier") == ("hierarchical", None)
     assert mg._normalize_steady_model_mode("student_4") == ("student_4", 4)
     assert mg._normalize_steady_model_mode("student-2") == ("student_2", 2)
 

@@ -246,6 +246,9 @@ def test_anisotropic_56x56_driver_main_smoke_with_stubs(tmp_path, monkeypatch):
 def test_distilled_lattice_driver_main_smoke_with_stubs(tmp_path, monkeypatch):
     seen_modes = []
     seen_artifact_roots = []
+    seen_hier_roots = []
+    seen_hier_boundary = []
+    seen_hier_internal = []
     problem = mg.build_rect_lattice_problem(refinement=1)
     hierarchy = mg.make_single_level_hierarchy(problem)
 
@@ -259,6 +262,9 @@ def test_distilled_lattice_driver_main_smoke_with_stubs(tmp_path, monkeypatch):
     def fake_load_models(*_args, **kwargs):
         seen_modes.append(kwargs.get("model_mode"))
         seen_artifact_roots.append(kwargs.get("student_artifact_root"))
+        seen_hier_roots.append(kwargs.get("hierarchical_run_root"))
+        seen_hier_boundary.append(kwargs.get("hierarchical_boundary_run"))
+        seen_hier_internal.append(kwargs.get("hierarchical_internal_run"))
         return object()
 
     monkeypatch.setattr(distilled_driver, "load_steady_gmc_models", fake_load_models)
@@ -297,8 +303,11 @@ def test_distilled_lattice_driver_main_smoke_with_stubs(tmp_path, monkeypatch):
                 "device": "cpu",
                 "train_sampling": "random",
                 "scattering_mode": "isotropic",
-                "model_modes": ["teacher", "student_2"],
+                "model_modes": ["teacher", "hierarchical", "student_2"],
                 "student_artifact_root": str(tmp_path / "students"),
+                "hierarchical_run_root": str(tmp_path / "hier_runs"),
+                "hierarchical_boundary_run": "boundary_run",
+                "hierarchical_internal_run": "internal_run",
                 "seed": 1,
                 "output_dir": str(tmp_path),
             },
@@ -309,7 +318,11 @@ def test_distilled_lattice_driver_main_smoke_with_stubs(tmp_path, monkeypatch):
     assert (Path(tmp_path) / "summary.json").exists()
     payload = np.load(Path(tmp_path) / "steady2d_distilled_lattice_results.npz")
     assert "teacher_flux" in payload.files
+    assert "hierarchical_flux" in payload.files
     assert "student_2_flux" in payload.files
     assert "mc_flux" in payload.files
-    assert seen_modes == ["teacher", "student_2"]
+    assert seen_modes == ["teacher", "hierarchical", "student_2"]
     assert all(root == str(tmp_path / "students") for root in seen_artifact_roots)
+    assert seen_hier_roots == [None, str(tmp_path / "hier_runs"), None]
+    assert seen_hier_boundary == [None, "boundary_run", None]
+    assert seen_hier_internal == [None, "internal_run", None]

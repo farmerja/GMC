@@ -1,0 +1,22 @@
+{
+  "best": {
+    "accuracy": 0.444,
+    "accuracy_face_0": 0.6789577187807276,
+    "accuracy_face_1": 0.18501984126984128,
+    "accuracy_face_2": 0.35923309788092833,
+    "accuracy_face_3": 0.3066184074457084,
+    "epoch": 18,
+    "loss": 1.0521996606826782
+  },
+  "best_val_loss": 1.0521996606826782,
+  "final": {
+    "accuracy": 0.4459,
+    "accuracy_face_0": 0.7227138643067846,
+    "accuracy_face_1": 0.15476190476190477,
+    "accuracy_face_2": 0.33249243188698285,
+    "accuracy_face_3": 0.28335056876938985,
+    "loss": 1.0526174764633178
+  },
+  "final_val_loss": 1.0526174764633178,
+  "task": "face"
+}

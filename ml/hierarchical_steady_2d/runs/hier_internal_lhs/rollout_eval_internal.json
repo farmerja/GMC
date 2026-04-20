@@ -1,0 +1,45 @@
+{
+  "device": "cpu",
+  "diagnostics": {
+    "face_bottom_fraction": 0.25341796875,
+    "face_left_fraction": 0.2528076171875,
+    "face_right_fraction": 0.2445068359375,
+    "face_top_fraction": 0.249267578125,
+    "scatter_fraction_sampled": 0.1990966796875,
+    "scatter_probability_mean": 0.20067631463881302
+  },
+  "face_sampling": "categorical",
+  "mean_ks_stat": 0.116015625,
+  "mean_wasserstein": 0.03647586734701369,
+  "metrics": {
+    "time": {
+      "ks_stat": 0.0101318359375,
+      "wasserstein": 0.10186575005786994
+    },
+    "u": {
+      "ks_stat": 0.035888671875,
+      "wasserstein": 0.030164470299148337
+    },
+    "v": {
+      "ks_stat": 0.040283203125,
+      "wasserstein": 0.035322267989637494
+    },
+    "x_out_norm": {
+      "ks_stat": 0.2445068359375,
+      "wasserstein": 0.008708672817327406
+    },
+    "y_out_norm": {
+      "ks_stat": 0.249267578125,
+      "wasserstein": 0.006318175571085287
+    }
+  },
+  "model_batch_size": 512,
+  "num_samples": 8192,
+  "run_dir": "ml/hierarchical_steady_2d/runs/hier_internal_lhs",
+  "runtime_seconds": 0.015447000041604042,
+  "samples_per_second": 530329.5123930956,
+  "sampling": "lhs",
+  "seed": 123,
+  "sigma_t": 1.0,
+  "source_type": "internal"
+}

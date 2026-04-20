@@ -24,6 +24,17 @@ from scipy.stats import qmc
 
 from .mc1d import simulate_cell_with_random_thickness, simulate_internal_source_cell
 from .mc1dtime import simulate_cell_1d_time_dependent, SRC_INTERNAL as SRC1D_INTERNAL, SRC_BOUNDARY_X0 as SRC1D_BOUNDARY
+from .hierarchical_steady_2d import (
+    FACE_BOTTOM as HIER2D_FACE_BOTTOM,
+    FACE_LEFT as HIER2D_FACE_LEFT,
+    FACE_NAMES as HIER2D_FACE_NAMES,
+    FACE_RIGHT as HIER2D_FACE_RIGHT,
+    FACE_TOP as HIER2D_FACE_TOP,
+    SRC_BOUNDARY_X0 as HIER2D_BOUNDARY,
+    SRC_INTERNAL as HIER2D_INTERNAL,
+    simulate_hierarchical_steady_2d_gate,
+    simulate_hierarchical_steady_2d_scattered_only,
+)
 from .mc2d import simulate_single_cell_2d_boundary_source, simulate_single_cell_2d_internal_source
 from .mc2dtimetriangle import (
     simulate_single_cell_2d_triangle_timedep_internal,
@@ -103,6 +114,39 @@ def _print_budget_exit_stats(df: pd.DataFrame, num_neutrons: int) -> None:
     print(f"  Time-like exits: {n_time} ({100*n_time/num_neutrons:.1f}%)")
     print(f"  Absorbed: {n_abs} ({100*n_abs/num_neutrons:.1f}%)")
     print(f"  Total exited (space+time): {n_exited} ({100*n_exited/num_neutrons:.1f}%)")
+
+
+def _append_face_local_features(
+    df: pd.DataFrame,
+    *,
+    face_col: str,
+    coord_col: str,
+    prefix: str,
+) -> None:
+    eps = 1e-12
+    face = df[face_col].to_numpy(dtype=np.int64, copy=False)
+    face_length = np.where(
+        (face == HIER2D_FACE_LEFT) | (face == HIER2D_FACE_RIGHT),
+        df["height"].to_numpy(dtype=np.float64, copy=False),
+        df["width"].to_numpy(dtype=np.float64, copy=False),
+    )
+    face_name_map = dict(enumerate(HIER2D_FACE_NAMES))
+    df[f"{prefix}_face_name"] = df[face_col].astype(np.int64).map(face_name_map)
+    df[f"{prefix}_face_length"] = face_length
+    df[f"{prefix}_face_coord_local_norm"] = (df[coord_col] / (face_length + eps)).clip(0.0, 1.0)
+
+
+def _append_exit_direction_compatibility(df: pd.DataFrame, *, face_col: str, u_col: str, v_col: str, out_col: str) -> None:
+    face = df[face_col].to_numpy(dtype=np.int64, copy=False)
+    u = df[u_col].to_numpy(dtype=np.float64, copy=False)
+    v = df[v_col].to_numpy(dtype=np.float64, copy=False)
+    compatible = (
+        ((face == HIER2D_FACE_LEFT) & (u < 0.0))
+        | ((face == HIER2D_FACE_RIGHT) & (u > 0.0))
+        | ((face == HIER2D_FACE_TOP) & (v > 0.0))
+        | ((face == HIER2D_FACE_BOTTOM) & (v < 0.0))
+    )
+    df[out_col] = compatible.astype(np.int64)
 
 
 # ---------------------------------------------------------------------------
@@ -365,6 +409,193 @@ def get_2d_internal_source_simulation_data(
     df["initial_pos_y_norm"] = (df["initial_pos_y"] / (df["height"] + eps)).clip(0.0, 1.0)
     df["final_pos_x_norm"] = (df["final_pos_x"] / (df["width"] + eps)).clip(0.0, 1.0)
     df["final_pos_y_norm"] = (df["final_pos_y"] / (df["height"] + eps)).clip(0.0, 1.0)
+    return df
+
+
+# ---------------------------------------------------------------------------
+# 2D steady-state hierarchical add-on
+# ---------------------------------------------------------------------------
+
+def get_2d_hierarchical_steady_gate_data(
+    *,
+    source: Literal["internal", "boundary"] = "internal",
+    num_neutrons: int = 500000,
+    sigma_t: float = 1.0,
+    distribution: int = 0,
+    min_width: float = 0.01,
+    max_width: float = 10.0,
+    min_height: float = 0.01,
+    max_height: float = 10.0,
+    sampling: str = 'random',
+) -> pd.DataFrame:
+    """Hierarchical steady-2D add-on: exact ballistic metadata and scatter gate."""
+    if source not in {"internal", "boundary"}:
+        raise ValueError(f"Unsupported source={source!r}. Use 'internal' or 'boundary'.")
+    src_flag = HIER2D_INTERNAL if source == "internal" else HIER2D_BOUNDARY
+
+    print(f"Generating 2D hierarchical steady gate data ({num_neutrons} neutrons, source={source})...")
+    cond_dims = 6 if source == "internal" else 5
+    cond_samples = _generate_cond_samples(num_neutrons, cond_dims, sampling)
+    start_time = time.time()
+    results = simulate_hierarchical_steady_2d_gate(
+        num_neutrons=num_neutrons,
+        sigma_t=sigma_t,
+        distribution=distribution,
+        min_width=min_width,
+        max_width=max_width,
+        min_height=min_height,
+        max_height=max_height,
+        cond_samples=cond_samples,
+        source_type=src_flag,
+    )
+    end_time = time.time()
+    print(f"2D Hierarchical steady gate data generation took {end_time - start_time:.2f} seconds.")
+
+    df = pd.DataFrame(
+        data=results,
+        columns=[
+            "width",
+            "height",
+            "initial_pos_x",
+            "initial_pos_y",
+            "initial_dir_u",
+            "initial_dir_v",
+            "ballistic_length",
+            "ballistic_face",
+            "ballistic_exit_x",
+            "ballistic_exit_y",
+            "ballistic_face_coord_local",
+            "scatter_before_exit_prob",
+            "scatter_before_exit",
+        ],
+    )
+
+    eps = 1e-12
+    df["source_type"] = source
+    df["sigma_t"] = float(sigma_t)
+    df["ballistic_optical_length"] = df["sigma_t"] * df["ballistic_length"]
+    df["ballistic_face"] = df["ballistic_face"].astype(np.int64)
+    df["scatter_before_exit"] = df["scatter_before_exit"].astype(np.int64)
+    df["initial_pos_x_norm"] = (df["initial_pos_x"] / (df["width"] + eps)).clip(0.0, 1.0)
+    df["initial_pos_y_norm"] = (df["initial_pos_y"] / (df["height"] + eps)).clip(0.0, 1.0)
+    df["ballistic_exit_x_norm"] = (df["ballistic_exit_x"] / (df["width"] + eps)).clip(0.0, 1.0)
+    df["ballistic_exit_y_norm"] = (df["ballistic_exit_y"] / (df["height"] + eps)).clip(0.0, 1.0)
+    _append_face_local_features(
+        df,
+        face_col="ballistic_face",
+        coord_col="ballistic_face_coord_local",
+        prefix="ballistic",
+    )
+    return df
+
+
+def get_2d_hierarchical_steady_scattered_only_data(
+    *,
+    source: Literal["internal", "boundary"] = "internal",
+    num_neutrons: int = 500000,
+    sigma_t: float = 1.0,
+    distribution: int = 0,
+    min_width: float = 0.01,
+    max_width: float = 10.0,
+    min_height: float = 0.01,
+    max_height: float = 10.0,
+    sampling: str = 'random',
+) -> pd.DataFrame:
+    """Hierarchical steady-2D add-on: scattered-only data conditioned on first scatter."""
+    if sigma_t <= 0.0:
+        raise ValueError("sigma_t must be positive for scattered-only conditioned data.")
+    if source not in {"internal", "boundary"}:
+        raise ValueError(f"Unsupported source={source!r}. Use 'internal' or 'boundary'.")
+
+    src_flag = HIER2D_INTERNAL if source == "internal" else HIER2D_BOUNDARY
+
+    print(f"Generating 2D hierarchical steady scattered-only data ({num_neutrons} neutrons, source={source})...")
+    cond_dims = 6 if source == "internal" else 5
+    cond_samples = _generate_cond_samples(num_neutrons, cond_dims, sampling)
+    start_time = time.time()
+    results = simulate_hierarchical_steady_2d_scattered_only(
+        num_neutrons=num_neutrons,
+        sigma_t=sigma_t,
+        distribution=distribution,
+        min_width=min_width,
+        max_width=max_width,
+        min_height=min_height,
+        max_height=max_height,
+        cond_samples=cond_samples,
+        source_type=src_flag,
+    )
+    end_time = time.time()
+    print(f"2D Hierarchical steady scattered-only data generation took {end_time - start_time:.2f} seconds.")
+
+    df = pd.DataFrame(
+        data=results,
+        columns=[
+            "width",
+            "height",
+            "initial_pos_x",
+            "initial_pos_y",
+            "initial_dir_u",
+            "initial_dir_v",
+            "ballistic_length",
+            "ballistic_face",
+            "ballistic_exit_x",
+            "ballistic_exit_y",
+            "ballistic_face_coord_local",
+            "scatter_before_exit_prob",
+            "first_scatter_distance",
+            "first_scatter_pos_x",
+            "first_scatter_pos_y",
+            "first_scatter_out_dir_u",
+            "first_scatter_out_dir_v",
+            "num_scatters",
+            "total_track_length",
+            "final_pos_x",
+            "final_pos_y",
+            "exit_face",
+            "exit_face_coord_local",
+            "final_dir_u",
+            "final_dir_v",
+        ],
+    )
+
+    eps = 1e-12
+    df["source_type"] = source
+    df["sigma_t"] = float(sigma_t)
+    df["ballistic_optical_length"] = df["sigma_t"] * df["ballistic_length"]
+    df["ballistic_face"] = df["ballistic_face"].astype(np.int64)
+    df["exit_face"] = df["exit_face"].astype(np.int64)
+    df["num_scatters"] = df["num_scatters"].astype(np.int64)
+    df["scatter_before_exit"] = 1
+    df["initial_pos_x_norm"] = (df["initial_pos_x"] / (df["width"] + eps)).clip(0.0, 1.0)
+    df["initial_pos_y_norm"] = (df["initial_pos_y"] / (df["height"] + eps)).clip(0.0, 1.0)
+    df["first_scatter_pos_x_norm"] = (df["first_scatter_pos_x"] / (df["width"] + eps)).clip(0.0, 1.0)
+    df["first_scatter_pos_y_norm"] = (df["first_scatter_pos_y"] / (df["height"] + eps)).clip(0.0, 1.0)
+    df["final_pos_x_norm"] = (df["final_pos_x"] / (df["width"] + eps)).clip(0.0, 1.0)
+    df["final_pos_y_norm"] = (df["final_pos_y"] / (df["height"] + eps)).clip(0.0, 1.0)
+    df["ballistic_exit_x_norm"] = (df["ballistic_exit_x"] / (df["width"] + eps)).clip(0.0, 1.0)
+    df["ballistic_exit_y_norm"] = (df["ballistic_exit_y"] / (df["height"] + eps)).clip(0.0, 1.0)
+    df["first_scatter_distance_frac_ballistic"] = (
+        df["first_scatter_distance"] / (df["ballistic_length"] + eps)
+    ).clip(0.0, 1.0)
+    _append_face_local_features(
+        df,
+        face_col="ballistic_face",
+        coord_col="ballistic_face_coord_local",
+        prefix="ballistic",
+    )
+    _append_face_local_features(
+        df,
+        face_col="exit_face",
+        coord_col="exit_face_coord_local",
+        prefix="exit",
+    )
+    _append_exit_direction_compatibility(
+        df,
+        face_col="exit_face",
+        u_col="final_dir_u",
+        v_col="final_dir_v",
+        out_col="final_dir_outward_compatible",
+    )
     return df
 
 

@@ -1,0 +1,24 @@
+{
+  "best": {
+    "avg_pred_std_exit_face_coord_local_norm": 0.5022076368331909,
+    "avg_pred_std_final_dir_u": 0.5602112412452698,
+    "avg_pred_std_final_dir_v": 0.7124347686767578,
+    "epoch": 19,
+    "loss": 0.767425634765625,
+    "mae_exit_face_coord_local_norm": 0.11380502581596375,
+    "mae_final_dir_u": 0.2787226438522339,
+    "mae_final_dir_v": 0.3500480353832245
+  },
+  "best_val_loss": 0.767425634765625,
+  "final": {
+    "avg_pred_std_exit_face_coord_local_norm": 0.5068843364715576,
+    "avg_pred_std_final_dir_u": 0.5638945698738098,
+    "avg_pred_std_final_dir_v": 0.7078011631965637,
+    "loss": 0.772266277217865,
+    "mae_exit_face_coord_local_norm": 0.11345036327838898,
+    "mae_final_dir_u": 0.2790266275405884,
+    "mae_final_dir_v": 0.3495234251022339
+  },
+  "final_val_loss": 0.772266277217865,
+  "task": "joint"
+}

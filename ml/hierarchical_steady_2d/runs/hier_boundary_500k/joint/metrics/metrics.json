@@ -1,0 +1,26 @@
+{
+  "best": {
+    "avg_pred_std_exit_face_coord_local_norm": 0.48254069685935974,
+    "avg_pred_std_final_dir_u": 0.5553745031356812,
+    "avg_pred_std_final_dir_v": 0.7108355760574341,
+    "epoch": 86,
+    "gaussian_nll": 0.7524060110984231,
+    "loss": 0.7524060110984231,
+    "mae_exit_face_coord_local_norm": 0.10783633589744568,
+    "mae_final_dir_u": 0.27863338589668274,
+    "mae_final_dir_v": 0.34918496012687683
+  },
+  "best_val_loss": 0.7524060110984231,
+  "final": {
+    "avg_pred_std_exit_face_coord_local_norm": 0.4632914066314697,
+    "avg_pred_std_final_dir_u": 0.5584042072296143,
+    "avg_pred_std_final_dir_v": 0.7164519429206848,
+    "gaussian_nll": 0.7593439105727602,
+    "loss": 0.7593439105727602,
+    "mae_exit_face_coord_local_norm": 0.10715455561876297,
+    "mae_final_dir_u": 0.2784765958786011,
+    "mae_final_dir_v": 0.3491302728652954
+  },
+  "final_val_loss": 0.7593439105727602,
+  "task": "joint"
+}
