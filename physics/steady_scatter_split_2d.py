@@ -5,19 +5,20 @@ from pathlib import Path
 import math
 
 import numpy as np
+import scipy.special
 import torch
 
 from flow_matching.solver import ODESolver
 
 from ml.model import WrappedModel, get_model
 from ml.transform import (
-    denorm_angle_phi,
     denorm_log_feature,
     denorm_position_relative,
     denorm_radius_r,
     load_normalization_params,
     normalize_angle_phi,
     normalize_height,
+    normalize_log_feature,
     normalize_position_relative,
     normalize_radius_r,
     normalize_width,
@@ -67,6 +68,14 @@ DEFAULT_MATERIAL_PROPERTIES: dict[int, dict[str, float]] = {
 }
 
 OPPOSITE_FACE = np.array([FACE_RIGHT, FACE_LEFT, FACE_BOTTOM, FACE_TOP], dtype=np.int64)
+_SCATTER_SPLIT_REQUIRED_NORM_KEYS = (
+    "time_prime_center",
+    "time_prime_scale",
+    "width_lower",
+    "width_upper",
+    "height_lower",
+    "height_upper",
+)
 
 
 @dataclass(frozen=True)
@@ -126,14 +135,14 @@ DEFAULT_BOUNDARY_MODEL_SPEC = Steady2DModelSpec(
     source_type="boundary",
     model_dir="ml/models/2d_boundary_scatter_split",
     norm_base_path="ml/data/norm_params_2d_boundary_scatter_split.npz",
-    input_dim=10,
+    input_dim=11,  # 5 cond + 6 target
     cond_dim=5,
 )
 DEFAULT_INTERNAL_MODEL_SPEC = Steady2DModelSpec(
     source_type="internal",
     model_dir="ml/models/2d_internal_scatter_split",
     norm_base_path="ml/data/norm_params_2d_internal_scatter_split.npz",
-    input_dim=11,
+    input_dim=12,  # 6 cond + 6 target
     cond_dim=6,
 )
 
@@ -277,6 +286,71 @@ def _infer_architecture(state_dict: dict[str, torch.Tensor]) -> tuple[int, int, 
     ff_shape = state_dict["blocks.0.ff.0.weight"].shape
     expansion_factor = max(1, int(ff_shape[0] // max(ff_shape[1], 1)))
     return hidden_dim, depth, expansion_factor
+
+
+def _validate_scatter_split_norm_params(
+    norm_params: dict[str, float],
+    *,
+    norm_path: str,
+    spec: Steady2DModelSpec,
+) -> None:
+    missing = [key for key in _SCATTER_SPLIT_REQUIRED_NORM_KEYS if key not in norm_params]
+    if not missing:
+        return
+    missing_str = ", ".join(missing)
+    raise ValueError(
+        f"Normalization metadata '{norm_path}' is incompatible with the current "
+        f"{spec.source_type} scatter-split model. Missing keys: {missing_str}. "
+        "These files were likely generated before the sin/cos + time_prime target update. "
+        "Retrain with ml/train_scatter_split_2d.py to regenerate the normalization metadata "
+        "and overwrite the scatter-split checkpoints."
+    )
+
+
+def _sample_scatter_split_source_noise(
+    cond: torch.Tensor,
+    norm_params: dict[str, float],
+    *,
+    generator: torch.Generator | None = None,
+    np_rng: np.random.Generator | None = None,
+) -> torch.Tensor:
+    batch_size = cond.shape[0]
+    device = cond.device
+    rand_kwargs = {"device": device}
+    if generator is not None:
+        rand_kwargs["generator"] = generator
+
+    noise_pos = torch.randn(batch_size, 2, **rand_kwargs)
+    noise_phi = torch.randn(batch_size, 2, **rand_kwargs)
+
+    u_r = torch.rand(batch_size, **rand_kwargs).clamp(1.0e-6, 1.0 - 1.0e-6)
+    r0 = u_r.sqrt().clamp(1.0e-6, 1.0 - 1.0e-6)
+    noise_r = torch.from_numpy(
+        (np.sqrt(2.0) * scipy.special.erfinv(2.0 * r0.detach().cpu().numpy() - 1.0)).astype(np.float32)
+    ).to(device).unsqueeze(1)
+
+    from ml.transform import denorm_height, denorm_width
+
+    width_mfp = denorm_width(
+        cond[:, 0],
+        norm_params["width_lower"],
+        norm_params["width_upper"],
+    ).clamp(min=1.0e-6)
+    height_mfp = denorm_height(
+        cond[:, 1],
+        norm_params["height_lower"],
+        norm_params["height_upper"],
+    ).clamp(min=1.0e-6)
+    alpha_np = torch.minimum(width_mfp, height_mfp).clamp(min=2.0).detach().cpu().numpy().astype(np.float64)
+    if np_rng is None:
+        np_rng = np.random.default_rng()
+    gamma_samples = np_rng.gamma(shape=alpha_np, scale=1.0).astype(np.float64, copy=False)
+    gamma_samples = np.clip(gamma_samples, 1.0e-12, None)
+    noise_l = torch.from_numpy(
+        normalize_log_feature(gamma_samples, norm_params, "time_prime").astype(np.float32)
+    ).to(device).unsqueeze(1)
+
+    return torch.cat([noise_pos, noise_phi, noise_r, noise_l], dim=1)
 
 
 def _build_time_grid(num_steps: int, device: str) -> tuple[torch.Tensor, torch.Tensor | None]:
@@ -536,6 +610,15 @@ class SteadyScatterModel:
         self.batch_size = int(batch_size)
 
         checkpoint_path = _resolve_model_checkpoint(spec)
+        self.norm_params, self.norm_path = load_normalization_params(
+            spec.norm_base_path,
+            train_sampling=spec.train_sampling,
+        )
+        _validate_scatter_split_norm_params(
+            self.norm_params,
+            norm_path=self.norm_path,
+            spec=spec,
+        )
         checkpoint = torch.load(checkpoint_path, map_location="cpu")
         state_dict = _normalize_state_dict_keys(_extract_state_dict(checkpoint))
         hidden_dim, depth, expansion_factor = _infer_architecture(state_dict)
@@ -546,12 +629,22 @@ class SteadyScatterModel:
             depth=depth,
             expansion_factor=expansion_factor,
         ).to(self.device)
-        model.load_state_dict(state_dict, strict=True)
+        try:
+            model.load_state_dict(state_dict, strict=True)
+        except RuntimeError as exc:
+            raise RuntimeError(
+                f"Checkpoint '{checkpoint_path}' is incompatible with the current "
+                f"{spec.source_type} scatter-split architecture "
+                f"(input_dim={spec.input_dim}, cond_dim={spec.cond_dim}, "
+                f"target_dim={spec.input_dim - spec.cond_dim}). "
+                "This usually means the checkpoint was trained before the sin/cos + "
+                "time_prime target update. Retrain with ml/train_scatter_split_2d.py "
+                "to overwrite the scatter-split checkpoint."
+            ) from exc
         model.eval()
 
         self.model = model
         self.solver = ODESolver(velocity_model=WrappedModel(model).to(self.device))
-        self.norm_params, self.norm_path = load_normalization_params(spec.norm_base_path, train_sampling=spec.train_sampling)
         self.target_dim = spec.input_dim - spec.cond_dim
         self.time_grid, self.step_size = _build_time_grid(num_ode_steps, self.device)
         self.checkpoint_path = str(checkpoint_path)
@@ -561,6 +654,7 @@ class SteadyScatterModel:
             return np.zeros((0, self.target_dim), dtype=np.float32)
 
         generator = None
+        np_rng = np.random.default_rng(seed)
         if self.device != "mps":
             generator = torch.Generator(device=self.device)
             if seed is None:
@@ -574,10 +668,12 @@ class SteadyScatterModel:
             for start in range(0, cond_np.shape[0], self.batch_size):
                 stop = min(start + self.batch_size, cond_np.shape[0])
                 batch_cond = torch.from_numpy(cond_np[start:stop]).to(self.device)
-                if generator is None:
-                    noise = torch.randn(batch_cond.shape[0], self.target_dim, device=self.device)
-                else:
-                    noise = torch.randn(batch_cond.shape[0], self.target_dim, device=self.device, generator=generator)
+                noise = _sample_scatter_split_source_noise(
+                    batch_cond,
+                    self.norm_params,
+                    generator=generator,
+                    np_rng=np_rng,
+                )
                 x_init = torch.cat([batch_cond, noise], dim=1)
                 out = self.solver.sample(
                     time_grid=self.time_grid,
@@ -629,16 +725,19 @@ class SteadyScatterModel:
         x_pred = denorm_position_relative(pred[:, 0]) * width_arr
         y_pred = denorm_position_relative(pred[:, 1]) * height_arr
         face, x_snap, y_snap, pos_on_face = _classify_face_and_snap_numpy(x_pred, y_pred, width_arr, height_arr)
-        phi_out = denorm_angle_phi(pred[:, 2])
-        r_out = denorm_radius_r(pred[:, 3])
+        sin_phi_out = pred[:, 2]
+        cos_phi_out = pred[:, 3]
+        phi_out = np.arctan2(sin_phi_out, cos_phi_out)
+        phi_out = np.where(phi_out < 0, phi_out + 2.0 * np.pi, phi_out)
+        r_out = denorm_radius_r(pred[:, 4])
         u_pred, v_pred = polar_to_uv(phi_out, r_out)
         u_out, v_out, direction_diag = _enforce_outward_numpy(face, u_pred, v_pred)
-
-        track_length = denorm_log_feature(pred[:, 4], self.norm_params, "time") / sigma_s_arr
+        # L = d(entry,exit) + L_prime
+        L_prime = denorm_log_feature(pred[:, 5], self.norm_params, "time_prime") / sigma_s_arr
         straight_line = np.sqrt(np.maximum((x_snap - x0) ** 2 + (y_snap - y0) ** 2, 0.0))
+        track_length = L_prime + straight_line
         track_clip = track_length < straight_line
         track_length = np.maximum(track_length, straight_line)
-
         diagnostics = {
             **direction_diag,
             "track_lower_bound_clip_fraction": float(np.mean(track_clip)) if track_clip.size else 0.0,
@@ -701,16 +800,19 @@ class SteadyScatterModel:
         x_model = denorm_position_relative(pred[:, 0]) * width_m
         y_model = denorm_position_relative(pred[:, 1]) * height_m
         face_model, x_model, y_model, _coord_model = _classify_face_and_snap_numpy(x_model, y_model, width_m, height_m)
-        phi_out = denorm_angle_phi(pred[:, 2])
-        r_out = denorm_radius_r(pred[:, 3])
+        sin_phi_out = pred[:, 2]
+        cos_phi_out = pred[:, 3]
+        phi_out = np.arctan2(sin_phi_out, cos_phi_out)
+        phi_out = np.where(phi_out < 0, phi_out + 2.0 * np.pi, phi_out)
+        r_out = denorm_radius_r(pred[:, 4])
         u_model, v_model = polar_to_uv(phi_out, r_out)
         u_model, v_model, direction_diag = _enforce_outward_numpy(face_model, u_model, v_model)
-
-        track_length = denorm_log_feature(pred[:, 4], self.norm_params, "time") / sigma_s_arr
+        # L = d(entry,exit) + L_prime
+        L_prime = denorm_log_feature(pred[:, 5], self.norm_params, "time_prime") / sigma_s_arr
         straight_line = np.sqrt(np.maximum(x_model * x_model + (y_model - y_entry) ** 2, 0.0))
+        track_length = L_prime + straight_line
         track_clip = track_length < straight_line
         track_length = np.maximum(track_length, straight_line)
-
         x_phys, y_phys, u_phys, v_phys = _from_boundary_model_frame(
             entry_face_arr,
             width_arr,
@@ -722,7 +824,6 @@ class SteadyScatterModel:
         )
         face_phys, x_snap, y_snap, pos_on_face = _classify_face_and_snap_numpy(x_phys, y_phys, width_arr, height_arr)
         u_out, v_out, post_diag = _enforce_outward_numpy(face_phys, u_phys, v_phys)
-
         diagnostics = {
             **direction_diag,
             **{f"physical_{key}": value for key, value in post_diag.items()},
