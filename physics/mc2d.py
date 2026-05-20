@@ -370,13 +370,9 @@ def multi_cell_mc_boundary_source_2d_njit(
             if 0 <= ix < num_cells_x and 0 <= iy < num_cells_y:
                 sigma_t = sigma_t_per_cell[iy, ix]
                 sigma_a = sigma_a_per_cell[iy, ix]
-                sigma_s = sigma_t - sigma_a
-                if sigma_s < 0.0:
-                    sigma_s = 0.0
             else:
                 sigma_t = 1.0
                 sigma_a = 0.0
-                sigma_s = 1.0
                 warning_flags += 2
 
             dist_boundary = np.inf
@@ -394,7 +390,7 @@ def multi_cell_mc_boundary_source_2d_njit(
                 if dist_y > epsilon:
                     dist_boundary = min(dist_boundary, dist_y)
 
-            free_path = -np.log(1.0 - np.random.rand()) / sigma_s if sigma_s > epsilon else np.inf
+            free_path = -np.log(1.0 - np.random.rand()) / sigma_t if sigma_t > epsilon else np.inf
             travel_dist = min(free_path, dist_boundary)
             travel_dist = max(travel_dist, epsilon)
 
@@ -645,6 +641,171 @@ def multi_cell_mc_internal_source_2d_njit(
     return energy_deposited, track_length, stats
 
 
+@njit
+def multi_cell_mc_internal_source_weighted_bank_2d_njit(
+    num_cells_x, num_cells_y, cell_widths, cell_heights,
+    cell_boundaries_x, cell_boundaries_y, total_width, total_height,
+    start_ix_arr, start_iy_arr,
+    start_rx_arr, start_ry_arr,
+    start_dir_unit_mu_arr, start_dir_unit_phi_arr,
+    start_weight_arr, particle_seed_arr,
+    sigma_t_per_cell, sigma_a_per_cell,
+    energy_threshold,
+    reflected_boundaries
+):
+    """2D multi-cell MC, internal source from a fixed weighted particle bank."""
+    energy_deposited = np.zeros((num_cells_y, num_cells_x), dtype=np.float64)
+    track_length = np.zeros((num_cells_y, num_cells_x), dtype=np.float64)
+    exited_left, exited_right, exited_bottom, exited_top = 0, 0, 0, 0
+    absorbed = 0
+    travel_steps = 0
+    boundary_reflections = 0
+    epsilon = 1e-9
+    boundary_epsilon = epsilon * 10.0
+    warning_flags = 0
+    num_particles = start_weight_arr.shape[0]
+
+    for p in range(num_particles):
+        energy = start_weight_arr[p]
+        if energy <= energy_threshold:
+            continue
+
+        np.random.seed(int(particle_seed_arr[p]))
+
+        start_ix = start_ix_arr[p]
+        start_iy = start_iy_arr[p]
+        particle_rx = start_rx_arr[p]
+        particle_ry = start_ry_arr[p]
+
+        start_pos_x = cell_boundaries_x[start_ix] + particle_rx * cell_widths[start_ix]
+        start_pos_y = cell_boundaries_y[start_iy] + particle_ry * cell_heights[start_iy]
+        pos = np.array([start_pos_x, start_pos_y], dtype=np.float64)
+
+        u0, v0 = _sample_isotropic_dir_uv_from_unit(
+            start_dir_unit_mu_arr[p],
+            start_dir_unit_phi_arr[p],
+            epsilon,
+        )
+        direction = np.array([u0, v0], dtype=np.float64)
+
+        finished = False
+        max_steps_per_particle = 1000000
+        steps_this_particle = 0
+
+        while not finished and steps_this_particle < max_steps_per_particle:
+            ix, iy = find_cell_indices_2d_njit(
+                pos, cell_boundaries_x, cell_boundaries_y, num_cells_x, num_cells_y
+            )
+
+            if 0 <= ix < num_cells_x and 0 <= iy < num_cells_y:
+                sigma_t = sigma_t_per_cell[iy, ix]
+                sigma_a = sigma_a_per_cell[iy, ix]
+                sigma_s = sigma_t - sigma_a
+                if sigma_s < 0.0:
+                    sigma_s = 0.0
+            else:
+                sigma_t = 1.0
+                sigma_a = 0.0
+                sigma_s = 1.0
+                warning_flags += 2
+
+            dist_boundary = np.inf
+            u, v = direction[0], direction[1]
+
+            if abs(u) > epsilon:
+                dist_x = (cell_boundaries_x[ix + 1] - pos[0]) / u if u > 0.0 else (
+                    cell_boundaries_x[ix] - pos[0]) / u
+                if dist_x > epsilon:
+                    dist_boundary = min(dist_boundary, dist_x)
+
+            if abs(v) > epsilon:
+                dist_y = (cell_boundaries_y[iy + 1] - pos[1]) / v if v > 0.0 else (
+                    cell_boundaries_y[iy] - pos[1]) / v
+                if dist_y > epsilon:
+                    dist_boundary = min(dist_boundary, dist_y)
+
+            free_path = -np.log(1.0 - np.random.rand()) / sigma_s if sigma_s > epsilon else np.inf
+            travel_dist = min(free_path, dist_boundary)
+            travel_dist = max(travel_dist, epsilon)
+
+            travel_steps += 1
+
+            energy_before = energy
+            energy *= np.exp(-sigma_a * travel_dist)
+
+            if 0 <= ix < num_cells_x and 0 <= iy < num_cells_y:
+                energy_deposited[iy, ix] += energy_before - energy
+                optical_depth = sigma_a * travel_dist
+                if optical_depth > 0.01:
+                    track_length[iy, ix] += energy_before * (1.0 - np.exp(-optical_depth)) / sigma_a
+                else:
+                    track_length[iy, ix] += energy_before * travel_dist
+            else:
+                warning_flags += 2
+
+            pos += travel_dist * direction
+            steps_this_particle += 1
+
+            if energy <= energy_threshold:
+                absorbed += 1
+                finished = True
+                continue
+
+            is_boundary_event = abs(travel_dist - dist_boundary) < boundary_epsilon
+
+            if is_boundary_event:
+                is_left = pos[0] <= boundary_epsilon
+                is_right = pos[0] >= total_width - boundary_epsilon
+                is_bottom = pos[1] <= boundary_epsilon
+                is_top = pos[1] >= total_height - boundary_epsilon
+
+                if is_left or is_right or is_bottom or is_top:
+                    if not reflected_boundaries:
+                        if is_left:
+                            exited_left += 1
+                        elif is_right:
+                            exited_right += 1
+                        elif is_bottom:
+                            exited_bottom += 1
+                        elif is_top:
+                            exited_top += 1
+                        finished = True
+                    else:
+                        boundary_reflections += 1
+                        if is_left or is_right:
+                            direction[0] = -direction[0]
+                            pos[0] = boundary_epsilon if is_left else total_width - boundary_epsilon
+                        if is_bottom or is_top:
+                            direction[1] = -direction[1]
+                            pos[1] = boundary_epsilon if is_bottom else total_height - boundary_epsilon
+                else:
+                    pos += direction * epsilon
+            else:
+                while True:
+                    mu = np.random.uniform(-1.0, 1.0)
+                    phi = np.random.uniform(0.0, 2.0 * np.pi)
+                    t = np.sqrt(1.0 - mu * mu)
+                    u_new = t * np.cos(phi)
+                    v_new = t * np.sin(phi)
+                    if abs(u_new) > epsilon or abs(v_new) > epsilon:
+                        break
+                direction[0] = u_new
+                direction[1] = v_new
+
+            if steps_this_particle >= max_steps_per_particle:
+                warning_flags += 4
+                absorbed += 1
+                finished = True
+
+        if not finished:
+            absorbed += 1
+            warning_flags += 8
+
+    stats = (exited_left, exited_right, exited_bottom, exited_top,
+             absorbed, travel_steps, boundary_reflections, warning_flags)
+    return energy_deposited, track_length, stats
+
+
 # ---------------------------------------------------------------------------
 # Python wrappers
 # ---------------------------------------------------------------------------
@@ -742,6 +903,73 @@ def run_mc_simulation_2d_njit_wrapper(
             print(f"  WARNING: warning_flags={warning_flags}")
 
     return energy_deposited_raw / num_particles, track_length_raw / num_particles, stats
+
+
+def run_mc_particle_bank_2d_njit_wrapper(
+    num_cells_x, num_cells_y, cell_widths, cell_heights,
+    cell_boundaries_x, cell_boundaries_y, total_width, total_height,
+    start_cell_indices_x, start_cell_indices_y,
+    start_position_relative_x, start_position_relative_y,
+    start_dir_unit_mu, start_dir_unit_phi,
+    start_weights, particle_seeds,
+    energy_threshold,
+    reflected_boundaries,
+    sigma_t_per_cell=None, sigma_a_per_cell=None,
+    scatter_ratio=None,
+    verbose=True,
+):
+    """Run 2D multi-cell MC from a fixed weighted particle bank."""
+    if sigma_t_per_cell is None or sigma_a_per_cell is None:
+        sigma_t_per_cell = np.ones((num_cells_y, num_cells_x), dtype=np.float64)
+        sigma_a_per_cell = np.full((num_cells_y, num_cells_x), 1.0 - scatter_ratio, dtype=np.float64)
+    else:
+        if sigma_t_per_cell.ndim == 1:
+            sigma_t_per_cell = sigma_t_per_cell.reshape(num_cells_y, num_cells_x)
+        if sigma_a_per_cell.ndim == 1:
+            sigma_a_per_cell = sigma_a_per_cell.reshape(num_cells_y, num_cells_x)
+        sigma_t_per_cell = sigma_t_per_cell.astype(np.float64)
+        sigma_a_per_cell = sigma_a_per_cell.astype(np.float64)
+
+    start_ix = np.asarray(start_cell_indices_x, dtype=np.int64)
+    start_iy = np.asarray(start_cell_indices_y, dtype=np.int64)
+    start_rx = np.asarray(start_position_relative_x, dtype=np.float64)
+    start_ry = np.asarray(start_position_relative_y, dtype=np.float64)
+    start_mu = np.asarray(start_dir_unit_mu, dtype=np.float64)
+    start_phi = np.asarray(start_dir_unit_phi, dtype=np.float64)
+    weights = np.asarray(start_weights, dtype=np.float64)
+    seeds = np.asarray(particle_seeds, dtype=np.int64)
+    expected = start_ix.shape
+    for name, arr in (
+        ("start_cell_indices_y", start_iy),
+        ("start_position_relative_x", start_rx),
+        ("start_position_relative_y", start_ry),
+        ("start_dir_unit_mu", start_mu),
+        ("start_dir_unit_phi", start_phi),
+        ("start_weights", weights),
+        ("particle_seeds", seeds),
+    ):
+        if arr.shape != expected:
+            raise ValueError(f"{name} must have shape {expected}; got {arr.shape}.")
+
+    mesh_total_width = float(cell_boundaries_x[-1])
+    mesh_total_height = float(cell_boundaries_y[-1])
+    start_time = time.time()
+    energy_deposited_raw, track_length_raw, stats = multi_cell_mc_internal_source_weighted_bank_2d_njit(
+        num_cells_x, num_cells_y, cell_widths, cell_heights,
+        cell_boundaries_x, cell_boundaries_y, mesh_total_width, mesh_total_height,
+        start_ix, start_iy,
+        start_rx, start_ry,
+        start_mu, start_phi,
+        weights, seeds,
+        sigma_t_per_cell, sigma_a_per_cell,
+        energy_threshold,
+        reflected_boundaries,
+    )
+    end_time = time.time()
+    if verbose:
+        active_particles = int(np.count_nonzero(weights > energy_threshold))
+        print(f"Weighted-bank 2D MC took {end_time - start_time:.3f} seconds for {active_particles} active particles.")
+    return energy_deposited_raw, track_length_raw, stats
 
 
 def plot_2d_energy_deposition(energy_deposited, cell_boundaries_x, cell_boundaries_y,

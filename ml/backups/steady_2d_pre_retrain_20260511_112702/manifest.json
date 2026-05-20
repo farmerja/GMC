@@ -1,0 +1,17 @@
+{
+  "created_at": "20260511_112702",
+  "models": [
+    "ml/models/2d_boundary/best_model.pth",
+    "ml/models/2d_boundary/trained_model_final.pth",
+    "ml/models/2d_internal/best_model.pth",
+    "ml/models/2d_internal/trained_model_final.pth"
+  ],
+  "norm_files": [
+    "ml/data/norm_params_2d_boundary.npz",
+    "ml/data/norm_params_2d_internal.npz"
+  ],
+  "training_dirs": [
+    "ml/training_results/2d_boundary",
+    "ml/training_results/2d_internal"
+  ]
+}
