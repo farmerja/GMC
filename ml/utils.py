@@ -34,6 +34,7 @@ DATA_DIM_CHOICES = (
     "3d_timedep",
     "2d_triangle_timedep",
     "2d_quad_timedep",
+    "2d_electron",
 )
 TIME_DEPENDENT_DATA_DIMS = {
     "1d_timedep",
@@ -173,6 +174,8 @@ def norm_params_base_path(data_dim, source_type):
         return f"ml/data/norm_params_1d_timedep_{source_type}.npy"
     if data_dim == "2d":
         return f"ml/data/norm_params_2d_{source_type}.npy"
+    if data_dim == "2d_electron":
+        return "ml/data/norm_params_2d_electron_boundary.npy"
     if data_dim == "2d_timedep":
         return f"ml/data/norm_params_2d_timedep_{source_type}.npy"
     if data_dim == "2d_triangle_timedep":
@@ -217,6 +220,7 @@ def compute_model_dims(data_dim, source_type, *, train_sampling="random"):
     if data_dim in TWO_D_TIME_DEPENDENT_DATA_DIMS:
         norm_params = load_norm_params_only(data_dim, source_type, train_sampling)
         dir_feats_2d = direction_feature_count_2d(resolve_2d_direction_encoding(norm_params))
+
     if data_dim == "1d_timedep":
         return (7, 3) if source_type == "boundary" else (8, 4)
     if data_dim == "2d_timedep":
@@ -230,6 +234,9 @@ def compute_model_dims(data_dim, source_type, *, train_sampling="random"):
             raise NotImplementedError("Boundary source for 2D quad timedep is not supported.")
         cond_dim = 8 + dir_feats_2d
         return cond_dim + 4 + dir_feats_2d, cond_dim
+    if data_dim == "2d_electron":  # Add this case
+        # 2D Electron: cond_dim=5, target_dim=7
+        return 12, 5
     if data_dim == "3d":
         cond_dim = 7 if source_type == "boundary" else 8
         return cond_dim + 6, cond_dim

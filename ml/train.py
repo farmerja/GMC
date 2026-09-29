@@ -7,7 +7,8 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, random_split
 import sys
-
+import logging
+log = logging.getLogger(__name__)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ml.model import TrainingTracker, get_flow_matching_path, get_model
@@ -23,6 +24,7 @@ from ml.transform import (
     compute_normalization_params_3d,
     compute_normalization_params_3d_timedep,
     robust_log_stats,
+    compute_normalization_params_2d_electron,
 )
 from ml.utils import (
     DATA_DIM_CHOICES,
@@ -47,6 +49,7 @@ from physics.mc_data_gen import (
     get_3d_time_dependent_internal_source_data,
     get_3d_time_dependent_boundary_source_data,
 )
+from physics.electron_data import load_electron_dataset
 
 
 def prepare_data(device, data_dim='2d', source_type='boundary', batch_size=2048, val_ratio=0.1,
@@ -59,7 +62,7 @@ def prepare_data(device, data_dim='2d', source_type='boundary', batch_size=2048,
                  direction_encoding_2d='polar',
                  angular_sampling=0,
                  sampling='random',
-                 train_workers=None, val_workers=None):
+                 train_workers=None, val_workers=None,electron_npz=None):
     print(f"Loading simulation data for {data_dim} {source_type} source...")
     print(f"  Number of neutrons: {num_neutrons}")
     print(f"  Sampling method: {sampling.upper()}")
@@ -556,7 +559,53 @@ def prepare_data(device, data_dim='2d', source_type='boundary', batch_size=2048,
                 norm_params_path, norm_params,
                 "1D timedep internal",
             )
+    elif data_dim == "2d_electron":
+        log.info(f"Loading electron data from: {electron_npz}")
+        sim_data = load_electron_dataset(electron_npz)
+        data_type_str = "2d_electron_boundary"
 
+        log.info(f"Using all {len(sim_data)} particles for training")
+
+        if len(sim_data) == 0:
+            raise ValueError("No electrons loaded from NPZ file")
+
+        E_in_lower, E_in_upper, E_out_lower, E_out_upper, \
+            energy_dep_lower, energy_dep_upper, path_lower, path_upper = \
+            compute_normalization_params_2d_electron(sim_data)
+
+        E_in_center, E_in_scale = robust_log_stats(sim_data["E_in"].values)
+        E_out_center, E_out_scale = robust_log_stats(sim_data["E_out"].values)
+        energy_dep_center, energy_dep_scale = robust_log_stats(
+            np.maximum(sim_data["energy_deposited"].values, 1e-12)
+        )
+        path_center, path_scale = robust_log_stats(sim_data["path_length"].values)
+
+        norm_params = {
+            "E_in_lower": E_in_lower,
+            "E_in_upper": E_in_upper,
+            "E_in_center": E_in_center,
+            "E_in_scale": E_in_scale,
+            "E_out_lower": E_out_lower,
+            "E_out_upper": E_out_upper,
+            "E_out_center": E_out_center,
+            "E_out_scale": E_out_scale,
+            "energy_dep_lower": energy_dep_lower,
+            "energy_dep_upper": energy_dep_upper,
+            "energy_dep_center": energy_dep_center,
+            "energy_dep_scale": energy_dep_scale,
+            "path_lower": path_lower,
+            "path_upper": path_upper,
+            "path_center": path_center,
+            "path_scale": path_scale,
+            "direction_encoding_2d": "polar",
+        }
+
+        norm_params_path = f"ml/data/norm_params_2d_electron_boundary{sampling_suffix}.npy"
+        _save_norm_params_artifacts(
+            norm_params_path,
+            norm_params,
+            "2D Electron Boundary",
+        )
     else:
         raise ValueError(f"Unknown data_dim: {data_dim}")
 
@@ -673,7 +722,7 @@ def train(num_epochs=50, batch_size=2048, hidden_dim=128, depth=4, expansion_fac
           direction_encoding_2d='polar',
           angular_sampling=0,
           sampling='random',
-          train_workers=None, val_workers=None):
+          train_workers=None, val_workers=None,electron_npz=None):
 
     device = setup_environment()
     non_blocking = str(device).startswith("cuda")
@@ -690,6 +739,7 @@ def train(num_epochs=50, batch_size=2048, hidden_dim=128, depth=4, expansion_fac
         sampling=sampling,
         train_workers=train_workers,
         val_workers=val_workers,
+        electron_npz=electron_npz,
     )
 
     # Define results directory based on data_dim and source_type
@@ -865,7 +915,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Train a Conditional Flow Matching model')
     parser.add_argument('--data_dim', type=str, default='2d',
                         choices=DATA_DIM_CHOICES,
-                        help='Dimension of the problem (1d, 2d, 3d, 1d_timedep, 2d_timedep, 3d_timedep, 2d_triangle_timedep, or 2d_quad_timedep)')
+                        help='Dimension of the problem (1d, 2d, 3d, 1d_timedep, 2d_timedep, 3d_timedep, 2d_triangle_timedep, 2d_quad_timedep, or 2d_electron)')
     parser.add_argument('--source_type', type=str, default='boundary', choices=['boundary', 'internal'],
                         help='Source type (boundary or internal)')
     parser.add_argument('--num_neutrons', type=int, default=100000,
@@ -906,6 +956,9 @@ def parse_args():
                         help='Number of DataLoader workers for train loader (default: auto)')
     parser.add_argument('--val_workers', type=int, default=None,
                         help='Number of DataLoader workers for val loader (default: auto)')
+    parser.add_argument('--electron_npz', type=str, default=None,
+                        help='Path to electron NPZ file (required when data_dim=2d_electron)')
+
     return parser.parse_args()
 
 def main(args=None):
@@ -915,6 +968,9 @@ def main(args=None):
     print(f"Starting training for {args.data_dim} {args.source_type} source with {args.scheduler} scheduler")
     if args.data_dim in TIME_DEPENDENT_DATA_DIMS:
         print(f"Path-length budget parameters: min={args.min_path_budget}, max={args.max_path_budget}")
+    if args.data_dim == "2d_electron" and args.electron_npz is None:
+        print("ERROR: data_dim='2d_electron' requires --electron_npz argument")
+        return
 
     save_prefix = f"_{args.scheduler}" if args.scheduler != 'condOT' else ''
     if args.sampling != 'random':
@@ -949,6 +1005,7 @@ def main(args=None):
         sampling=args.sampling,
         train_workers=args.train_workers,
         val_workers=args.val_workers,
+        electron_npz=args.electron_npz,  # Use args.electron_npz here
     )
 
 if __name__ == '__main__':

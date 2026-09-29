@@ -148,6 +148,29 @@ def compute_normalization_params_1d_timedep(sim_data, source_type='internal'):
     log_L = np.log10(sim_data["L"].values + 1e-12)
     return np.percentile(log_thickness, 0.000001), np.percentile(log_thickness, 99.999999), np.percentile(log_budget, 0.000001), np.percentile(log_budget, 99.999999), np.percentile(log_L, 0.000001), np.percentile(log_L, 99.999999)
 
+
+def compute_normalization_params_2d_electron(sim_data):
+    """Compute normalization parameters for 2D electron boundary transport."""
+    log_E_in = np.log10(sim_data["E_in"].values + 1e-12)
+    log_E_out = np.log10(np.maximum(sim_data["E_out"].values, 1e-12) + 1e-12)
+    log_energy_dep = np.log10(np.maximum(sim_data["energy_deposited"].values, 1e-12) + 1e-12)
+    log_path = np.log10(np.maximum(sim_data["path_length"].values, 1e-12) + 1e-12)
+
+    E_in_lower = np.percentile(log_E_in, 0.01)
+    E_in_upper = np.percentile(log_E_in, 99.99)
+    E_out_lower = np.percentile(log_E_out, 0.01)
+    E_out_upper = np.percentile(log_E_out, 99.99)
+    energy_dep_lower = np.percentile(log_energy_dep, 0.01)
+    energy_dep_upper = np.percentile(log_energy_dep, 99.99)
+    path_lower = np.percentile(log_path, 0.01)
+    path_upper = np.percentile(log_path, 99.99)
+
+    return (
+        E_in_lower, E_in_upper,
+        E_out_lower, E_out_upper,
+        energy_dep_lower, energy_dep_upper,
+        path_lower, path_upper,
+    )
 # --- Generic, Type-Aware Normalization/Denormalization Functions ---
 def _get_lib(x): return torch if isinstance(x, torch.Tensor) else np
 
@@ -418,6 +441,17 @@ class SimDataset(Dataset):
             self.depth_lower, self.depth_upper = norm_params['depth_lower'], norm_params['depth_upper']
             self.budget_lower, self.budget_upper = norm_params['budget_lower'], norm_params['budget_upper']
             self.L_lower, self.L_upper = norm_params['L_lower'], norm_params['L_upper']
+        elif self.data_type == "2d_electron_boundary":
+            self.cond_dim = 5
+            self.target_dim = 7
+            self.E_in_lower = norm_params.get("E_in_lower", 0.0)
+            self.E_in_upper = norm_params.get("E_in_upper", 1.0)
+            self.E_out_lower = norm_params.get("E_out_lower", 0.0)
+            self.E_out_upper = norm_params.get("E_out_upper", 1.0)
+            self.energy_dep_lower = norm_params.get("energy_dep_lower", -12.0)
+            self.energy_dep_upper = norm_params.get("energy_dep_upper", 1.0)
+            self.path_lower = norm_params.get("path_lower", 0.0)
+            self.path_upper = norm_params.get("path_upper", 1.0)
         else:
             raise ValueError(f"Unknown data_type: {self.data_type}")
 
@@ -719,7 +753,25 @@ class SimDataset(Dataset):
                 ]
             cond = torch.tensor(cond_vals, dtype=torch.float32)
             target = torch.tensor(target_vals, dtype=torch.float32)
+        elif self.data_type == "2d_electron_boundary":
+            cond = torch.tensor([
+                normalize_position_relative(row["y_in_norm"]),
+                normalize_uv(row["u_in"]),
+                normalize_uv(row["v_in"]),
+                normalize_log_scale_probit(row["E_in"], self.E_in_lower, self.E_in_upper),
+                normalize_position_relative(row["x_in_norm"]),
+            ], dtype=torch.float32)
 
+            target = torch.tensor([
+                normalize_position_relative(row["x_out_norm"]),
+                normalize_position_relative(row["y_out_norm"]),
+                normalize_uv(row["u_out"]),
+                normalize_uv(row["v_out"]),
+                normalize_log_scale_probit(row["E_out"], self.E_out_lower, self.E_out_upper),
+                normalize_log_scale_probit(row["energy_deposited"] + 1e-12, self.energy_dep_lower,
+                                           self.energy_dep_upper),
+                normalize_log_scale_probit(row["path_length"], self.path_lower, self.path_upper),
+            ], dtype=torch.float32)
         elif self.data_type == '3d_timedep_boundary':
             phi_in, mu_in = uvw_to_axis_spherical_x(row["initial_dir_u"], row["initial_dir_v"], row["initial_dir_w"])
             phi_out, mu_out = uvw_to_axis_spherical_x(row["final_dir_u"], row["final_dir_v"], row["final_dir_w"])
@@ -1114,6 +1166,24 @@ class SimDataset(Dataset):
                 ]
             x1 = stack_ct(cond_cols, target_cols)
 
+        elif self.data_type == "2d_electron_boundary":
+            cond_cols = [
+                normalize_position_relative(col("y_in_norm")),
+                normalize_uv(col("u_in")),
+                normalize_uv(col("v_in")),
+                normalize_log_scale_probit(col("E_in"), self.E_in_lower, self.E_in_upper),
+                normalize_position_relative(col("x_in_norm")),
+            ]
+            target_cols = [
+                normalize_position_relative(col("x_out_norm")),
+                normalize_position_relative(col("y_out_norm")),
+                normalize_uv(col("u_out")),
+                normalize_uv(col("v_out")),
+                normalize_log_scale_probit(col("E_out"), self.E_out_lower, self.E_out_upper),
+                normalize_log_scale_probit(col("energy_deposited") + 1e-12, self.energy_dep_lower, self.energy_dep_upper),
+                normalize_log_scale_probit(col("path_length"), self.path_lower, self.path_upper),
+            ]
+            x1 = stack_ct(cond_cols, target_cols)
         elif self.data_type == '3d_timedep_boundary':
             path_budget = col("path_budget")
             phi_in, mu_in = uvw_to_axis_spherical_x(col("initial_dir_u"), col("initial_dir_v"), col("initial_dir_w"))
