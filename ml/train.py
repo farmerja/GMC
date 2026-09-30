@@ -559,18 +559,20 @@ def prepare_data(device, data_dim='2d', source_type='boundary', batch_size=2048,
                 norm_params_path, norm_params,
                 "1D timedep internal",
             )
+
+
+
     elif data_dim == "2d_electron":
         log.info(f"Loading electron data from: {electron_npz}")
         sim_data = load_electron_dataset(electron_npz)
         data_type_str = "2d_electron_boundary"
 
-        log.info(f"Using all {len(sim_data)} particles for training")
-
         if len(sim_data) == 0:
             raise ValueError("No electrons loaded from NPZ file")
 
         E_in_lower, E_in_upper, E_out_lower, E_out_upper, \
-            energy_dep_lower, energy_dep_upper = \
+            energy_dep_lower, energy_dep_upper, \
+            path_lower, path_upper, E_cutoff = \
             compute_normalization_params_2d_electron(sim_data)
 
         E_in_center, E_in_scale = robust_log_stats(sim_data["E_in"].values)
@@ -578,7 +580,9 @@ def prepare_data(device, data_dim='2d', source_type='boundary', batch_size=2048,
         energy_dep_center, energy_dep_scale = robust_log_stats(
             np.maximum(sim_data["energy_deposited"].values, 1e-12)
         )
-        path_center, path_scale = robust_log_stats(sim_data["path_length"].values)
+        path_center, path_scale = robust_log_stats(
+            np.maximum(sim_data["path_length"].values, 1e-12)
+        )
 
         norm_params = {
             "E_in_lower": E_in_lower,
@@ -593,6 +597,11 @@ def prepare_data(device, data_dim='2d', source_type='boundary', batch_size=2048,
             "energy_dep_upper": energy_dep_upper,
             "energy_dep_center": energy_dep_center,
             "energy_dep_scale": energy_dep_scale,
+            "path_lower": path_lower,
+            "path_upper": path_upper,
+            "path_center": path_center,
+            "path_scale": path_scale,
+            "E_cutoff": E_cutoff,
             "direction_encoding_2d": "polar",
         }
 
@@ -602,6 +611,7 @@ def prepare_data(device, data_dim='2d', source_type='boundary', batch_size=2048,
             norm_params,
             "2D Electron Boundary",
         )
+
     else:
         raise ValueError(f"Unknown data_dim: {data_dim}")
 

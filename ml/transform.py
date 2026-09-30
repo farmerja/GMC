@@ -151,24 +151,39 @@ def compute_normalization_params_1d_timedep(sim_data, source_type='internal'):
 
 def compute_normalization_params_2d_electron(sim_data):
     """Compute normalization parameters for 2D electron boundary transport."""
+    # Read energy cutoff dynamically from dataset attributes or fallback to minimum E_out
+    E_cutoff = float(
+        getattr(sim_data, "attrs", {}).get(
+            "energy_cutoff",
+            getattr(sim_data, "attrs", {}).get("E_cutoff", sim_data["E_out"].min())
+        )
+    )
+
     log_E_in = np.log10(sim_data["E_in"].values + 1e-12)
-    log_E_out = np.log10(np.maximum(sim_data["E_out"].values, 1e-12) + 1e-12)
-    log_energy_dep = np.log10(np.maximum(sim_data["energy_deposited"].values, 1e-12) + 1e-12)
-    # REMOVE: log_path = ...
+    log_E_out = np.log10(np.maximum(sim_data["E_out"].values, E_cutoff))
+    log_energy_dep = np.log10(np.maximum(sim_data["energy_deposited"].values, 1e-12))
+    log_path = np.log10(np.maximum(sim_data["path_length"].values, 1e-12))
 
     E_in_lower = np.percentile(log_E_in, 0.01)
     E_in_upper = np.percentile(log_E_in, 99.99)
-    E_out_lower = np.percentile(log_E_out, 0.01)
+
+    # Set explicit physical floor at log10(E_cutoff)
+    E_out_lower = np.log10(E_cutoff)
     E_out_upper = np.percentile(log_E_out, 99.99)
+
     energy_dep_lower = np.percentile(log_energy_dep, 0.01)
     energy_dep_upper = np.percentile(log_energy_dep, 99.99)
-    # REMOVE: path_lower, path_upper = ...
+    path_lower = np.percentile(log_path, 0.01)
+    path_upper = np.percentile(log_path, 99.99)
 
     return (
         E_in_lower, E_in_upper,
         E_out_lower, E_out_upper,
         energy_dep_lower, energy_dep_upper,
-    )  # Only return 6 values, not 8
+        path_lower, path_upper,
+        E_cutoff,
+    )
+
 # --- Generic, Type-Aware Normalization/Denormalization Functions ---
 def _get_lib(x): return torch if isinstance(x, torch.Tensor) else np
 
@@ -307,7 +322,7 @@ def polar_to_uv(phi, r):
 def normalize_angle_phi(phi): return normalize_linear_scale_logit(phi / (2.0 * np.pi))
 def normalize_radius_r(r): return normalize_linear_scale_logit(r)
 def denorm_angle_phi(logit_phi): return denorm_linear_scale_logit(logit_phi) * (2.0 * np.pi)
-def denorm_radius_r(logit_r): 
+def denorm_radius_r(logit_r):
     r = denorm_linear_scale_logit(logit_r)
     return torch.clamp(r, 0.0, 1.0) if isinstance(logit_r, torch.Tensor) else np.clip(r, 0.0, 1.0)
 
@@ -442,12 +457,23 @@ class SimDataset(Dataset):
         elif self.data_type == "2d_electron_boundary":
             self.cond_dim = 5
             self.target_dim = 7
+            self.E_cutoff = float(
+                norm_params.get(
+                    "E_cutoff",
+                    getattr(sim_data, "attrs", {}).get(
+                        "energy_cutoff",
+                        getattr(sim_data, "attrs", {}).get("E_cutoff", sim_data["E_out"].min())
+                    )
+                )
+            )
             self.E_in_lower = norm_params.get("E_in_lower", 0.0)
             self.E_in_upper = norm_params.get("E_in_upper", 1.0)
             self.E_out_lower = norm_params.get("E_out_lower", 0.0)
             self.E_out_upper = norm_params.get("E_out_upper", 1.0)
             self.energy_dep_lower = norm_params.get("energy_dep_lower", -12.0)
             self.energy_dep_upper = norm_params.get("energy_dep_upper", 1.0)
+            self.path_lower = norm_params.get("path_lower", -12.0)
+            self.path_upper = norm_params.get("path_upper", 1.0)
         else:
             raise ValueError(f"Unknown data_type: {self.data_type}")
 
@@ -569,7 +595,7 @@ class SimDataset(Dataset):
             ], dtype=torch.float32)
 
         # -------------------------------------------------------------
-        # TIME-DEPENDENT DATASETS (Target Dim + 1 for Explicit Indicator)
+        # TIME-DEPENDENT DATASETS
         # -------------------------------------------------------------
         elif self.data_type == '1d_timedep_internal':
             L_ratio = min(max(float(row["L"]) / max(float(row["path_budget"]), 1e-12), 0.0), 1.0)
@@ -584,7 +610,7 @@ class SimDataset(Dataset):
                 normalize_position_relative(row["x_out_norm"]),
                 normalize_uv(row["mu_out"]),
                 L_norm,
-                self._get_exit_logit(row) # NEW INDICATOR
+                self._get_exit_logit(row)
             ], dtype=torch.float32)
 
         elif self.data_type == '1d_timedep_boundary':
@@ -599,7 +625,7 @@ class SimDataset(Dataset):
                 normalize_position_relative(row["x_out_norm"]),
                 normalize_uv(row["mu_out"]),
                 L_norm,
-                self._get_exit_logit(row) # NEW INDICATOR
+                self._get_exit_logit(row)
             ], dtype=torch.float32)
 
         elif self.data_type == '2d_timedep_internal':
@@ -749,26 +775,46 @@ class SimDataset(Dataset):
                 ]
             cond = torch.tensor(cond_vals, dtype=torch.float32)
             target = torch.tensor(target_vals, dtype=torch.float32)
+
+
         elif self.data_type == "2d_electron_boundary":
+
+            phi_in, r_in = uv_to_polar(row["u_in"], row["v_in"])
+
+            phi_out, r_out = uv_to_polar(row["u_out"], row["v_out"])
+
+            # Compute fractional energy partitioning using dataset E_cutoff
+
+            E_in = float(row["E_in"])
+
+            E_out = max(float(row["E_out"]), self.E_cutoff)
+
+            E_dep = float(row["energy_deposited"])
+
+            f_out = np.clip((E_out - self.E_cutoff) / max(E_in - self.E_cutoff, 1e-12), 0.0, 1.0)
+
+            rem_budget = max(E_in - E_out, 1e-12)
+
+            f_dep = np.clip(E_dep / rem_budget, 0.0, 1.0)
+
             cond = torch.tensor([
                 normalize_position_relative(row["y_in_norm"]),
-                normalize_uv(row["u_in"]),
-                normalize_uv(row["v_in"]),
-                normalize_log_scale_probit(row["E_in"], self.E_in_lower, self.E_in_upper),
-                normalize_log_scale_probit(row["E_in"], self.E_in_lower, self.E_in_upper),  # ADD DUPLICATE
+                normalize_angle_phi(phi_in),
+                normalize_radius_r(r_in),
+                normalize_log_scale_probit(E_in, self.E_in_lower, self.E_in_upper),
                 normalize_position_relative(row["x_in_norm"]),
             ], dtype=torch.float32)
 
             target = torch.tensor([
                 normalize_position_relative(row["x_out_norm"]),
                 normalize_position_relative(row["y_out_norm"]),
-                normalize_uv(row["u_out"]),
-                normalize_uv(row["v_out"]),
-                normalize_log_scale_probit(row["E_out"], self.E_out_lower, self.E_out_upper),
-                normalize_log_scale_probit(row["energy_deposited"] + 1e-12, self.energy_dep_lower,
-                                           self.energy_dep_upper),
-                normalize_linear_scale_probit(row["path_length"] / 2.0),
+                normalize_angle_phi(phi_out),
+                normalize_radius_r(r_out),
+                normalize_linear_scale_probit(f_out),
+                normalize_linear_scale_probit(f_dep),
+                normalize_log_scale_probit(float(row["path_length"]) + 1e-12, self.path_lower, self.path_upper),
             ], dtype=torch.float32)
+
         elif self.data_type == '3d_timedep_boundary':
             phi_in, mu_in = uvw_to_axis_spherical_x(row["initial_dir_u"], row["initial_dir_v"], row["initial_dir_w"])
             phi_out, mu_out = uvw_to_axis_spherical_x(row["final_dir_u"], row["final_dir_v"], row["final_dir_w"])
@@ -1163,23 +1209,62 @@ class SimDataset(Dataset):
                 ]
             x1 = stack_ct(cond_cols, target_cols)
 
+
+
         elif self.data_type == "2d_electron_boundary":
+
+            phi_in, r_in = uv_to_polar(col("u_in"), col("v_in"))
+
+            phi_out, r_out = uv_to_polar(col("u_out"), col("v_out"))
+
+            # Clamp raw dataset values to dataset E_cutoff floor
+
+            E_in = col("E_in")
+
+            E_out = np.maximum(col("E_out"), self.E_cutoff)
+
+            E_dep = col("energy_deposited")
+
+            # Fraction out relative to available range above cutoff
+
+            f_out = np.clip((E_out - self.E_cutoff) / np.maximum(E_in - self.E_cutoff, 1e-12), 0.0, 1.0)
+
+            rem_budget = np.maximum(E_in - E_out, 1e-12)
+
+            f_dep = np.clip(E_dep / rem_budget, 0.0, 1.0)
+
             cond_cols = [
+
                 normalize_position_relative(col("y_in_norm")),
-                normalize_uv(col("u_in")),
-                normalize_uv(col("v_in")),
-                normalize_log_scale_probit(col("E_in"), self.E_in_lower, self.E_in_upper),
+
+                normalize_angle_phi(phi_in),
+
+                normalize_radius_r(r_in),
+
+                normalize_log_scale_probit(E_in, self.E_in_lower, self.E_in_upper),
+
                 normalize_position_relative(col("x_in_norm")),
+
             ]
+
             target_cols = [
+
                 normalize_position_relative(col("x_out_norm")),
+
                 normalize_position_relative(col("y_out_norm")),
-                normalize_uv(col("u_out")),
-                normalize_uv(col("v_out")),
-                normalize_log_scale_probit(col("E_out"), self.E_out_lower, self.E_out_upper),
-                normalize_log_scale_probit(col("energy_deposited") + 1e-12, self.energy_dep_lower, self.energy_dep_upper),
-                normalize_linear_scale_probit(col("path_length") / 2.0),
+
+                normalize_angle_phi(phi_out),
+
+                normalize_radius_r(r_out),
+
+                normalize_linear_scale_probit(f_out),
+
+                normalize_linear_scale_probit(f_dep),
+
+                normalize_log_scale_probit(col("path_length") + 1e-12, self.path_lower, self.path_upper),
+
             ]
+
             x1 = stack_ct(cond_cols, target_cols)
         elif self.data_type == '3d_timedep_boundary':
             path_budget = col("path_budget")

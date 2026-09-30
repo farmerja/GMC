@@ -236,7 +236,7 @@ def compute_model_dims(data_dim, source_type, *, train_sampling="random"):
         return cond_dim + 4 + dir_feats_2d, cond_dim
     if data_dim == "2d_electron":  # Add this case
         # 2D Electron: cond_dim=5, target_dim=7
-        return 13, 6
+        return 12,5
     if data_dim == "3d":
         cond_dim = 7 if source_type == "boundary" else 8
         return cond_dim + 6, cond_dim
