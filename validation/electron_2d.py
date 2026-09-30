@@ -107,8 +107,6 @@ def validate_electron_2d_boundary(
     E_out_upper = norm_params["E_out_upper"]
     energy_dep_lower = norm_params["energy_dep_lower"]
     energy_dep_upper = norm_params["energy_dep_upper"]
-    path_lower = norm_params["path_lower"]
-    path_upper = norm_params["path_upper"]
 
     log.info(f"Denormalizing predictions with target_dim={target_dim}")
 
@@ -127,9 +125,14 @@ def validate_electron_2d_boundary(
         pred_y_out_norm = denorm_position_relative(x_final[:, cond_dim + 1]).numpy()
         pred_u_out = denorm_uv(x_final[:, cond_dim + 2]).numpy()
         pred_v_out = denorm_uv(x_final[:, cond_dim + 3]).numpy()
-        pred_E_out = denorm_log_scale_probit(x_final[:, cond_dim + 4], E_out_lower, E_out_upper).numpy()
+        pred_E_out = np.clip(
+            denorm_log_scale_probit(x_final[:, cond_dim + 4], E_out_lower, E_out_upper).numpy(),
+            0.01,  # Minimum 10 keV
+            None
+        )
         pred_energy_dep = denorm_log_scale_probit(x_final[:, cond_dim + 5], energy_dep_lower, energy_dep_upper).numpy()
-        pred_path = denorm_log_scale_probit(x_final[:, cond_dim + 6], path_lower, path_upper).numpy()
+        pred_path = denorm_linear_scale_probit(x_final[:, cond_dim + 6]).numpy() * 2.0
+        pred_path = np.clip(pred_path, 0.0, None)
     elif target_dim == 5:
         # Older model format with only 5 targets
         log.warning(f"Model has target_dim={target_dim}. Expected 7. Using subset of predictions.")

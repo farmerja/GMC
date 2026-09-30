@@ -570,7 +570,7 @@ def prepare_data(device, data_dim='2d', source_type='boundary', batch_size=2048,
             raise ValueError("No electrons loaded from NPZ file")
 
         E_in_lower, E_in_upper, E_out_lower, E_out_upper, \
-            energy_dep_lower, energy_dep_upper, path_lower, path_upper = \
+            energy_dep_lower, energy_dep_upper = \
             compute_normalization_params_2d_electron(sim_data)
 
         E_in_center, E_in_scale = robust_log_stats(sim_data["E_in"].values)
@@ -593,10 +593,6 @@ def prepare_data(device, data_dim='2d', source_type='boundary', batch_size=2048,
             "energy_dep_upper": energy_dep_upper,
             "energy_dep_center": energy_dep_center,
             "energy_dep_scale": energy_dep_scale,
-            "path_lower": path_lower,
-            "path_upper": path_upper,
-            "path_center": path_center,
-            "path_scale": path_scale,
             "direction_encoding_2d": "polar",
         }
 
