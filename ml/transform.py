@@ -151,7 +151,6 @@ def compute_normalization_params_1d_timedep(sim_data, source_type='internal'):
 
 def compute_normalization_params_2d_electron(sim_data):
     """Compute normalization parameters for 2D electron boundary transport."""
-    # Read energy cutoff dynamically from dataset attributes or fallback to minimum E_out
     E_cutoff = float(
         getattr(sim_data, "attrs", {}).get(
             "energy_cutoff",
@@ -167,7 +166,6 @@ def compute_normalization_params_2d_electron(sim_data):
     E_in_lower = np.percentile(log_E_in, 0.01)
     E_in_upper = np.percentile(log_E_in, 99.99)
 
-    # Set explicit physical floor at log10(E_cutoff)
     E_out_lower = np.log10(E_cutoff)
     E_out_upper = np.percentile(log_E_out, 99.99)
 
@@ -376,12 +374,12 @@ class SimDataset(Dataset):
         # TIME DEPENDENT DATASETS (target_dim += 1 for Explicit Token)
         # -------------------------------------------------------------
         elif self.data_type == '1d_timedep_internal':
-            self.cond_dim, self.target_dim = 4, 4 # 3 physical + 1 exit token
+            self.cond_dim, self.target_dim = 4, 4
             self.thickness_lower, self.thickness_upper = norm_params['thickness_lower'], norm_params['thickness_upper']
             self.budget_lower, self.budget_upper = norm_params['budget_lower'], norm_params['budget_upper']
             self.L_lower, self.L_upper = norm_params['L_lower'], norm_params['L_upper']
         elif self.data_type == '1d_timedep_boundary':
-            self.cond_dim, self.target_dim = 3, 4 # 3 physical + 1 exit token
+            self.cond_dim, self.target_dim = 3, 4
             self.thickness_lower, self.thickness_upper = norm_params['thickness_lower'], norm_params['thickness_upper']
             self.budget_lower, self.budget_upper = norm_params['budget_lower'], norm_params['budget_upper']
             self.L_lower, self.L_upper = norm_params['L_lower'], norm_params['L_upper']
@@ -485,7 +483,6 @@ class SimDataset(Dataset):
         return len(self.sim_data)
 
     def _get_exit_logit(self, row):
-        """Helper to generate continuous target proxy for discrete Space vs Time exit."""
         return normalize_linear_scale_logit(torch.tensor(float(row["time_exit"]), dtype=torch.float32))
 
     def _encode_2d_direction(self, u_val, v_val):
@@ -594,9 +591,6 @@ class SimDataset(Dataset):
                 normalize_log_feature(row["time_in_cell"], self.norm_params, "time")
             ], dtype=torch.float32)
 
-        # -------------------------------------------------------------
-        # TIME-DEPENDENT DATASETS
-        # -------------------------------------------------------------
         elif self.data_type == '1d_timedep_internal':
             L_ratio = min(max(float(row["L"]) / max(float(row["path_budget"]), 1e-12), 0.0), 1.0)
             L_norm = normalize_linear_scale_logit(L_ratio) if self.use_L_over_budget else normalize_log_feature(row["L"], self.norm_params, "L")
@@ -776,25 +770,16 @@ class SimDataset(Dataset):
             cond = torch.tensor(cond_vals, dtype=torch.float32)
             target = torch.tensor(target_vals, dtype=torch.float32)
 
-
         elif self.data_type == "2d_electron_boundary":
-
             phi_in, r_in = uv_to_polar(row["u_in"], row["v_in"])
-
             phi_out, r_out = uv_to_polar(row["u_out"], row["v_out"])
 
-            # Compute fractional energy partitioning using dataset E_cutoff
-
             E_in = float(row["E_in"])
-
             E_out = max(float(row["E_out"]), self.E_cutoff)
-
             E_dep = float(row["energy_deposited"])
 
             f_out = np.clip((E_out - self.E_cutoff) / max(E_in - self.E_cutoff, 1e-12), 0.0, 1.0)
-
             rem_budget = max(E_in - E_out, 1e-12)
-
             f_dep = np.clip(E_dep / rem_budget, 0.0, 1.0)
 
             cond = torch.tensor([
@@ -1209,63 +1194,38 @@ class SimDataset(Dataset):
                 ]
             x1 = stack_ct(cond_cols, target_cols)
 
-
-
         elif self.data_type == "2d_electron_boundary":
-
             phi_in, r_in = uv_to_polar(col("u_in"), col("v_in"))
-
             phi_out, r_out = uv_to_polar(col("u_out"), col("v_out"))
 
-            # Clamp raw dataset values to dataset E_cutoff floor
-
             E_in = col("E_in")
-
             E_out = np.maximum(col("E_out"), self.E_cutoff)
-
             E_dep = col("energy_deposited")
 
-            # Fraction out relative to available range above cutoff
-
             f_out = np.clip((E_out - self.E_cutoff) / np.maximum(E_in - self.E_cutoff, 1e-12), 0.0, 1.0)
-
             rem_budget = np.maximum(E_in - E_out, 1e-12)
-
             f_dep = np.clip(E_dep / rem_budget, 0.0, 1.0)
 
             cond_cols = [
-
                 normalize_position_relative(col("y_in_norm")),
-
                 normalize_angle_phi(phi_in),
-
                 normalize_radius_r(r_in),
-
                 normalize_log_scale_probit(E_in, self.E_in_lower, self.E_in_upper),
-
                 normalize_position_relative(col("x_in_norm")),
-
             ]
 
             target_cols = [
-
                 normalize_position_relative(col("x_out_norm")),
-
                 normalize_position_relative(col("y_out_norm")),
-
                 normalize_angle_phi(phi_out),
-
                 normalize_radius_r(r_out),
-
                 normalize_linear_scale_probit(f_out),
-
                 normalize_linear_scale_probit(f_dep),
-
                 normalize_log_scale_probit(col("path_length") + 1e-12, self.path_lower, self.path_upper),
-
             ]
 
             x1 = stack_ct(cond_cols, target_cols)
+
         elif self.data_type == '3d_timedep_boundary':
             path_budget = col("path_budget")
             phi_in, mu_in = uvw_to_axis_spherical_x(col("initial_dir_u"), col("initial_dir_v"), col("initial_dir_w"))

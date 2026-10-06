@@ -52,6 +52,100 @@ from physics.mc_data_gen import (
 )
 
 
+# test.py
+
+def run_uniform_inference_2d_electron(
+        model, input_dim, cond_dim, device, test_dir,
+        electron_npz=None, train_sampling='random', infer_sampling='random',
+        batch_size=20000, ode_method='rk4', num_steps=16,
+):
+    print("\n--- Running Inference (2D Electron Transport) ---")
+
+    norm_params = _load_norm_params_or_abort(
+        '2d_electron', 'boundary', train_sampling, "2D Electron Boundary"
+    )
+    if norm_params is None:
+        return
+
+    # Load MC ground truth dataset
+    if electron_npz is None or not os.path.exists(electron_npz):
+        raise FileNotFoundError(f"Electron dataset NPZ not found: {electron_npz}")
+
+    from physics.electron_data import load_electron_dataset
+    sim_gt = load_electron_dataset(electron_npz)
+
+    # Randomly sample evaluation subset from ground truth or sample conditions
+    indices = np.random.choice(len(sim_gt), size=min(batch_size, len(sim_gt)), replace=False)
+    gt_sub = sim_gt.iloc[indices].reset_index(drop=True)
+
+    y_in_norm = gt_sub["y_in_norm"].values
+    u_in = gt_sub["u_in"].values
+    v_in = gt_sub["v_in"].values
+    E_in = gt_sub["E_in"].values
+    x_in_norm = gt_sub["x_in_norm"].values
+
+    norm_y_in = normalize_position_relative(y_in_norm)
+    norm_u_in = normalize_uv(u_in)
+    norm_v_in = normalize_uv(v_in)
+    # Fixed: replaced normalize_log_scale_probit with normalize_log_scale_logit
+    norm_E_in = normalize_log_scale_logit(
+        E_in, norm_params["E_in_lower"], norm_params["E_in_upper"]
+    )
+    norm_x_in = normalize_position_relative(x_in_norm)
+
+    cond_np = np.stack([norm_y_in, norm_u_in, norm_v_in, norm_E_in, norm_x_in], axis=1)
+    cond = torch.tensor(cond_np, dtype=torch.float32, device=device)
+
+    target_dim = input_dim - cond_dim
+    samples = generate_samples(len(gt_sub), cond_dim + target_dim, sampling=infer_sampling)
+    noise = generate_target_noise(samples, cond_dim, target_dim, len(gt_sub), device)
+    x_init = torch.cat([cond, noise], dim=1)
+
+    x_final = _run_uniform_ode_inference(
+        model, x_init, device, ode_method, num_steps, batch_size=len(gt_sub)
+    )
+
+    # Robust key resolution for path length parameters
+    path_lower = norm_params.get("path_lower", norm_params.get("path_length_lower"))
+    path_upper = norm_params.get("path_upper", norm_params.get("path_length_upper"))
+
+    # Unpack 7 targets (Fixed: denorm_log_scale_logit + .cpu().numpy() transfers)
+    pred_x_out = denorm_position_relative(x_final[:, cond_dim + 0]).cpu().numpy()
+    pred_y_out = denorm_position_relative(x_final[:, cond_dim + 1]).cpu().numpy()
+    pred_u_out = denorm_uv(x_final[:, cond_dim + 2]).cpu().numpy()
+    pred_v_out = denorm_uv(x_final[:, cond_dim + 3]).cpu().numpy()
+    pred_E_out = denorm_log_scale_logit(
+        x_final[:, cond_dim + 4], norm_params["E_out_lower"], norm_params["E_out_upper"]
+    ).cpu().numpy()
+    pred_energy_dep = denorm_log_scale_logit(
+        x_final[:, cond_dim + 5], norm_params["energy_dep_lower"], norm_params["energy_dep_upper"]
+    ).cpu().numpy()
+    pred_path_len = denorm_log_scale_logit(
+        x_final[:, cond_dim + 6], path_lower, path_upper
+    ).cpu().numpy()
+
+    gt_data = {
+        "x_out": gt_sub["x_out_norm"].values,
+        "y_out": gt_sub["y_out_norm"].values,
+        "u_out": gt_sub["u_out"].values,
+        "v_out": gt_sub["v_out"].values,
+        "E_out": gt_sub["E_out"].values,
+        "energy_deposited": gt_sub["energy_deposited"].values,
+        "path_length": gt_sub["path_length"].values,
+    }
+
+    pred_data = {
+        "x_out": np.clip(pred_x_out, 0.0, 1.0),
+        "y_out": np.clip(pred_y_out, 0.0, 1.0),
+        "u_out": np.clip(pred_u_out, -1.0, 1.0),
+        "v_out": np.clip(pred_v_out, -1.0, 1.0),
+        "E_out": np.maximum(pred_E_out, 0.0),
+        "energy_deposited": np.maximum(pred_energy_dep, 0.0),
+        "path_length": np.maximum(pred_path_len, 0.0),
+    }
+
+    os.makedirs(test_dir, exist_ok=True)
+    compute_and_print_metrics(gt_data, pred_data, test_dir, tag="2d_electron_boundary")
 def enforce_exit_physics(
     pred_time_exit,
     budget,
@@ -2106,6 +2200,8 @@ def parse_args():
                         help='Sampling strategy used for inference condition/noise generation.')
     parser.add_argument('--no_plot_titles', action='store_true',
                         help='Disable titles on all generated plots.')
+    parser.add_argument('--electron_npz', type=str, default=None,
+                        help='Path to electron NPZ dataset file for evaluation.')
     return parser.parse_args()
 
 def main():
@@ -2127,6 +2223,13 @@ def main():
             batch_size=args.batch_size, ode_method=args.ode_method, num_steps=args.num_steps,
             min_thickness=args.min_thickness, max_thickness=args.max_thickness,
             min_path_budget=args.min_path_budget, max_path_budget=args.max_path_budget
+        )
+    elif args.data_dim == '2d_electron':
+        run_uniform_inference_2d_electron(
+            model, input_dim, cond_dim, device, test_dir,
+            electron_npz=args.electron_npz,
+            train_sampling=args.train_sampling, infer_sampling=args.infer_sampling,
+            batch_size=args.batch_size, ode_method=args.ode_method, num_steps=args.num_steps,
         )
     elif args.data_dim == '2d_timedep':
         run_uniform_inference_timedep(
