@@ -1,10 +1,10 @@
 Error Metrics (2D Electron Boundary)
 Metric               | Wasserstein     | KS Stat        
 -------------------------------------------------------
-E_out                | 3.8688e-02      | 2.7245e-01     
-x_out                | 1.4453e-03      | 2.1690e-01     
-y_out                | 1.7871e-03      | 2.4280e-01     
-u_out                | 6.2001e-03      | 9.1500e-03     
-v_out                | 4.9871e-03      | 7.5000e-03     
-energy_deposited     | 5.2605e-02      | 4.9000e-03     
-path_length          | 2.6182e-03      | 1.1600e-02     
+E_out                | 6.1265e-04      | 1.3475e-02     
+x_out                | 8.7147e-04      | 3.9287e-01     
+y_out                | 1.3724e-03      | 2.9341e-01     
+u_out                | 1.6782e-03      | 3.9500e-03     
+v_out                | 2.8174e-03      | 3.7800e-03     
+energy_deposited     | 3.6955e-04      | 4.5100e-03     
+path_length          | 9.2695e-06      | 1.6375e-02     
