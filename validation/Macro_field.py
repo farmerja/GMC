@@ -45,31 +45,31 @@ def transform_to_canonical(x_local, y_local, u, v, face_idx):
     u_c = np.zeros_like(u)
     v_c = np.zeros_like(v)
 
-    # Face 0: Left face (x = 0, u > 0)
+    # Face 0: Left face
     m0 = (face_idx == 0)
     y_c[m0] = y_local[m0]
     u_c[m0] = u[m0]
     v_c[m0] = v[m0]
 
-    # Face 1: Right face (x = 1, u < 0) -> mirror X
+    # Face 1: Right face
     m1 = (face_idx == 1)
     y_c[m1] = y_local[m1]
     u_c[m1] = -u[m1]
     v_c[m1] = v[m1]
 
-    # Face 2: Bottom face (y = 0, v > 0) -> rotate +90 deg
+    # Face 2: Bottom face
     m2 = (face_idx == 2)
     y_c[m2] = x_local[m2]
     u_c[m2] = v[m2]
     v_c[m2] = u[m2]
 
-    # Face 3: Top face (y = 1, v < 0) -> rotate -90 deg
+    # Face 3: Top face
     m3 = (face_idx == 3)
     y_c[m3] = x_local[m3]
     u_c[m3] = -v[m3]
     v_c[m3] = u[m3]
 
-    x_c = np.zeros_like(x_local)  # Always 0 in canonical frame
+    x_c = np.zeros_like(x_local)
     return x_c, y_c, u_c, v_c
 
 
@@ -82,28 +82,24 @@ def transform_from_canonical(x_out_c, y_out_c, u_out_c, v_out_c, face_idx):
     u_out = np.zeros_like(u_out_c)
     v_out = np.zeros_like(v_out_c)
 
-    # Face 0: Left face
     m0 = (face_idx == 0)
     x_out[m0] = x_out_c[m0]
     y_out[m0] = y_out_c[m0]
     u_out[m0] = u_out_c[m0]
     v_out[m0] = v_out_c[m0]
 
-    # Face 1: Right face
     m1 = (face_idx == 1)
     x_out[m1] = 1.0 - x_out_c[m1]
     y_out[m1] = y_out_c[m1]
     u_out[m1] = -u_out_c[m1]
     v_out[m1] = v_out_c[m1]
 
-    # Face 2: Bottom face
     m2 = (face_idx == 2)
     x_out[m2] = y_out_c[m2]
     y_out[m2] = x_out_c[m2]
     u_out[m2] = v_out_c[m2]
     v_out[m2] = u_out_c[m2]
 
-    # Face 3: Top face
     m3 = (face_idx == 3)
     x_out[m3] = y_out_c[m3]
     y_out[m3] = 1.0 - x_out_c[m3]
@@ -117,6 +113,8 @@ def simulate_macrofield_block(
         model,
         norm_params,
         num_particles=50000,
+        E_in_low=0.1,
+        E_in_high=10.0,
         ode_steps=10,
         ode_method="euler",
         batch_size=256,
@@ -129,18 +127,20 @@ def simulate_macrofield_block(
 ):
     model.eval()
 
-    cell_dx = cell_size  # 1.0 cm
-    cell_dy = cell_size  # 1.0 cm
+    cell_dx = cell_size
+    cell_dy = cell_size
 
     x_min, x_max = 0.0, num_cells_x * cell_dx
     y_min, y_max = 0.0, num_cells_y * cell_dy
 
-    E_in_lower = float(norm_params["E_in_lower"])
-    E_in_upper = float(norm_params["E_in_upper"])
+    E_in_lower_norm = float(norm_params["E_in_lower"])
+    E_in_upper_norm = float(norm_params["E_in_upper"])
     E_cutoff = float(norm_params.get("E_cutoff", 0.1))
 
-    E_init_MeV = float(10 ** E_in_upper) if E_in_upper < 5.0 else float(E_in_upper)
-    log.info(f"Simulation initial energy: {E_init_MeV:.2f} MeV | Energy cutoff: {E_cutoff:.4f} MeV")
+    log.info(
+        f"Simulation energy spectrum: Uniform[{E_in_low:.2f}, {E_in_high:.2f}] MeV | "
+        f"Energy cutoff: {E_cutoff:.4f} MeV"
+    )
     log.info(f"Target Geometry: {num_cells_x}x{num_cells_y} grid of {cell_size:.1f} cm x {cell_size:.1f} cm cells")
 
     cond_dim = getattr(model, "cond_dim", 5)
@@ -157,7 +157,7 @@ def simulate_macrofield_block(
     y_local = np.clip((pos_y_phys - pos_cell_y * cell_dy) / cell_dy, 0.0, 1.0)
     face_idx = np.zeros(num_particles, dtype=int)  # 0 = Left face
 
-    # Sample incoming angle theta in range [-85 deg, +85 deg]
+    # Sample incoming angle theta in range [-max_angle, +max_angle]
     angles_rad = np.random.uniform(
         -np.radians(max_incoming_angle_deg),
         np.radians(max_incoming_angle_deg),
@@ -166,7 +166,9 @@ def simulate_macrofield_block(
 
     u_curr = np.cos(angles_rad)
     v_curr = np.sin(angles_rad)
-    E_curr = np.full(num_particles, E_init_MeV, dtype=np.float32)
+
+    # Sample primary particle energies uniformly across [E_in_low, E_in_high]
+    E_curr = np.random.uniform(E_in_low, E_in_high, size=num_particles).astype(np.float32)
 
     active = np.ones(num_particles, dtype=bool)
     dose_grid = np.zeros((num_cells_x, num_cells_y), dtype=np.float64)
@@ -188,7 +190,7 @@ def simulate_macrofield_block(
         norm_y_in = normalize_position_relative(y_c)
         norm_phi_in = normalize_angle_phi(phi_in_c)
         norm_r_in = normalize_radius_r(r_in_c)
-        norm_E_in = normalize_log_scale_probit(E_curr[act_indices], E_in_lower, E_in_upper)
+        norm_E_in = normalize_log_scale_probit(E_curr[act_indices], E_in_lower_norm, E_in_upper_norm)
         norm_x_in = normalize_position_relative(x_c)
 
         cond_np = np.stack([norm_y_in, norm_phi_in, norm_r_in, norm_E_in, norm_x_in], axis=1)
@@ -230,32 +232,26 @@ def simulate_macrofield_block(
 
         min_face = np.argmin(np.stack([d_left, d_right, d_bottom, d_top], axis=1), axis=1)
 
-        # Update cell indices and entry states for next step
-        # 0=Exited Left, 1=Exited Right, 2=Exited Bottom, 3=Exited Top
         m_left = (min_face == 0)
         m_right = (min_face == 1)
         m_bottom = (min_face == 2)
         m_top = (min_face == 3)
 
-        # Exited Left -> Enter cell (ix - 1, iy) at Right face (1)
         pos_cell_x[act_indices[m_left]] -= 1
         face_idx[act_indices[m_left]] = 1
         x_local[act_indices[m_left]] = 1.0
         y_local[act_indices[m_left]] = np.clip(y_out_phys[m_left], 0.0, 1.0)
 
-        # Exited Right -> Enter cell (ix + 1, iy) at Left face (0)
         pos_cell_x[act_indices[m_right]] += 1
         face_idx[act_indices[m_right]] = 0
         x_local[act_indices[m_right]] = 0.0
         y_local[act_indices[m_right]] = np.clip(y_out_phys[m_right], 0.0, 1.0)
 
-        # Exited Bottom -> Enter cell (ix, iy - 1) at Top face (3)
         pos_cell_y[act_indices[m_bottom]] -= 1
         face_idx[act_indices[m_bottom]] = 3
         x_local[act_indices[m_bottom]] = np.clip(x_out_phys[m_bottom], 0.0, 1.0)
         y_local[act_indices[m_bottom]] = 1.0
 
-        # Exited Top -> Enter cell (ix, iy + 1) at Bottom face (2)
         pos_cell_y[act_indices[m_top]] += 1
         face_idx[act_indices[m_top]] = 2
         x_local[act_indices[m_top]] = np.clip(x_out_phys[m_top], 0.0, 1.0)
@@ -265,7 +261,6 @@ def simulate_macrofield_block(
         v_curr[act_indices] = v_out_phys
         E_curr[act_indices] = pred_E_out
 
-        # Deactivate particles escaping grid or depleted below cutoff
         out_of_bounds = (
             (pos_cell_x[act_indices] < 0) | (pos_cell_x[act_indices] >= num_cells_x) |
             (pos_cell_y[act_indices] < 0) | (pos_cell_y[act_indices] >= num_cells_y)
@@ -290,6 +285,8 @@ def main():
     parser = argparse.ArgumentParser(description="GMC Macro-Chaining 10x10 Block Spatial Dose Plot")
     parser.add_argument("--checkpoint", type=str, required=True, help="Path to best_model.pth")
     parser.add_argument("--num_particles", type=int, default=50000)
+    parser.add_argument("--E_in_low", type=float, default=0.1, help="Minimum energy in MeV")
+    parser.add_argument("--E_in_high", type=float, default=10.0, help="Maximum energy in MeV")
     parser.add_argument("--ode_steps", type=int, default=10)
     parser.add_argument("--ode_method", type=str, default="euler")
     parser.add_argument("--batch_size", type=int, default=256)
@@ -300,7 +297,7 @@ def main():
     parser.add_argument("--num_cells_y", type=int, default=10)
     parser.add_argument("--cell_size", type=float, default=1.0)
     parser.add_argument("--max_macro_steps", type=int, default=100)
-    parser.add_argument("--max_incoming_angle", type=float, default=85.0, help="Max incoming angle in degrees")
+    parser.add_argument("--max_incoming_angle", type=float, default=85.0)
     parser.add_argument("--train_sampling", type=str, default="random")
     parser.add_argument("--scheduler_type", type=str, default="condOT")
     parser.add_argument("--output", type=str, default="spatial_dose_density.png")
@@ -334,6 +331,8 @@ def main():
         model=model,
         norm_params=norm_params,
         num_particles=args.num_particles,
+        E_in_low=args.E_in_low,
+        E_in_high=args.E_in_high,
         ode_steps=args.ode_steps,
         ode_method=args.ode_method,
         batch_size=args.batch_size,
@@ -358,7 +357,7 @@ def main():
         aspect="equal",
         cmap="hot",
         vmin=0.0,
-        vmax=v_max,
+        vmax=300,
     )
 
     ax_map.set_title("GMC Spatial Dose Density (10 x 10)", fontsize=14, pad=12)
