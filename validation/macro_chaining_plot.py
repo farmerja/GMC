@@ -32,76 +32,177 @@ from ml.transform import (
     polar_to_uv,
 )
 
+EPS_POS = 1e-3
+
+
+def safe_normalize_position_relative(pos, eps=EPS_POS):
+    """Clamps local coordinates to [eps, 1 - eps] before probit transformation
+
+    to prevent latent vector field explosions on cell face entry.
+    """
+    pos_clamped = np.clip(pos, eps, 1.0 - eps)
+    return normalize_position_relative(pos_clamped)
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 log = logging.getLogger(__name__)
+
+
+def transform_to_canonical(x_local, y_local, u, v, face_idx):
+    """
+    Map cell entry states on any face to canonical Left-Face frame (x'_in = 0).
+    face_idx: 0=Left (x=0), 1=Right (x=1), 2=Bottom (y=0), 3=Top (y=1)
+    """
+    y_c = np.zeros_like(y_local)
+    u_c = np.zeros_like(u)
+    v_c = np.zeros_like(v)
+
+    # Face 0: Left face
+    m0 = (face_idx == 0)
+    y_c[m0] = y_local[m0]
+    u_c[m0] = u[m0]
+    v_c[m0] = v[m0]
+
+    # Face 1: Right face
+    m1 = (face_idx == 1)
+    y_c[m1] = y_local[m1]
+    u_c[m1] = -u[m1]
+    v_c[m1] = v[m1]
+
+    # Face 2: Bottom face
+    m2 = (face_idx == 2)
+    y_c[m2] = x_local[m2]
+    u_c[m2] = v[m2]
+    v_c[m2] = u[m2]
+
+    # Face 3: Top face
+    m3 = (face_idx == 3)
+    y_c[m3] = x_local[m3]
+    u_c[m3] = -v[m3]
+    v_c[m3] = u[m3]
+
+    x_c = np.zeros_like(x_local)
+    return x_c, y_c, u_c, v_c
+
+
+def transform_from_canonical(x_out_c, y_out_c, u_out_c, v_out_c, face_idx):
+    """
+    Invert predictions from canonical Left-Face frame back to physical cell space.
+    """
+    x_out = np.zeros_like(x_out_c)
+    y_out = np.zeros_like(y_out_c)
+    u_out = np.zeros_like(u_out_c)
+    v_out = np.zeros_like(v_out_c)
+
+    m0 = (face_idx == 0)
+    x_out[m0] = x_out_c[m0]
+    y_out[m0] = y_out_c[m0]
+    u_out[m0] = u_out_c[m0]
+    v_out[m0] = v_out_c[m0]
+
+    m1 = (face_idx == 1)
+    x_out[m1] = 1.0 - x_out_c[m1]
+    y_out[m1] = y_out_c[m1]
+    u_out[m1] = -u_out_c[m1]
+    v_out[m1] = v_out_c[m1]
+
+    m2 = (face_idx == 2)
+    x_out[m2] = y_out_c[m2]
+    y_out[m2] = x_out_c[m2]
+    u_out[m2] = v_out_c[m2]
+    v_out[m2] = u_out_c[m2]
+
+    m3 = (face_idx == 3)
+    x_out[m3] = y_out_c[m3]
+    y_out[m3] = 1.0 - x_out_c[m3]
+    u_out[m3] = v_out_c[m3]
+    v_out[m3] = -u_out_c[m3]
+
+    return x_out, y_out, u_out, v_out
 
 
 def simulate_macrofield_block(
         model,
         norm_params,
         num_particles=50000,
-        ode_steps=50,
+        E_in_low=0.1,
+        E_in_high=10.0,
+        ode_steps=10,
         ode_method="euler",
         batch_size=256,
         num_cells_x=10,
         num_cells_y=10,
         cell_size=1.0,
+        max_macro_steps=100,
+        max_incoming_angle_deg=85.0,
         device="cpu",
 ):
     model.eval()
 
-    cell_dx = cell_size  # 1.0 cm
-    cell_dy = cell_size  # 1.0 cm
+    cell_dx = cell_size
+    cell_dy = cell_size
 
-    x_min, x_max = 0.0, num_cells_x * cell_dx  # 0.0 to 10.0 cm
-    y_min, y_max = 0.0, num_cells_y * cell_dy  # 0.0 to 10.0 cm
+    x_min, x_max = 0.0, num_cells_x * cell_dx
+    y_min, y_max = 0.0, num_cells_y * cell_dy
 
-    E_in_lower = float(norm_params["E_in_lower"])
-    E_in_upper = float(norm_params["E_in_upper"])
+    E_in_lower_norm = float(norm_params["E_in_lower"])
+    E_in_upper_norm = float(norm_params["E_in_upper"])
     E_cutoff = float(norm_params.get("E_cutoff", 0.1))
 
-    E_init_MeV = float(10 ** E_in_upper) if E_in_upper < 5.0 else float(E_in_upper)
-    log.info(f"Simulation initial energy: {E_init_MeV:.2f} MeV | Energy cutoff: {E_cutoff:.4f} MeV")
     log.info(
-        f"Target Geometry: {num_cells_x}x{num_cells_y} grid of {cell_size:.1f} cm x {cell_size:.1f} cm micro-cells")
+        f"Simulation energy spectrum: Uniform[{E_in_low:.2f}, {E_in_high:.2f}] MeV | "
+        f"Energy cutoff: {E_cutoff:.4f} MeV"
+    )
+    log.info(f"Target Geometry: {num_cells_x}x{num_cells_y} grid of {cell_size:.1f} cm x {cell_size:.1f} cm cells")
 
     cond_dim = getattr(model, "cond_dim", 5)
     input_dim = getattr(model, "input_dim", 12)
     target_dim = input_dim - cond_dim
 
-    # Uniform broad beam across full Y height [0, 10 cm] at entrance X = 0 cm
-    pos_x = np.zeros(num_particles, dtype=np.float32)
-    pos_y = np.random.uniform(y_min, y_max, size=num_particles).astype(np.float32)
+    # Discrete integer grid indices
+    pos_cell_x = np.zeros(num_particles, dtype=int)
+    pos_y_phys = np.random.uniform(y_min, y_max, size=num_particles).astype(np.float32)
+    pos_cell_y = np.clip(np.floor(pos_y_phys / cell_dy).astype(int), 0, num_cells_y - 1)
 
-    u_curr = np.ones(num_particles, dtype=np.float32)
-    v_curr = np.zeros(num_particles, dtype=np.float32)
-    E_curr = np.full(num_particles, E_init_MeV, dtype=np.float32)
+    # Entry local coordinates on Left face (x=0)
+    x_local = np.zeros(num_particles, dtype=np.float32)
+    y_local = np.clip((pos_y_phys - pos_cell_y * cell_dy) / cell_dy, 0.0, 1.0)
+    face_idx = np.zeros(num_particles, dtype=int)  # 0 = Left face
+
+    # Sample incoming angle theta in range [-max_angle, +max_angle]
+    angles_rad = np.random.uniform(
+        -np.radians(max_incoming_angle_deg),
+        np.radians(max_incoming_angle_deg),
+        size=num_particles,
+    ).astype(np.float32)
+
+    u_curr = np.cos(angles_rad)
+    v_curr = np.sin(angles_rad)
+
+    # Sample primary particle energies uniformly across [E_in_low, E_in_high]
+    E_curr = np.random.uniform(E_in_low, E_in_high, size=num_particles).astype(np.float32)
 
     active = np.ones(num_particles, dtype=bool)
+    dose_grid = np.zeros((num_cells_x, num_cells_y), dtype=np.float64)
 
-    dose_x = []
-    dose_y = []
-    dose_weights = []
-
-    for step_idx in range(num_cells_x):
-        num_active = int(np.sum(active))
+    for step_idx in range(max_macro_steps):
+        act_indices = np.where(active)[0]
+        num_active = len(act_indices)
         if num_active == 0:
-            log.info(f"All particles terminated at step {step_idx}.")
+            log.info(f"All particles terminated at macro step {step_idx}.")
             break
 
-        phi_in, r_in = uv_to_polar(u_curr[active], v_curr[active])
+        # 1. Transform entry state to canonical Left-Face frame (x'_in = 0)
+        x_c, y_c, u_c, v_c = transform_to_canonical(
+            x_local[act_indices], y_local[act_indices], u_curr[act_indices], v_curr[act_indices], face_idx[act_indices]
+        )
 
-        # Map continuous Y to current micro-cell local unit coordinate [0, 1]
-        y_cell_idx = np.floor(pos_y[active] / cell_dy).astype(int)
-        y_local_cm = pos_y[active] - y_cell_idx * cell_dy
-        y_local_norm = np.clip(y_local_cm / cell_dy, 0.0, 1.0)
-        x_local_norm = np.zeros(num_active, dtype=np.float32)
+        phi_in_c, r_in_c = uv_to_polar(u_c, v_c)
 
-        norm_y_in = normalize_position_relative(y_local_norm)
-        norm_phi_in = normalize_angle_phi(phi_in)
-        norm_r_in = normalize_radius_r(r_in)
-        norm_E_in = normalize_log_scale_probit(E_curr[active], E_in_lower, E_in_upper)
-        norm_x_in = normalize_position_relative(x_local_norm)
+        norm_y_in = safe_normalize_position_relative(y_c)
+        norm_phi_in = normalize_angle_phi(phi_in_c)
+        norm_r_in = normalize_radius_r(r_in_c)
+        norm_E_in = normalize_log_scale_probit(E_curr[act_indices], E_in_lower_norm, E_in_upper_norm)
+        norm_x_in = normalize_position_relative(x_c)
 
         cond_np = np.stack([norm_y_in, norm_phi_in, norm_r_in, norm_E_in, norm_x_in], axis=1)
         cond_tensor = torch.tensor(cond_np, dtype=torch.float32, device=device)
@@ -110,52 +211,87 @@ def simulate_macrofield_block(
         noise_tensor = torch.randn((num_active, target_dim), dtype=torch.float32, device=device)
         x_init = torch.cat([cond_tensor, noise_tensor], dim=1)
 
+        # 2. ODE Model Inference in canonical frame
         x_final = run_uniform_ode_inference(
             model, x_init, device, ode_method=ode_method, num_steps=ode_steps, batch_size=batch_size
         )
 
-        pred_x_out_norm = denorm_position_relative(x_final[:, cond_dim + 0]).cpu().numpy()
-        pred_y_out_norm = denorm_position_relative(x_final[:, cond_dim + 1]).cpu().numpy()
+        pred_x_out_c = np.clip(denorm_position_relative(x_final[:, cond_dim + 0]).cpu().numpy(), 0.0, 1.0)
+        pred_y_out_c = np.clip(denorm_position_relative(x_final[:, cond_dim + 1]).cpu().numpy(), 0.0, 1.0)
 
-        pred_phi_out = denorm_angle_phi(x_final[:, cond_dim + 2]).cpu().numpy()
-        pred_r_out = denorm_radius_r(x_final[:, cond_dim + 3]).cpu().numpy()
-        pred_u_out, pred_v_out = polar_to_uv(pred_phi_out, pred_r_out)
+        pred_phi_out_c = denorm_angle_phi(x_final[:, cond_dim + 2]).cpu().numpy()
+        pred_r_out_c = denorm_radius_r(x_final[:, cond_dim + 3]).cpu().numpy()
+        pred_u_out_c, pred_v_out_c = polar_to_uv(pred_phi_out_c, pred_r_out_c)
 
         pred_f_out = np.clip(denorm_linear_scale_probit(x_final[:, cond_dim + 4]).cpu().numpy(), 0.0, 1.0)
-        pred_E_out = np.maximum(pred_f_out * (E_curr[active] - E_cutoff) + E_cutoff, E_cutoff)
+        pred_E_out = np.maximum(pred_f_out * (E_curr[act_indices] - E_cutoff) + E_cutoff, E_cutoff)
+        pred_energy_dep = np.maximum(0.0, E_curr[act_indices] - pred_E_out)
 
-        # Physical energy conservation: E_dep = E_in - E_out
-        pred_energy_dep = np.maximum(0.0, E_curr[active] - pred_E_out)
-
-        dx_phys = np.clip(pred_x_out_norm, 0.0, 1.0) * cell_dx
-        dy_phys = (pred_y_out_norm - y_local_norm) * cell_dy
-
-        mid_x = pos_x[active] + 0.5 * dx_phys
-        mid_y = pos_y[active] + 0.5 * dy_phys
-
-        dose_x.append(mid_x.copy())
-        dose_y.append(mid_y.copy())
-        dose_weights.append(pred_energy_dep.copy())
-
-        pos_x[active] += dx_phys
-        pos_y[active] += dy_phys
-
-        E_curr[active] = pred_E_out
-        u_curr[active] = pred_u_out
-        v_curr[active] = pred_v_out
-
-        # Open physical boundary conditions (deactivate particles escaping X or Y)
-        active_mask = active.copy()
-        out_of_bounds = (
-                (pos_x[active_mask] >= x_max)
-                | (pos_x[active_mask] < x_min)
-                | (pos_y[active_mask] >= y_max)
-                | (pos_y[active_mask] < y_min)
+        # 3. Transform predictions back from Canonical frame to physical cell space
+        # 3. Transform predictions back from Canonical frame to physical cell space
+        x_out_phys, y_out_phys, u_out_phys, v_out_phys = transform_from_canonical(
+            pred_x_out_c, pred_y_out_c, pred_u_out_c, pred_v_out_c, face_idx[act_indices]
         )
-        depleted = E_curr[active_mask] <= (E_cutoff + 1e-4)
 
-        active_indices = np.where(active_mask)[0]
-        active[active_indices[out_of_bounds | depleted]] = False
+        # Deposit 100% of single-cell predicted energy loss into current cell
+        np.add.at(dose_grid, (pos_cell_x[act_indices], pos_cell_y[act_indices]), pred_energy_dep)
+        # 4. Determine exit face boundary of current cell [0, 1] x [0, 1]
+        d_left = np.abs(x_out_phys)
+        d_right = np.abs(1.0 - x_out_phys)
+        d_bottom = np.abs(y_out_phys)
+        d_top = np.abs(1.0 - y_out_phys)
+
+        min_face = np.argmin(np.stack([d_left, d_right, d_bottom, d_top], axis=1), axis=1)
+
+        m_left = (min_face == 0)
+        m_right = (min_face == 1)
+        m_bottom = (min_face == 2)
+        m_top = (min_face == 3)
+
+        pos_cell_x[act_indices[m_left]] -= 1
+        face_idx[act_indices[m_left]] = 1
+        x_local[act_indices[m_left]] = 1.0
+        y_local[act_indices[m_left]] = y_out_phys[m_left]
+
+        pos_cell_x[act_indices[m_right]] += 1
+        face_idx[act_indices[m_right]] = 0
+        x_local[act_indices[m_right]] = 0.0
+        y_local[act_indices[m_right]] = y_out_phys[m_right]
+
+        pos_cell_y[act_indices[m_bottom]] -= 1
+        face_idx[act_indices[m_bottom]] = 3
+        x_local[act_indices[m_bottom]] = x_out_phys[m_bottom]
+        y_local[act_indices[m_bottom]] = 1.0
+
+        pos_cell_y[act_indices[m_top]] += 1
+        face_idx[act_indices[m_top]] = 2
+        x_local[act_indices[m_top]] = x_out_phys[m_top]
+        y_local[act_indices[m_top]] = 0.0
+
+        u_curr[act_indices] = u_out_phys
+        v_curr[act_indices] = v_out_phys
+        E_curr[act_indices] = pred_E_out
+
+        # Determine out-of-bounds status and energy depletion
+        out_of_bounds = (
+                (pos_cell_x[act_indices] < 0) | (pos_cell_x[act_indices] >= num_cells_x) |
+                (pos_cell_y[act_indices] < 0) | (pos_cell_y[act_indices] >= num_cells_y)
+        )
+        depleted = E_curr[act_indices] <= (E_cutoff + 1e-4)
+
+        # Deposit residual cutoff energy ONLY for particles that stopped INSIDE the grid domain
+        stopped_in_grid = depleted & (~out_of_bounds)
+        stopped_act_idx = act_indices[stopped_in_grid]
+
+        if len(stopped_act_idx) > 0:
+            np.add.at(
+                dose_grid,
+                (pos_cell_x[stopped_act_idx], pos_cell_y[stopped_act_idx]),
+                E_curr[stopped_act_idx]
+            )
+
+        # Deactivate particles that either escaped the geometry or depleted
+        active[act_indices[out_of_bounds | depleted]] = False
 
         log.info(
             f"Step {step_idx:2d}: {num_active:5d} active | "
@@ -163,29 +299,19 @@ def simulate_macrofield_block(
             f"Mean ΔE: {np.mean(pred_energy_dep):.4f} MeV"
         )
 
-    all_x = np.concatenate(dose_x) if len(dose_x) > 0 else np.array([])
-    all_y = np.concatenate(dose_y) if len(dose_y) > 0 else np.array([])
-    all_w = np.concatenate(dose_weights) if len(dose_weights) > 0 else np.array([])
-
-    dose_grid, x_edges, y_edges = np.histogram2d(
-        all_x,
-        all_y,
-        bins=[num_cells_x, num_cells_y],
-        range=[(x_min, x_max), (y_min, y_max)],
-        weights=all_w,
-    )
-
-    micro_cell_area = cell_dx * cell_dy  # 1 cm²
+    micro_cell_area = cell_dx * cell_dy
     dose_density = dose_grid / (num_particles * micro_cell_area)
 
-    return dose_density, x_edges, y_edges, cell_dx, cell_dy
+    return dose_density, num_cells_x, num_cells_y, cell_dx, cell_dy
 
 
 def main():
     parser = argparse.ArgumentParser(description="GMC Macro-Chaining 10x10 Block Spatial Dose Plot")
     parser.add_argument("--checkpoint", type=str, required=True, help="Path to best_model.pth")
     parser.add_argument("--num_particles", type=int, default=50000)
-    parser.add_argument("--ode_steps", type=int, default=50)
+    parser.add_argument("--E_in_low", type=float, default=0.1, help="Minimum energy in MeV")
+    parser.add_argument("--E_in_high", type=float, default=10.0, help="Maximum energy in MeV")
+    parser.add_argument("--ode_steps", type=int, default=10)
     parser.add_argument("--ode_method", type=str, default="euler")
     parser.add_argument("--batch_size", type=int, default=256)
     parser.add_argument("--hidden_dim", type=int, default=256)
@@ -194,6 +320,8 @@ def main():
     parser.add_argument("--num_cells_x", type=int, default=10)
     parser.add_argument("--num_cells_y", type=int, default=10)
     parser.add_argument("--cell_size", type=float, default=1.0)
+    parser.add_argument("--max_macro_steps", type=int, default=100)
+    parser.add_argument("--max_incoming_angle", type=float, default=85.0)
     parser.add_argument("--train_sampling", type=str, default="random")
     parser.add_argument("--scheduler_type", type=str, default="condOT")
     parser.add_argument("--output", type=str, default="spatial_dose_density.png")
@@ -201,8 +329,7 @@ def main():
 
     device = setup_environment(seed=42, allow_mps=False, inference=True)
 
-    norm_params, norm_path = load_norm_params_for_data_dim("2d_electron", "boundary",
-                                                           train_sampling=args.train_sampling)
+    norm_params, norm_path = load_norm_params_for_data_dim("2d_electron", "boundary", train_sampling=args.train_sampling)
     log.info(f"Loaded normalization parameters from {norm_path}")
 
     model, input_dim, cond_dim = load_model(
@@ -224,22 +351,28 @@ def main():
 
     model.to(device)
 
-    dose_density, x_edges, y_edges, cell_dx, cell_dy = simulate_macrofield_block(
+    dose_density, nx, ny, cell_dx, cell_dy = simulate_macrofield_block(
         model=model,
         norm_params=norm_params,
         num_particles=args.num_particles,
+        E_in_low=args.E_in_low,
+        E_in_high=args.E_in_high,
         ode_steps=args.ode_steps,
         ode_method=args.ode_method,
         batch_size=args.batch_size,
         num_cells_x=args.num_cells_x,
         num_cells_y=args.num_cells_y,
         cell_size=args.cell_size,
+        max_macro_steps=args.max_macro_steps,
+        max_incoming_angle_deg=args.max_incoming_angle,
         device=device,
     )
 
     fig, ax_map = plt.subplots(figsize=(8, 7))
 
-    v_max = max(2.2, np.max(dose_density))
+    v_max = max(2.2, np.max(dose_density)) if len(dose_density) > 0 else 2.2
+    x_edges = np.linspace(0.0, nx * cell_dx, nx + 1)
+    y_edges = np.linspace(0.0, ny * cell_dy, ny + 1)
 
     im = ax_map.imshow(
         dose_density.T,
@@ -248,7 +381,7 @@ def main():
         aspect="equal",
         cmap="hot",
         vmin=0.0,
-        vmax=v_max,
+        vmax=300,
     )
 
     ax_map.set_title("GMC Spatial Dose Density (10 x 10)", fontsize=14, pad=12)

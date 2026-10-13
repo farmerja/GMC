@@ -373,6 +373,16 @@ def main():
     plt.tight_layout()
     plt.savefig(args.output, dpi=300, bbox_inches="tight")
     log.info(f"Plot saved successfully to {args.output}")
+    # Export variables needed for combined plotting
+    np.savez(
+        "code1_dose.npz",  # Change to "code2_dose.npz" in your second script
+        dose_density=dose_density,
+        nx=nx,
+        ny=ny,
+        cell_dx=cell_dx,
+        cell_dy=cell_dy,
+    )
+    print("Exported dose data successfully.")
 
 
 if __name__ == "__main__":

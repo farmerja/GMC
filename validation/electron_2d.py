@@ -8,7 +8,7 @@ from pathlib import Path
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
-
+from matplotlib.colors import LogNorm
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from ml.utils import (
@@ -270,26 +270,64 @@ def validate_electron_2d_boundary(
     # =========================================================================
     if target_dim >= 7:
         log.info("Generating joint feature correlation plots...")
-        fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+        # 1. Poster typography settings
+        plt.rcParams.update({
+            "font.size": 12,
+            "axes.titlesize": 16,
+            "axes.labelsize": 14,
+            "xtick.labelsize": 12,
+            "ytick.labelsize": 12,
+            "font.weight": "medium"
+        })
 
-        # MC Ground Truth
-        axes[0].hexbin(gt_path, gt_E_out, gridsize=50, cmap="Blues", mincnt=1)
-        axes[0].set_title("MC: Path Length vs Output Energy")
-        axes[0].set_xlabel("Path Length (cm)")
-        axes[0].set_ylabel("E_out (MeV)")
-        axes[0].grid(alpha=0.2)
+        # Ensure shared axes for true 1:1 side-by-side alignment
+        fig, axes = plt.subplots(1, 2, figsize=(14, 6), sharex=True, sharey=True)
 
-        # GMC Model Prediction
-        axes[1].hexbin(pred_path, np.maximum(pred_E_out, 0.0), gridsize=50, cmap="Reds", mincnt=1)
-        axes[1].set_title("GMC: Path Length vs Output Energy")
-        axes[1].set_xlabel("Path Length (cm)")
-        axes[1].set_ylabel("E_out (MeV)")
-        axes[1].grid(alpha=0.2)
+        # Set dynamic logarithmic scale boundaries based on maximum dataset length
+        max_counts = max(len(gt_path), len(pred_path))
+        norm = LogNorm(vmin=1, vmax=max_counts)
+
+        # 2. MC Ground Truth Plot (Vibrant Blue/Green palette)
+        hb0 = axes[0].hexbin(
+            gt_path, gt_E_out,
+            gridsize=50,
+            cmap="YlGnBu",
+            norm=norm,
+            mincnt=1,
+            edgecolors="none"
+        )
+        axes[0].set_title("MC (Ground Truth)", fontweight="bold", pad=12)
+        axes[0].set_xlabel("Path Length (cm)", labelpad=8)
+        axes[0].set_ylabel(r"$E_{\mathrm{out}}$ (MeV)", labelpad=8)
+        axes[0].grid(True, linestyle="--", alpha=0.3, color="gray")
+
+        # 3. GMC Model Prediction Plot (Vibrant Red/Yellow palette)
+        hb1 = axes[1].hexbin(
+            pred_path, np.maximum(pred_E_out, 0.0),
+            gridsize=50,
+            cmap="YlOrRd",
+            norm=norm,
+            mincnt=1,
+            edgecolors="none"
+        )
+        axes[1].set_title("GMC (Model Prediction)", fontweight="bold", pad=12)
+        axes[1].set_xlabel("Path Length (cm)", labelpad=8)
+        axes[1].grid(True, linestyle="--", alpha=0.3, color="gray")
+
+        # 4. Colorbars for quantitative density scale
+        cb0 = fig.colorbar(hb0, ax=axes[0], fraction=0.046, pad=0.04)
+        cb0.set_label("Counts (Log Scale)", fontsize=12)
+
+        cb1 = fig.colorbar(hb1, ax=axes[1], fraction=0.046, pad=0.04)
+        cb1.set_label("Counts (Log Scale)", fontsize=12)
 
         plt.tight_layout()
-        plt.savefig(os.path.join(test_dir, "joint_path_vs_Eout.png"), dpi=300)
+        plt.savefig(
+            os.path.join(test_dir, "joint_path_vs_Eout.png"),
+            dpi=300,
+            bbox_inches="tight"
+        )
         plt.close()
-
     # =========================================================================
     # METRICS CALCULATION
     # =========================================================================
