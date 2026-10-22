@@ -123,6 +123,9 @@ def simulate_macrofield_block(
         cell_size=1.0,
         max_macro_steps=100,
         max_incoming_angle_deg=85.0,
+        source="mc",
+        v_spread=1.0,
+        w_max_angle_deg=60.0,
         device="cpu",
 ):
     model.eval()
@@ -157,15 +160,26 @@ def simulate_macrofield_block(
     y_local = np.clip((pos_y_phys - pos_cell_y * cell_dy) / cell_dy, 0.0, 1.0)
     face_idx = np.zeros(num_particles, dtype=int)  # 0 = Left face
 
-    # Sample incoming angle theta in range [-max_angle, +max_angle]
-    angles_rad = np.random.uniform(
-        -np.radians(max_incoming_angle_deg),
-        np.radians(max_incoming_angle_deg),
-        size=num_particles,
-    ).astype(np.float32)
-
-    u_curr = np.cos(angles_rad)
-    v_curr = np.sin(angles_rad)
+    if source == "mc":
+        # Same source as ElectronMC.generate_particles (the GMC training distribution): v uniform in
+        # [-v_spread, v_spread]; the remaining direction budget rem = sqrt(1 - v^2) is split between u and a
+        # hidden out-of-plane component w via beta ~ U(0, w_max_angle). Only the projected (u, v) is tracked,
+        # so r_in = sqrt(u^2 + v^2) = sqrt(1 - w^2) < 1 carries the hidden w.
+        v_curr = np.random.uniform(-v_spread, v_spread, size=num_particles).astype(np.float32)
+        rem = np.sqrt(np.maximum(0.0, 1.0 - v_curr ** 2))
+        beta = np.random.uniform(0.0, np.radians(w_max_angle_deg), size=num_particles).astype(np.float32)
+        u_curr = (rem * np.cos(beta)).astype(np.float32)
+    elif source == "inplane":
+        # In-plane beam with incoming angle theta uniform in [-max_angle, +max_angle] (r_in = 1)
+        angles_rad = np.random.uniform(
+            -np.radians(max_incoming_angle_deg),
+            np.radians(max_incoming_angle_deg),
+            size=num_particles,
+        ).astype(np.float32)
+        u_curr = np.cos(angles_rad)
+        v_curr = np.sin(angles_rad)
+    else:
+        raise ValueError(f"Unknown source '{source}'. Expected 'mc' or 'inplane'.")
 
     # Sample primary particle energies uniformly across [E_in_low, E_in_high]
     E_curr = np.random.uniform(E_in_low, E_in_high, size=num_particles).astype(np.float32)
@@ -223,6 +237,18 @@ def simulate_macrofield_block(
 
         # Direct cell dose accumulation
         np.add.at(dose_grid, (pos_cell_x[act_indices], pos_cell_y[act_indices]), pred_energy_dep)
+
+        # A particle that stopped (E_out at the cutoff) ends inside THIS cell: deposit its remaining energy here
+        # (the MC kernel deposits the full remaining energy when a particle drops to E_cutoff). This must happen
+        # before the nearest-face logic below moves pos_cell_* to a neighbor cell or off the grid, because a
+        # stopped particle's (x_out, y_out) is interior and its "nearest face" is arbitrary.
+        stopped_now = pred_E_out <= (E_cutoff + 1e-4)
+        if np.any(stopped_now):
+            np.add.at(
+                dose_grid,
+                (pos_cell_x[act_indices[stopped_now]], pos_cell_y[act_indices[stopped_now]]),
+                pred_E_out[stopped_now],
+            )
 
         # 4. Determine exit face boundary of current cell [0, 1] x [0, 1]
         d_left = np.abs(x_out_phys)
@@ -297,7 +323,13 @@ def main():
     parser.add_argument("--num_cells_y", type=int, default=10)
     parser.add_argument("--cell_size", type=float, default=1.0)
     parser.add_argument("--max_macro_steps", type=int, default=100)
-    parser.add_argument("--max_incoming_angle", type=float, default=85.0)
+    parser.add_argument("--source", type=str, default="mc", choices=["mc", "inplane"],
+                        help="Entry beam: 'mc' matches ElectronMC.generate_particles; 'inplane' is uniform-angle, w=0")
+    parser.add_argument("--v_spread", type=float, default=1.0, help="Half-range of v for source='mc'")
+    parser.add_argument("--w_max_angle", type=float, default=60.0,
+                        help="Max out-of-plane tilt (deg) for source='mc'")
+    parser.add_argument("--max_incoming_angle", type=float, default=85.0,
+                        help="Max in-plane angle (deg) for source='inplane'")
     parser.add_argument("--train_sampling", type=str, default="random")
     parser.add_argument("--scheduler_type", type=str, default="condOT")
     parser.add_argument("--output", type=str, default="spatial_dose_density.png")
@@ -341,6 +373,9 @@ def main():
         cell_size=args.cell_size,
         max_macro_steps=args.max_macro_steps,
         max_incoming_angle_deg=args.max_incoming_angle,
+        source=args.source,
+        v_spread=args.v_spread,
+        w_max_angle_deg=args.w_max_angle,
         device=device,
     )
 
@@ -357,7 +392,7 @@ def main():
         aspect="equal",
         cmap="hot",
         vmin=0.0,
-        vmax=300,
+        vmax=v_max,
     )
 
     ax_map.set_title("GMC Spatial Dose Density (10 x 10)", fontsize=14, pad=12)

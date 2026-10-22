@@ -46,7 +46,8 @@ def run_conditional_diversity_check(model, norm_params, device, target_dim, cond
     norm_r_in = normalize_radius_r(r_in)
     norm_E_in = normalize_log_scale_probit(30.0, E_in_lower, E_in_upper)
     norm_x_in = normalize_position_relative(0.0)
-    single_cond = torch.tensor([[norm_y_in, norm_u_in, norm_v_in, norm_E_in, norm_x_in]],
+    # Condition order matches SimDataset: [y_in, phi_in, r_in, E_in, x_in]
+    single_cond = torch.tensor([[norm_y_in, norm_phi_in, norm_r_in, norm_E_in, norm_x_in]],
                                dtype=torch.float32, device=device).repeat(1000, 1)
 
     noise = torch.randn((1000, target_dim), dtype=torch.float32, device=device)
