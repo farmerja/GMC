@@ -25,6 +25,7 @@ from ml.transform import (
     compute_normalization_params_3d_timedep,
     robust_log_stats,
     compute_normalization_params_2d_electron,
+    build_norm_params_2d_electron,
 )
 from ml.utils import (
     DATA_DIM_CHOICES,
@@ -62,7 +63,7 @@ def prepare_data(device, data_dim='2d', source_type='boundary', batch_size=2048,
                  direction_encoding_2d='polar',
                  angular_sampling=0,
                  sampling='random',
-                 train_workers=None, val_workers=None,electron_npz=None):
+                 train_workers=None, val_workers=None,electron_npz=None, run_tag='', energy_encoding='f_out'):
     print(f"Loading simulation data for {data_dim} {source_type} source...")
     print(f"  Number of neutrons: {num_neutrons}")
     print(f"  Sampling method: {sampling.upper()}")
@@ -570,46 +571,30 @@ def prepare_data(device, data_dim='2d', source_type='boundary', batch_size=2048,
         if len(sim_data) == 0:
             raise ValueError("No electrons loaded from NPZ file")
 
-        E_in_lower, E_in_upper, E_out_lower, E_out_upper, \
-            energy_dep_lower, energy_dep_upper, \
-            path_lower, path_upper, E_cutoff = \
-            compute_normalization_params_2d_electron(sim_data)
+        norm_params = build_norm_params_2d_electron(sim_data)
 
-        E_in_center, E_in_scale = robust_log_stats(sim_data["E_in"].values)
-        E_out_center, E_out_scale = robust_log_stats(sim_data["E_out"].values)
-        energy_dep_center, energy_dep_scale = robust_log_stats(
-            np.maximum(sim_data["energy_deposited"].values, 1e-12)
-        )
-        path_center, path_scale = robust_log_stats(
-            np.maximum(sim_data["path_length"].values, 1e-12)
-        )
-
-        norm_params = {
-            "E_in_lower": E_in_lower,
-            "E_in_upper": E_in_upper,
-            "E_in_center": E_in_center,
-            "E_in_scale": E_in_scale,
-            "E_out_lower": E_out_lower,
-            "E_out_upper": E_out_upper,
-            "E_out_center": E_out_center,
-            "E_out_scale": E_out_scale,
-            "energy_dep_lower": energy_dep_lower,
-            "energy_dep_upper": energy_dep_upper,
-            "energy_dep_center": energy_dep_center,
-            "energy_dep_scale": energy_dep_scale,
-            "path_lower": path_lower,
-            "path_upper": path_upper,
-            "path_center": path_center,
-            "path_scale": path_scale,
-            "E_cutoff": E_cutoff,
-            "direction_encoding_2d": "polar",
-        }
-
-        norm_params_path = f"ml/data/norm_params_2d_electron_boundary{sampling_suffix}.npy"
+        norm_params_path = f"ml/data/norm_params_2d_electron_boundary{run_tag}{sampling_suffix}.npy"
         _save_norm_params_artifacts(
             norm_params_path,
             norm_params,
             "2D Electron Boundary",
+        )
+
+    elif data_dim == "2d_electron_face":
+        # Face-conditioned exit flow: trained on exiting rows only; the exit classifier supplies the face.
+        log.info(f"Loading electron data from: {electron_npz}")
+        full_data = load_electron_dataset(electron_npz)
+        norm_params = build_norm_params_2d_electron(full_data)  # same E_in bounds as the exit classifier
+        norm_params["num_faces"] = 4
+        norm_params["topology"] = "square"
+        norm_params["energy_encoding"] = energy_encoding  # ml/transform.encode_energy_target
+        sim_data = full_data[full_data["exit_class"] < 4].reset_index(drop=True)
+        log.info(f"Face-conditioned flow: {len(sim_data)} exiting of {len(full_data)} rows")
+        data_type_str = "2d_electron_face_boundary"
+        _save_norm_params_artifacts(
+            f"ml/data/norm_params_2d_electron_face_boundary{run_tag}{sampling_suffix}.npy",
+            norm_params,
+            "2D Electron Face-Conditioned",
         )
 
     else:
@@ -728,7 +713,7 @@ def train(num_epochs=50, batch_size=2048, hidden_dim=128, depth=4, expansion_fac
           direction_encoding_2d='polar',
           angular_sampling=0,
           sampling='random',
-          train_workers=None, val_workers=None,electron_npz=None):
+          train_workers=None, val_workers=None,electron_npz=None, run_tag='', energy_encoding='f_out'):
 
     device = setup_environment()
     non_blocking = str(device).startswith("cuda")
@@ -746,13 +731,15 @@ def train(num_epochs=50, batch_size=2048, hidden_dim=128, depth=4, expansion_fac
         train_workers=train_workers,
         val_workers=val_workers,
         electron_npz=electron_npz,
+        run_tag=run_tag,
+        energy_encoding=energy_encoding,
     )
 
     # Define results directory based on data_dim and source_type
-    model_dir = f"ml/models/{data_dim}_{source_type}"
+    model_dir = f"ml/models/{data_dim}_{source_type}{run_tag}"
     os.makedirs(model_dir, exist_ok=True)
 
-    training_dir = f"ml/training_results/{data_dim}_{source_type}"
+    training_dir = f"ml/training_results/{data_dim}_{source_type}{run_tag}"
     os.makedirs(training_dir, exist_ok=True)
 
     print(f"Models will be saved in: {model_dir}")
@@ -962,6 +949,11 @@ def parse_args():
                         help='Number of DataLoader workers for train loader (default: auto)')
     parser.add_argument('--val_workers', type=int, default=None,
                         help='Number of DataLoader workers for val loader (default: auto)')
+    parser.add_argument('--energy_encoding', type=str, default='f_out', choices=['f_out', 'log_loss'],
+                        help="Exit-energy target of 2d_electron_face (see ml/transform.encode_energy_target)")
+    parser.add_argument('--run_tag', type=str, default='',
+                        help="Suffix for model/results dirs and electron norm params (e.g. '_analog_cu'), so a new "
+                             "run does not overwrite the default ones")
     parser.add_argument('--electron_npz', type=str, default=None,
                         help='Path to electron NPZ file (required when data_dim=2d_electron)')
 
@@ -974,7 +966,7 @@ def main(args=None):
     print(f"Starting training for {args.data_dim} {args.source_type} source with {args.scheduler} scheduler")
     if args.data_dim in TIME_DEPENDENT_DATA_DIMS:
         print(f"Path-length budget parameters: min={args.min_path_budget}, max={args.max_path_budget}")
-    if args.data_dim == "2d_electron" and args.electron_npz is None:
+    if args.data_dim in ("2d_electron", "2d_electron_face") and args.electron_npz is None:
         print("ERROR: data_dim='2d_electron' requires --electron_npz argument")
         return
 
@@ -1012,6 +1004,8 @@ def main(args=None):
         train_workers=args.train_workers,
         val_workers=args.val_workers,
         electron_npz=args.electron_npz,  # Use args.electron_npz here
+        run_tag=args.run_tag,
+        energy_encoding=args.energy_encoding,
     )
 
 if __name__ == '__main__':

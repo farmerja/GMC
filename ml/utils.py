@@ -35,6 +35,7 @@ DATA_DIM_CHOICES = (
     "2d_triangle_timedep",
     "2d_quad_timedep",
     "2d_electron",
+    "2d_electron_face",
 )
 TIME_DEPENDENT_DATA_DIMS = {
     "1d_timedep",

@@ -5,6 +5,8 @@ import numpy as np
 import pandas as pd
 import logging
 
+from ml.cell_topology import SQUARE, classes_from_status
+
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
 
@@ -17,11 +19,16 @@ def load_electron_dataset(npz_path):
         - inputs:          [N, 5] array [x_in, y_in, u_in, v_in, E_in]
         - outputs:         [N, 5] array [x_out, y_out, u_out, v_out, E_out]
         - path_lengths:    [N] array of path lengths
-        - status:          [N] array where 1-4=exit face, 5=absorbed
+        - status:          [N] array where 1-4=exit face (1 left, 2 right, 3 bottom, 4 top), 5=absorbed,
+                           6=lost (moving exactly along z in vacuum; dropped here with a warning)
         - energy_tally:    [grid_x, grid_y] energy deposited per grid cell (same for all particles)
         - grid_dims:       [2] array [n_grid_x, n_grid_y]
         - box_dims:        [2] array [width, height] of the simulation cell
-        - density:         scalar density of the material
+        - density:         density of the material (scalar, or one entry per material for analog_stepper data)
+    Optional keys: w_in / w_out (out-of-plane direction cosines), E_cutoff (stored in df.attrs["E_cutoff"]),
+        electron_bank (analog_stepper: every escaping electron; columns x, y, u, v, w, E, status, parent, generation,
+        path) -> per-primary columns n_sec_e (escaping secondary electrons, all generations) and E_sec_e (their
+        total energy).
 
     Returns:
         pd.DataFrame with normalized and processed data ready for GMC training
@@ -40,7 +47,23 @@ def load_electron_dataset(npz_path):
         energy_tally = np.asarray(data["energy_tally"], dtype=np.float32)  # [grid_x, grid_y]
         grid_dims = np.asarray(data["grid_dims"], dtype=np.int32)
         box_dims = np.asarray(data["box_dims"], dtype=np.float32)
-        density = float(data["density"])
+        density_arr = np.atleast_1d(np.asarray(data["density"], dtype=np.float64))
+        w_in = np.asarray(data["w_in"], dtype=np.float32) if "w_in" in data.files else None
+        w_out = np.asarray(data["w_out"], dtype=np.float32) if "w_out" in data.files else None
+        E_cutoff_file = float(data["E_cutoff"]) if "E_cutoff" in data.files else None
+        n_sec_e = E_sec_e = None
+        if "electron_bank" in data.files:
+            # Escaping secondaries of each primary (generation > 0), counted BEFORE any rows are dropped so the
+            # parent indices still line up with the input rows.
+            bank = np.asarray(data["electron_bank"], dtype=np.float64)
+            sec = bank[bank[:, 8] > 0] if bank.size else bank.reshape(0, 10)
+            parent = sec[:, 7].astype(np.int64)
+            n_sec_e = np.bincount(parent, minlength=inputs.shape[0]).astype(np.int64)
+            E_sec_e = np.bincount(parent, weights=sec[:, 5], minlength=inputs.shape[0])
+    if density_arr.size > 1:
+        log.warning(f"density has {density_arr.size} entries (multi-material file); using the first, "
+                    f"{density_arr[0]:.4f} g/cm^3, as the cell density")
+    density = float(density_arr[0])
 
     # Validate shapes
     if inputs.ndim != 2 or inputs.shape[1] != 5:
@@ -69,8 +92,18 @@ def load_electron_dataset(npz_path):
     if box_dims.ndim != 1 or box_dims.shape[0] != 2:
         raise ValueError(f"Expected box_dims with shape [2], got {box_dims.shape}")
 
-    if not np.all(np.isin(status, [1, 2, 3, 4, 5])):
-        raise ValueError("status must contain only 1-4 (exit faces) or 5 (absorbed)")
+    if not np.all(np.isin(status, [1, 2, 3, 4, 5, 6])):
+        raise ValueError("status must contain only 1-4 (exit faces), 5 (absorbed) or 6 (lost)")
+    lost = status == 6
+    if np.any(lost):
+        # Status 6 particles never reach a face or the cutoff, so they have no exit state to learn; drop them.
+        log.warning(f"Dropping {int(lost.sum())} status-6 (lost) particles ({100 * lost.mean():.3f}%)")
+        keep = ~lost
+        inputs, outputs, path_lengths, status = inputs[keep], outputs[keep], path_lengths[keep], status[keep]
+        w_in = None if w_in is None else w_in[keep]
+        w_out = None if w_out is None else w_out[keep]
+        n_sec_e = None if n_sec_e is None else n_sec_e[keep]
+        E_sec_e = None if E_sec_e is None else E_sec_e[keep]
 
     # Parse inputs
     x_in = inputs[:, 0]
@@ -101,6 +134,8 @@ def load_electron_dataset(npz_path):
     absorbed = (status == 5).astype(np.float32)
     exited = (status != 5).astype(np.float32)
     exit_face = status.astype(np.float32)  # 1-4: face, 5: absorbed
+    # Geometry-agnostic exit class (ml/cell_topology.py): 0 bottom, 1 right, 2 top, 3 left, 4 absorbed
+    exit_class = classes_from_status(status)
 
     # Calculate total energy deposited from tally (sum over all grid cells)
     # This is a [grid_x, grid_y] array, so sum to get scalar per particle?
@@ -143,6 +178,7 @@ def load_electron_dataset(npz_path):
         "absorbed": absorbed,
         "exited": exited,
         "exit_face": exit_face,
+        "exit_class": exit_class,
 
         # Normalized positions (for dataset transform)
         "x_in_norm": x_in_norm,
@@ -158,6 +194,16 @@ def load_electron_dataset(npz_path):
         "box_height": box_height,
     })
 
+    if w_in is not None:
+        df["w_in"] = w_in
+    if w_out is not None:
+        df["w_out"] = w_out
+    if E_cutoff_file is not None:
+        df.attrs["E_cutoff"] = E_cutoff_file
+    if n_sec_e is not None:
+        df["n_sec_e"] = n_sec_e
+        df["E_sec_e"] = E_sec_e
+
     log.info(f"✓ Loaded {len(df)} electron trajectories")
     log.info(f"  Box dimensions: {box_width:.4f} cm × {box_height:.4f} cm")
     log.info(f"  Material density: {density:.4f} g/cm³")
@@ -165,6 +211,8 @@ def load_electron_dataset(npz_path):
     log.info(f"  Total energy in tally: {total_tally_energy:.6e} MeV")
     log.info(f"  Transmitted: {int(df['exited'].sum())} ({100 * df['exited'].mean():.1f}%)")
     log.info(f"  Absorbed: {int(df['absorbed'].sum())} ({100 * df['absorbed'].mean():.1f}%)")
+    counts = np.bincount(exit_class, minlength=SQUARE.num_classes)
+    log.info("  Exit classes: " + ", ".join(f"{n} {100 * c / len(df):.2f}%" for n, c in zip(SQUARE.class_names, counts)))
     log.info(f"  E_in range: [{E_in.min():.4f}, {E_in.max():.4f}] MeV")
     log.info(f"  E_out range: [{E_out.min():.4f}, {E_out.max():.4f}] MeV")
     log.info(f"  Energy deposited range: [{energy_deposited.min():.4e}, {energy_deposited.max():.4e}] MeV")

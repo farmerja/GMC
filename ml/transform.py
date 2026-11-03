@@ -182,6 +182,39 @@ def compute_normalization_params_2d_electron(sim_data):
         E_cutoff,
     )
 
+
+def build_norm_params_2d_electron(sim_data):
+    """Full normalization dict for the 2d_electron data type (shared by the flow and the exit classifier)."""
+    E_in_lower, E_in_upper, E_out_lower, E_out_upper, \
+        energy_dep_lower, energy_dep_upper, path_lower, path_upper, E_cutoff = \
+        compute_normalization_params_2d_electron(sim_data)
+
+    E_in_center, E_in_scale = robust_log_stats(sim_data["E_in"].values)
+    E_out_center, E_out_scale = robust_log_stats(sim_data["E_out"].values)
+    energy_dep_center, energy_dep_scale = robust_log_stats(np.maximum(sim_data["energy_deposited"].values, 1e-12))
+    path_center, path_scale = robust_log_stats(np.maximum(sim_data["path_length"].values, 1e-12))
+
+    return {
+        "E_in_lower": E_in_lower,
+        "E_in_upper": E_in_upper,
+        "E_in_center": E_in_center,
+        "E_in_scale": E_in_scale,
+        "E_out_lower": E_out_lower,
+        "E_out_upper": E_out_upper,
+        "E_out_center": E_out_center,
+        "E_out_scale": E_out_scale,
+        "energy_dep_lower": energy_dep_lower,
+        "energy_dep_upper": energy_dep_upper,
+        "energy_dep_center": energy_dep_center,
+        "energy_dep_scale": energy_dep_scale,
+        "path_lower": path_lower,
+        "path_upper": path_upper,
+        "path_center": path_center,
+        "path_scale": path_scale,
+        "E_cutoff": E_cutoff,
+        "direction_encoding_2d": "polar",
+    }
+
 # --- Generic, Type-Aware Normalization/Denormalization Functions ---
 def _get_lib(x): return torch if isinstance(x, torch.Tensor) else np
 
@@ -323,6 +356,62 @@ def denorm_angle_phi(logit_phi): return denorm_linear_scale_logit(logit_phi) * (
 def denorm_radius_r(logit_r):
     r = denorm_linear_scale_logit(logit_r)
     return torch.clamp(r, 0.0, 1.0) if isinstance(logit_r, torch.Tensor) else np.clip(r, 0.0, 1.0)
+
+def normalize_exit_angle(psi):
+    """Exit angle psi = atan2(mu_t, mu_n) in (-pi/2, pi/2) (outgoing through the face) -> probit space."""
+    return normalize_linear_scale_logit(psi / np.pi + 0.5)
+def denorm_exit_angle(z):
+    return (denorm_linear_scale_logit(z) - 0.5) * np.pi
+
+
+ENERGY_ENCODINGS = ("f_out", "log_loss")
+LOG_LOSS_FLOOR = 1e-5
+
+
+def encode_energy_target(E_in, E_out, E_cut, norm_params):
+    """Exit-energy target of the electron flows, by norm_params["energy_encoding"]:
+        "f_out"    probit of f_out = (E_out - E_cut) / (E_in - E_cut)                     (original)
+        "log_loss" log-probit of the loss fraction l = 1 - f_out on [floor, 1]; the flow's error is then relative
+                   to the energy LOST (= the dose), not to E_out, which matters when cells lose only a few percent.
+                   Losses below the floor (purely elastic crossings) are set to it: error <= floor * E_in.
+    """
+    span = np.maximum(E_in - E_cut, 1e-12)
+    if norm_params.get("energy_encoding", "f_out") == "log_loss":
+        floor = float(norm_params.get("log_loss_floor", LOG_LOSS_FLOOR))
+        loss = np.clip((E_in - E_out) / span, floor, 1.0)
+        return normalize_log_scale_probit(loss, np.log10(floor), 0.0)
+    return normalize_linear_scale_probit(np.clip((E_out - E_cut) / span, 0.0, 1.0))
+
+
+def decode_energy_out(z, E_in, E_cut, norm_params):
+    """Inverse of encode_energy_target -> E_out (numpy), clipped to [E_cut, E_in]."""
+    z = np.asarray(z, dtype=np.float64)
+    span = np.maximum(E_in - E_cut, 0.0)
+    if norm_params.get("energy_encoding", "f_out") == "log_loss":
+        floor = float(norm_params.get("log_loss_floor", LOG_LOSS_FLOOR))
+        loss = np.clip(denorm_log_scale_probit(z, np.log10(floor), 0.0), 0.0, 1.0)
+        E_out = E_in - loss * span
+    else:
+        E_out = np.clip(denorm_linear_scale_probit(z), 0.0, 1.0) * span + E_cut
+    return np.clip(E_out, E_cut, np.maximum(E_in, E_cut))
+
+
+def face_exit_features_2d(x_norm, y_norm, u, v, face, verts=None):
+    """Face-local exit state for 2D polygon cells (ml/cell_topology.py convention).
+
+    Returns (s, psi, r): s in [0, 1] along the exit face, psi = atan2(mu_t, mu_n) the exit angle from the outward
+    normal (|psi| < pi/2 for an exiting particle), r = sqrt(u^2 + v^2) = sqrt(1 - w^2) the in-plane magnitude.
+    """
+    from ml.cell_topology import UNIT_SQUARE_VERTS, polygon_face_coordinate, direction_to_face_frame_2d
+
+    verts = UNIT_SQUARE_VERTS if verts is None else verts
+    face = np.asarray(face).astype(np.int64)
+    pts = np.stack([np.asarray(x_norm, dtype=np.float64), np.asarray(y_norm, dtype=np.float64)], axis=1)
+    s = polygon_face_coordinate(verts, face, pts)
+    mu_n, mu_t = direction_to_face_frame_2d(verts, face, np.asarray(u, dtype=np.float64), np.asarray(v, dtype=np.float64))
+    psi = np.clip(np.arctan2(mu_t, np.maximum(mu_n, 0.0)), -0.5 * np.pi, 0.5 * np.pi)
+    return s, psi, np.sqrt(mu_n ** 2 + mu_t ** 2)
+
 
 def uvw_to_axis_spherical_x(u, v, w, eps=1e-12):
     lib = _get_lib(u)
@@ -472,6 +561,17 @@ class SimDataset(Dataset):
             self.energy_dep_upper = norm_params.get("energy_dep_upper", 1.0)
             self.path_lower = norm_params.get("path_lower", -12.0)
             self.path_upper = norm_params.get("path_upper", 1.0)
+        elif self.data_type == "2d_electron_face_boundary":
+            # Face-conditioned exit flow: only rows that EXIT the cell; which face is chosen by the exit classifier
+            # (ml/exit_classifier.py). cond = 2d_electron cond + one-hot exit face; target = (s, psi, r, f_out, path).
+            self.num_faces = int(norm_params.get("num_faces", 4))
+            self.cond_dim = 5 + self.num_faces
+            self.target_dim = 5
+            self.E_cutoff = float(norm_params["E_cutoff"])
+            self.E_in_lower = norm_params["E_in_lower"]
+            self.E_in_upper = norm_params["E_in_upper"]
+            self.path_lower = norm_params["path_lower"]
+            self.path_upper = norm_params["path_upper"]
         else:
             raise ValueError(f"Unknown data_type: {self.data_type}")
 
@@ -1224,6 +1324,31 @@ class SimDataset(Dataset):
                 normalize_log_scale_probit(col("path_length") + 1e-12, self.path_lower, self.path_upper),
             ]
 
+            x1 = stack_ct(cond_cols, target_cols)
+
+        elif self.data_type == "2d_electron_face_boundary":
+            face = df["exit_class"].to_numpy().astype(np.int64)
+            if face.min() < 0 or face.max() >= self.num_faces:
+                raise ValueError("2d_electron_face_boundary needs exiting rows only (exit_class in [0, num_faces))")
+            phi_in, r_in = uv_to_polar(col("u_in"), col("v_in"))
+            E_in = col("E_in")
+            E_out = np.maximum(col("E_out"), self.E_cutoff)
+            s_out, psi_out, r_out = face_exit_features_2d(col("x_out_norm"), col("y_out_norm"), col("u_out"),
+                                                          col("v_out"), face)
+            cond_cols = [
+                normalize_position_relative(col("y_in_norm")),
+                normalize_angle_phi(phi_in),
+                normalize_radius_r(r_in),
+                normalize_log_scale_probit(E_in, self.E_in_lower, self.E_in_upper),
+                normalize_position_relative(col("x_in_norm")),
+            ] + [(face == k).astype(np.float64) for k in range(self.num_faces)]
+            target_cols = [
+                normalize_position_relative(s_out),
+                normalize_exit_angle(psi_out),
+                normalize_radius_r(r_out),
+                encode_energy_target(E_in, E_out, self.E_cutoff, self.norm_params),
+                normalize_log_scale_probit(col("path_length") + 1e-12, self.path_lower, self.path_upper),
+            ]
             x1 = stack_ct(cond_cols, target_cols)
 
         elif self.data_type == '3d_timedep_boundary':

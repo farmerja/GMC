@@ -1,0 +1,234 @@
+ELECTRON GMC: STATUS, DESIGN AND HOW TO RUN
+===========================================
+Last updated 2026-11-03. Run every GMC command from the GMC root (/home/aubrey/PycharmProjects/GMC) unless stated
+otherwise. Nothing described here is committed to git yet.
+
+
+1. OVERVIEW
+-----------
+A GMC cell model replaces analog Monte Carlo inside one cell. Given a particle entering a cell, it samples what
+leaves. A cell transit now has a discrete part and a continuous part:
+
+    discrete    exit class: which face the primary leaves through, or "absorbed" (stopped inside)
+                [new] number of secondary electrons that escape the cell (0..10, top class = "10 or more")
+    continuous  state on the exit face: position along the face, exit angle, energy, path length
+
+The discrete part is sampled by a classifier. The continuous part is sampled by a flow-matching model that is told
+which face was chosen. Cells are then chained: a particle leaving one cell enters the neighbour through the
+opposite face.
+
+Pipeline for one cell transit (what the chaining code does):
+    1. rotate the entry state into the canonical frame (particle entering through the left face, x = 0)
+    2. exit classifier         -> exit class (face or absorbed)       [ml/exit_classifier.py]
+       (or the joint classifier -> exit class + secondary count     [ml/exit_secondary_classifier.py], not chained yet)
+    3. face-conditioned flow   -> position along that face, angle, energy, path   (exits only)
+    4. deposit E_in - E_out in the cell (E_in if absorbed)
+    5. rotate back and move the particle to the neighbouring cell
+
+
+2. WHAT WORKS
+-------------
+- Face-only exit classifier (ml/exit_classifier.py)
+    Calibrated against held-out MC (exit fractions within noise, worst energy/angle bin <= ~2.5 sigma).
+
+- Face-conditioned flow (ml/train.py --data_dim 2d_electron_face)
+    Compared with the original 2d_electron flow on single 1 um Cu cells (500k held-out histories):
+    3x better exit angle, better path length and exit-class fractions. The original flow sends 2.5% of "exiting"
+    electrons back into the cell and has a dip in the straight-through direction (a wrap point in its angle
+    encoding). The face flow avoids both by construction.
+
+- Chaining (validation/chain_core.py, validation/gmc_kernels.py, validation/Macro_field.py)
+    20 x 20 grid of 1 um Cu cells, 1-100 keV beam, dose error vs the MC-chained reference:
+        face flow 1.7% | original flow 2.2% | MC-vs-MC noise floor 1.4%
+    Following only the primary (secondary energy deposited where the primary loses it) costs about 1% of total
+    dose at these energies.
+
+- [NEW] Joint face + secondary-electron classifier (ml/exit_secondary_classifier.py)
+    5 exit classes x 11 count classes (n = 0..10) = 55 classes. Tested on 500k unseen 1 um histories: count
+    distribution, P(n >= k) tails, mean count vs energy and exit fractions are all within ~3 sigma of MC.
+    A synthetic test confirmed all 55 classes train and sample, including "10 or more".
+    Separate file and separate checkpoint (exit_secondary_classifier.pth). It refuses to overwrite
+    exit_classifier.pth, and each loader rejects the other's checkpoints.
+
+
+3. WHAT DOES NOT WORK YET
+------------------------
+- Secondaries are not in the chain. The joint classifier only says how many secondaries leave. Still needed:
+    a. a secondary model: exit face, state and energy of each secondary, with energy as a share of the primary's
+       energy loss so energy is conserved;
+    b. the primary flow conditioned on the secondary count;
+    c. a growable particle stack in validation/chain_core.chain;
+    d. an MC-chained reference that includes secondaries (extend MCKernel in validation/mc_chain.py). Check this
+       matches the full-grid MC before training any model.
+- High-energy dose shortfall: both flows under-deposit by up to ~6% at the top of the energy range because they
+  under-fill the rare large-energy-loss tail (hard knock-on collisions). The log energy-loss option
+  (--energy_encoding log_loss) did not fix it. To try next: more training data, and conditioning on the secondary
+  count.
+- Joint classifier at high counts: only tested on 1 um / keV data (max 3 secondaries per primary). The 80-100 GeV,
+  1 mm datasets meant for this were hit by a stack overflow (section 5) and must be regenerated.
+- Analog MC: photons are banked at birth, not transported. There is no pair production and no positrons. The
+  combined face + electron + photon classifier waits until these are added.
+- Only 2D square cells are wired end to end. cell_topology.py already covers quads, triangles, boxes and tetrahedra
+  (class numbering and face coordinates), but no data, flows or chaining exist for them yet.
+
+
+4. HOW THINGS ARE HANDLED
+-------------------------
+- Class numbering (ml/cell_topology.py): faces first, then interior outcomes.
+    2D polygons: face k is the edge from vertex k to vertex k+1, counter-clockwise.
+    Square: 0 bottom, 1 right, 2 top, 3 left, 4 absorbed.
+    MC status codes (1 left, 2 right, 3 bottom, 4 top, 5 absorbed) are converted by classes_from_status.
+    Time-dependent problems will add a "census" class: topology.with_interior("absorbed", "census").
+    Meshes mixing triangles and quads can share one classifier using valid_class_mask.
+- Classifiers take exactly the flow's input vector, so one normalized tensor feeds both models. They are trained
+  with plain cross-entropy (no class reweighting) so the probabilities are calibrated, then temperature-scaled.
+  Always SAMPLE from them; never take the most likely class.
+  The joint classifier starts each class at its training frequency (prior_bias=True) so counts never seen in
+  training keep near-zero probability.
+- Secondary count = escaping secondary electrons of all generations, from electron_bank rows with generation > 0,
+  grouped by parent. Secondaries that stop inside the cell are dose, not counted. The loader adds n_sec_e and
+  E_sec_e columns.
+- Face-conditioned flow target: (s, psi, r, energy, path)
+    s    position along the face, 0..1
+    psi  exit angle from the outward normal (always outgoing)
+    r    in-plane direction magnitude, which encodes |w|; the sign of w is drawn at random by symmetry
+- Validation references (validation/mc_chain.py):
+    full MC     analog MC on the whole grid; the true answer
+    MC-chained  the analog MC used as the cell model inside the same chain loop; the best any GMC with this
+                structure can do
+    GMC vs MC-chained = model error.   MC-chained vs full MC = cost of following only the primary.
+
+
+5. GOTCHAS
+----------
+- analog_tp_cu_1um_20k_42.npz (Oct 28) predates the current analog physics (17.7% vs 26.6% backscatter). Do not
+  train on it. Use analog_tp_cu_1um_200k_42_current.npz or analog_tp_cu_1um_1M_42.npz.
+- material_data.build_library defaults to E_max = 1e2 MeV (100 MeV). Pass E_max=1e5 for GeV runs; the h5 data
+  goes to 100 GeV.
+- Secondary stack overflow: in the 2D (infinite-z) geometry, high-energy electrons moving almost along z can travel
+  cm to m of material inside one cell and overflow the default per-history stack (4096). Overflowed secondaries
+  are deposited locally, so the energy balance still closes and check_bank_complete does not catch it. Read the
+  "[!] Overflows -- stack" line printed by run_transport, and use stack_size=1_000_000 for GeV runs.
+- The GMC venv has no h5py, so validation/mc_chain.py must run with the ElectronTransport venv. The ElectronTransport
+  venv has no torch, so GMC training and chains run with the GMC venv.
+- ml/train.py --run_tag suffixes model, result and norm-param paths so a new run does not overwrite the defaults.
+  Without it, a 2d_electron run overwrites ml/models/2d_electron_boundary and the default norm params.
+- validation/Macro_field.py reads the architecture from the checkpoint; --hidden_dim/--depth/--expansion_factor are
+  accepted but ignored.
+- Training run-to-run variance is about as large as some of the differences between models. Use 2-3 training
+  seeds before trusting small differences.
+
+
+6. HOW TO RUN (keV Cu example, 1 um cells)
+------------------------------------------
+Step 0. Generate analog MC data (ElectronTransport venv, from /home/aubrey/PycharmProjects/ElectronTransport).
+  AnalogMC.py's __main__ does this (edit N, random_seed, OUTPUT_FILE). Minimal script:
+
+    import numpy as np
+    from AnalogMC import run_simulation
+    from analog_stepper import VoxelGeometry
+    from material_data import Material, build_library
+    H5 = 'copper_mc_database.h5'
+    lib = build_library([Material.from_element(H5, 29)], H5)          # add E_max=1e5 for GeV
+    geo = VoxelGeometry.uniform(1e-4, 1e-4, 50, 50, material=lib.index("Copper"))   # 1 um cell
+    d, _, _ = run_simulation(lib, geo, N=1000000, E_in_low=1e-3, E_in_high=1e-1, E_cutoff=1e-3,
+                             v_spread=1, benchmark_mode=False, random_seed=42, w_max_angle_deg=90.0)
+    np.savez_compressed("analog_tp_cu_1um_1M_42.npz", **d)
+
+  Make an independent test file the same way with another seed (e.g. 7). About 0.4 s per 50k histories at keV.
+  For GeV runs, run_simulation does not expose stack_size/bank_factor: call analog_stepper.run_transport
+  directly with stack_size=1_000_000 and bank_factor=60, and save the same keys as run_simulation.
+
+Step 1. Face-only exit classifier (GMC venv)
+    python ml/exit_classifier.py --data_dim 2d_electron \
+        --electron_npz ../ElectronTransport/analog_tp_cu_1um_200k_42_current.npz \
+        --out ml/models/2d_electron_analog_cu/exit_classifier.pth
+  Writes exit_classifier_check_*.png next to the checkpoint (predicted vs MC class fractions per bin).
+
+Step 2. Joint face + secondary-count classifier
+    python ml/exit_secondary_classifier.py \
+        --electron_npz ../ElectronTransport/analog_tp_cu_1um_1M_42.npz \
+        --test_npz ../ElectronTransport/analog_tp_cu_1um_500k_7.npz \
+        --out ml/models/2d_electron_analog_cu/exit_secondary_classifier.pth   [--max_secondaries 10]
+  Writes exit_secondary_check_val.png / _test.png and prints P(n >= k), exit-class and mean-count z-scores.
+
+Step 3. Flows
+    original flow:   python ml/train.py --data_dim 2d_electron \
+                         --electron_npz ../ElectronTransport/analog_tp_cu_1um_200k_42_current.npz --run_tag _analog_cu
+    face flow:       python ml/train.py --data_dim 2d_electron_face \
+                         --electron_npz ../ElectronTransport/analog_tp_cu_1um_200k_42_current.npz --run_tag _analog_cu
+                     (optional: --energy_encoding log_loss)
+  Outputs: ml/models/2d_electron[_face]_boundary_analog_cu/best_model.pth and
+           ml/data/norm_params_2d_electron[_face]_boundary_analog_cu.npz
+
+Step 4. Single-cell check against held-out MC
+    python validation/electron_cell_compare.py \
+        --test_npz ../ElectronTransport/analog_tp_cu_1um_500k_7.npz \
+        --baseline_ckpt ml/models/2d_electron_boundary_analog_cu/best_model.pth \
+        --baseline_norm ml/data/norm_params_2d_electron_boundary_analog_cu.npy \
+        --face_ckpt ml/models/2d_electron_face_boundary_analog_cu/best_model.pth \
+        --face_norm ml/data/norm_params_2d_electron_face_boundary_analog_cu.npy \
+        --classifier ml/models/2d_electron_analog_cu/exit_classifier.pth \
+        --ref_npz ../ElectronTransport/analog_tp_cu_1um_500k_43.npz \
+        --out_dir validation/results/electron_cell_analog_cu
+  The --ref_npz file is an independent MC run, used as the noise floor.
+
+Step 5. MC references for chaining (ElectronTransport venv, from the GMC root)
+    ../ElectronTransport/.venv/bin/python validation/mc_chain.py --out validation/results/chain_analog_cu/mc_ref.npz
+    ../ElectronTransport/.venv/bin/python validation/mc_chain.py --seed 456 \
+        --out validation/results/chain_analog_cu/mc_ref_seed456.npz
+  Defaults: 20 x 20 cells of 1 um, 100k primaries, 1-100 keV, beam through the middle cell (--beam_cells).
+
+Step 6. Chained GMC vs MC (GMC venv)
+    python validation/electron_chain_compare.py --mc_ref validation/results/chain_analog_cu/mc_ref.npz \
+        --noise_ref validation/results/chain_analog_cu/mc_ref_seed456.npz \
+        --baseline_ckpt ml/models/2d_electron_boundary_analog_cu/best_model.pth \
+        --baseline_norm ml/data/norm_params_2d_electron_boundary_analog_cu.npy \
+        --face_ckpt ml/models/2d_electron_face_boundary_analog_cu/best_model.pth \
+        --face_norm ml/data/norm_params_2d_electron_face_boundary_analog_cu.npy \
+        --classifier ml/models/2d_electron_analog_cu/exit_classifier.pth
+  Writes chain_metrics.json, dose_maps.png and profiles.png next to mc_ref.npz.
+
+Step 7. Dose plot with the face model (the old --checkpoint usage still works)
+    python validation/Macro_field.py \
+        --face_ckpt ml/models/2d_electron_face_boundary_analog_cu/best_model.pth \
+        --face_norm ml/data/norm_params_2d_electron_face_boundary_analog_cu.npy \
+        --exit_classifier ml/models/2d_electron_analog_cu/exit_classifier.pth \
+        --E_in_low 0.001 --E_in_high 0.1 --cell_size 1e-4 --num_cells_x 20 --num_cells_y 20 \
+        --w_max_angle 90 --ode_steps 100 --max_macro_steps 500
+
+
+7. FILES
+--------
+New (GMC):
+    ml/cell_topology.py                  class numbering, face coordinates, masks (2D polygons, box, tetra)
+    ml/exit_classifier.py                face-only exit classifier (train/save/load/sample/calibration plots)
+    ml/exit_secondary_classifier.py      joint face x secondary-count classifier
+    validation/chain_core.py             cell-to-cell chaining loop (numpy only) + source sampler
+    validation/gmc_kernels.py            original-flow and classifier + face-flow cell kernels
+    validation/mc_chain.py               full-grid MC and MC-chained references (ElectronTransport venv)
+    validation/electron_cell_compare.py  single-cell GMC vs held-out MC
+    validation/electron_chain_compare.py chained GMC vs MC
+    docs/electron_gmc_workflow.txt       this file
+Changed (GMC):
+    ml/train.py                 2d_electron_face data dim, --run_tag, --energy_encoding
+    ml/transform.py             face-conditioned dataset, energy encodings, shared electron norm params
+    ml/utils.py                 2d_electron_face added to the data-dim list
+    physics/electron_data.py    exit_class, n_sec_e/E_sec_e, w_in/w_out, E_cutoff; drops status-6 rows
+    validation/Macro_field.py   rewritten on chain_core + kernels; same flags, plus face-flow mode
+    README.md                   sections on the classifier, face flow and chaining
+New data (ElectronTransport):
+    analog_tp_cu_1um_200k_42_current.npz, analog_tp_cu_1um_1M_42.npz   training
+    analog_tp_cu_1um_500k_7.npz, analog_tp_cu_1um_500k_43.npz         test / noise floor
+    analog_tp_cu_1mm_80-100GeV_300k_42.npz, ..._100k_7.npz            stack overflow: regenerate before use
+Results: validation/results/electron_cell_analog_cu*, validation/results/chain_analog_cu*
+
+
+8. NEXT STEPS (in order)
+------------------------
+1. Regenerate the 80-100 GeV, 1 mm data with stack_size=1_000_000. Train the joint classifier on it to test high
+   counts.
+2. MC-chained reference with secondaries (step 3d above). It should match the full-grid MC.
+3. Secondary model (exit face + state + energy share), primary flow conditioned on n_sec, growable chain stack.
+4. Energy-loss tail: more training data, 2-3 training seeds, conditioning on n_sec.
+5. Photon transport + pair production + positrons in the analog MC, then the face x electron x photon classifier.
