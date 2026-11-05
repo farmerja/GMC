@@ -1,0 +1,33 @@
+{
+  "spec": {
+    "L": 0.01,
+    "E_cut": 0.001,
+    "logE_lo": -3.0,
+    "logE_hi": 0.9999997009058229,
+    "NR": 3,
+    "material_density": 8.96
+  },
+  "train_npz": "../ElectronTransport/analog_cu_100um_1keV-10MeV_log_10M_42.npz",
+  "models": {
+    "clf_B": {
+      "rows": 10000000,
+      "val_nll": 1.01845619921875
+    },
+    "exit_B": {
+      "rows": 6994350
+    },
+    "clf_I": {
+      "rows": 1604304,
+      "val_nll": 0.28339308688953124
+    },
+    "exit_I": {
+      "rows": 1601800
+    },
+    "daughter": {
+      "rows": 212375
+    },
+    "photon": {
+      "rows": 630854
+    }
+  }
+}

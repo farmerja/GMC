@@ -1,0 +1,81 @@
+{
+  "vs_MC-chained (model error)": {
+    "face": {
+      "rel_L2": 0.019571361286737147,
+      "cell_rel_err_mean_abs": 0.05000683067226256,
+      "cell_rel_err_p95_abs": 0.144150416874527,
+      "total_deposit_rel": 0.012243934510097976,
+      "deposited_frac_of_source": 0.5467683139904809,
+      "depth_dose_rel_L2": 0.018135874059536046,
+      "lateral_rel_L2": 0.01470562878247706,
+      "depth_centroid_shift_cells": 0.09008510881611986
+    }
+  },
+  "vs_full_MC (total error)": {
+    "MC-chained": {
+      "rel_L2": 0.016578085958279976,
+      "cell_rel_err_mean_abs": 0.03767026031409831,
+      "cell_rel_err_p95_abs": 0.10452443516861097,
+      "total_deposit_rel": 0.010344968315571856,
+      "deposited_frac_of_source": 0.5401546952761973,
+      "depth_dose_rel_L2": 0.013139427382361624,
+      "lateral_rel_L2": 0.01173108636880924,
+      "depth_centroid_shift_cells": -0.004788270267481298
+    },
+    "face": {
+      "rel_L2": 0.01506027864593458,
+      "cell_rel_err_mean_abs": 0.05371985816129995,
+      "cell_rel_err_p95_abs": 0.15895132083844943,
+      "total_deposit_rel": 0.022715565940234717,
+      "deposited_frac_of_source": 0.5467683139904809,
+      "depth_dose_rel_L2": 0.01686701348569588,
+      "lateral_rel_L2": 0.016921187880740797,
+      "depth_centroid_shift_cells": 0.08529683854863856
+    }
+  },
+  "runs": {
+    "face": {
+      "seconds": 6.1,
+      "steps": 45,
+      "transits": 631325,
+      "escaped_frac": {
+        "left": 0.44647646996721485,
+        "right": 0.0,
+        "bottom": 0.003956303748789682,
+        "top": 0.002798912293515541
+      },
+      "in_flight_frac": 0.0
+    },
+    "MC-chained": {
+      "escaped_frac": {
+        "left": 0.45336636901967664,
+        "right": 0.0,
+        "bottom": 0.004204123795314065,
+        "top": 0.0022748119088110046
+      }
+    },
+    "full MC": {
+      "escaped_electron_frac": 0.462752251342907,
+      "photon_frac": 0.0026237219979917156
+    }
+  },
+  "meta": {
+    "et_dir": "/home/aubrey/PycharmProjects/ElectronTransport",
+    "h5": "copper_mc_database.h5",
+    "Z": 29,
+    "material": "Copper",
+    "nx": 20,
+    "ny": 20,
+    "cell_size": 0.0001,
+    "N": 100000,
+    "E_low": 0.001,
+    "E_high": 0.1,
+    "E_cutoff": 0.001,
+    "v_spread": 1.0,
+    "w_max_angle": 90.0,
+    "beam_cells": 1,
+    "max_steps": 5000,
+    "seed": 123,
+    "out": "validation/results/chain_analog_cu/mc_ref.npz"
+  }
+}

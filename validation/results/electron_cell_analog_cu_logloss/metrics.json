@@ -1,0 +1,86 @@
+{
+  "classifier+face": {
+    "class_frac": {
+      "bottom": 0.24759,
+      "right": 0.14647,
+      "top": 0.24795,
+      "left": 0.26662,
+      "absorbed": 0.09137
+    },
+    "class_frac_abs_err": {
+      "bottom": 0.00128,
+      "right": 0.00057,
+      "top": 0.00099,
+      "left": 0.00086,
+      "absorbed": 0.00058
+    },
+    "class_frac_z": {
+      "bottom": -1.48,
+      "right": 0.81,
+      "top": 1.14,
+      "left": -0.98,
+      "absorbed": 1.01
+    },
+    "class_frac_binned_chi2_per_dof": 2.0419727718983665,
+    "w1_per_face": {
+      "bottom": {
+        "s": 0.00367,
+        "psi": 0.01215,
+        "r": 0.00389,
+        "E_out/E_in": 0.00112,
+        "log10_path": 0.00866
+      },
+      "right": {
+        "s": 0.00157,
+        "psi": 0.01011,
+        "r": 0.00293,
+        "E_out/E_in": 0.00303,
+        "log10_path": 0.00651
+      },
+      "top": {
+        "s": 0.00182,
+        "psi": 0.00806,
+        "r": 0.00216,
+        "E_out/E_in": 0.00154,
+        "log10_path": 0.00486
+      },
+      "left": {
+        "s": 0.00441,
+        "psi": 0.01698,
+        "r": 0.00335,
+        "E_out/E_in": 0.00206,
+        "log10_path": 0.02731
+      }
+    },
+    "w1_mean_over_faces": {
+      "s": 0.00287,
+      "psi": 0.01182,
+      "r": 0.00308,
+      "E_out/E_in": 0.00194,
+      "log10_path": 0.01184
+    },
+    "deposit_rel_bias": -0.01457216476810097,
+    "deposit_rel_bias_per_Ebin": [
+      -0.0005,
+      -0.0055,
+      -0.0186,
+      -0.0299,
+      0.0019,
+      0.0011,
+      -0.0096,
+      -0.0189,
+      -0.0253,
+      -0.0549
+    ]
+  },
+  "MC test": {
+    "class_frac": {
+      "bottom": 0.24886,
+      "right": 0.1459,
+      "top": 0.24696,
+      "left": 0.26748,
+      "absorbed": 0.09079
+    },
+    "N": 500000
+  }
+}

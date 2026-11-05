@@ -29,9 +29,13 @@ dist/
 Thumbs.db # Windows
 
 # Project-specific results and trained models
-# Exclude the main results directory
-validation/results/
-ml/testing_results/
+# Validation / testing plots and metrics (png, json, txt) are tracked so they can be viewed on GitHub; only the
+# raw data files in those folders are ignored.
+validation/results/**/*.npz
+validation/results/**/*.npy
+validation/results/**/*.pth
+ml/testing_results/**/*.npz
+ml/testing_results/**/*.npy
 results/kobayashi*
 results/edep*
 

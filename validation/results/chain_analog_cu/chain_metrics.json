@@ -1,0 +1,166 @@
+{
+  "vs_MC-chained (model error)": {
+    "MC-chained (seed 2)": {
+      "rel_L2": 0.013668808374571668,
+      "cell_rel_err_mean_abs": 0.03171704988515719,
+      "cell_rel_err_p95_abs": 0.08805385071966056,
+      "total_deposit_rel": 0.0012998364071494795,
+      "deposited_frac_of_source": 0.54085680801461,
+      "depth_dose_rel_L2": 0.008765683576502899,
+      "lateral_rel_L2": 0.006006676462947935,
+      "depth_centroid_shift_cells": 0.019041278604832623
+    },
+    "baseline": {
+      "rel_L2": 0.021685246808317318,
+      "cell_rel_err_mean_abs": 0.05661434419920343,
+      "cell_rel_err_p95_abs": 0.16077107180730857,
+      "total_deposit_rel": -0.03002435630437661,
+      "deposited_frac_of_source": 0.5239368982457427,
+      "depth_dose_rel_L2": 0.023058337286176466,
+      "lateral_rel_L2": 0.027236255000062815,
+      "depth_centroid_shift_cells": -0.05180643679458807
+    },
+    "baseline+classifier": {
+      "rel_L2": 0.05082300518351248,
+      "cell_rel_err_mean_abs": 0.03941039509268026,
+      "cell_rel_err_p95_abs": 0.09834530092735745,
+      "total_deposit_rel": -0.0152222281848996,
+      "deposited_frac_of_source": 0.531932337249558,
+      "depth_dose_rel_L2": 0.04162323370026736,
+      "lateral_rel_L2": 0.04219286472946478,
+      "depth_centroid_shift_cells": 0.11787573048701772
+    },
+    "face": {
+      "rel_L2": 0.016929848839742034,
+      "cell_rel_err_mean_abs": 0.047315851634999045,
+      "cell_rel_err_p95_abs": 0.13976115967711283,
+      "total_deposit_rel": 0.018193958200728444,
+      "deposited_frac_of_source": 0.5499822472239796,
+      "depth_dose_rel_L2": 0.019201031014628056,
+      "lateral_rel_L2": 0.01577776342885802,
+      "depth_centroid_shift_cells": 0.07963510958847397
+    }
+  },
+  "vs_full_MC (total error)": {
+    "MC-chained": {
+      "rel_L2": 0.016578085958279976,
+      "cell_rel_err_mean_abs": 0.03767026031409831,
+      "cell_rel_err_p95_abs": 0.10452443516861097,
+      "total_deposit_rel": 0.010344968315571856,
+      "deposited_frac_of_source": 0.5401546952761973,
+      "depth_dose_rel_L2": 0.013139427382361624,
+      "lateral_rel_L2": 0.01173108636880924,
+      "depth_centroid_shift_cells": -0.004788270267481298
+    },
+    "MC-chained (seed 2)": {
+      "rel_L2": 0.013407391843230613,
+      "cell_rel_err_mean_abs": 0.032318730206933315,
+      "cell_rel_err_p95_abs": 0.09205504947041429,
+      "total_deposit_rel": 0.011658251489168991,
+      "deposited_frac_of_source": 0.54085680801461,
+      "depth_dose_rel_L2": 0.011173279619509941,
+      "lateral_rel_L2": 0.011751012076687311,
+      "depth_centroid_shift_cells": 0.014253008337351325
+    },
+    "baseline": {
+      "rel_L2": 0.017075411220242524,
+      "cell_rel_err_mean_abs": 0.0523791266729898,
+      "cell_rel_err_p95_abs": 0.140888356398966,
+      "total_deposit_rel": -0.019989989003468822,
+      "deposited_frac_of_source": 0.5239368982457427,
+      "depth_dose_rel_L2": 0.014010744653198381,
+      "lateral_rel_L2": 0.02071810348352578,
+      "depth_centroid_shift_cells": -0.05659470706206937
+    },
+    "baseline+classifier": {
+      "rel_L2": 0.040623237502801245,
+      "cell_rel_err_mean_abs": 0.047087339331719484,
+      "cell_rel_err_p95_abs": 0.12675003569329757,
+      "total_deposit_rel": -0.005034733337592856,
+      "deposited_frac_of_source": 0.531932337249558,
+      "depth_dose_rel_L2": 0.030952985035324027,
+      "lateral_rel_L2": 0.03343640263298518,
+      "depth_centroid_shift_cells": 0.11308746021953642
+    },
+    "face": {
+      "rel_L2": 0.01684100793862446,
+      "cell_rel_err_mean_abs": 0.05340407327187479,
+      "cell_rel_err_p95_abs": 0.13418602728286289,
+      "total_deposit_rel": 0.028727142437421582,
+      "deposited_frac_of_source": 0.5499822472239796,
+      "depth_dose_rel_L2": 0.021092916129600094,
+      "lateral_rel_L2": 0.02182113559622686,
+      "depth_centroid_shift_cells": 0.07484683932099268
+    }
+  },
+  "runs": {
+    "baseline": {
+      "seconds": 6.1,
+      "steps": 45,
+      "transits": 624934,
+      "escaped_frac": {
+        "left": 0.4701118935992055,
+        "right": 1.265050598670646e-05,
+        "bottom": 0.004085860759925786,
+        "top": 0.001852696889139043
+      },
+      "in_flight_frac": 0.0
+    },
+    "baseline+classifier": {
+      "seconds": 32.8,
+      "steps": 49,
+      "transits": 649376,
+      "escaped_frac": {
+        "left": 0.46037689136225685,
+        "right": 0.0,
+        "bottom": 0.004905174897028143,
+        "top": 0.002785596491156713
+      },
+      "in_flight_frac": 0.0,
+      "unmatched_frac": 0.03296857290691371
+    },
+    "face": {
+      "seconds": 5.8,
+      "steps": 47,
+      "transits": 632125,
+      "escaped_frac": {
+        "left": 0.44300431485632674,
+        "right": 0.0,
+        "bottom": 0.004081246557016594,
+        "top": 0.002932191362677543
+      },
+      "in_flight_frac": 0.0
+    },
+    "MC-chained": {
+      "escaped_frac": {
+        "left": 0.45336636901967664,
+        "right": 0.0,
+        "bottom": 0.004204123795314065,
+        "top": 0.0022748119088110046
+      }
+    },
+    "full MC": {
+      "escaped_electron_frac": 0.462752251342907,
+      "photon_frac": 0.0026237219979917156
+    }
+  },
+  "meta": {
+    "et_dir": "/home/aubrey/PycharmProjects/ElectronTransport",
+    "h5": "copper_mc_database.h5",
+    "Z": 29,
+    "material": "Copper",
+    "nx": 20,
+    "ny": 20,
+    "cell_size": 0.0001,
+    "N": 100000,
+    "E_low": 0.001,
+    "E_high": 0.1,
+    "E_cutoff": 0.001,
+    "v_spread": 1.0,
+    "w_max_angle": 90.0,
+    "beam_cells": 1,
+    "max_steps": 5000,
+    "seed": 123,
+    "out": "validation/results/chain_analog_cu/mc_ref.npz"
+  }
+}

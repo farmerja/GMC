@@ -168,3 +168,16 @@ Electron training data comes from `ElectronTransport/ElectronMC.py` (3D directio
   2. Run it again with `--seed 456` for the MC-vs-MC noise floor.
   3. `python validation/electron_chain_compare.py --mc_ref ... --noise_ref ... --baseline_ckpt ... --face_ckpt ... --classifier ...`
 - `ml/train.py --energy_encoding log_loss` (`2d_electron_face` only) trains on log10 of the energy-loss fraction instead of probit(E_out fraction). It is an option, not the default: in the analog Cu test it did not remove the high-E deposit bias, which comes from the flow under-filling the heavy tail of the loss distribution.
+
+### Electron GMC with Secondaries (100 µm Cu, 1 keV – 10 MeV)
+
+**Results, figures and reproduction commands: [validation/results/secondary_gmc_cu_100um.md](validation/results/secondary_gmc_cu_100um.md).**
+The design, including how the relevant-secondary classifier works, is in section 7b of `docs/electron_gmc_workflow.txt`.
+
+- `ml/secondary_gmc.py` is the relevance-based model set. A secondary is followed only if its subtree leaves the cell. A joint classifier samples exit face × relevant daughters × photon energy; then exit, daughter and photon flows run; the dose is the energy that is left (conserved exactly). There are separate models for electrons entering a cell and for relevant secondaries starting inside it.
+- Train: `python ml/secondary_gmc.py train --train_npz <generate_analog_batches.py --simulated_only file> --out ml/models/<name>`. Plot losses: `python ml/secondary_gmc.py plot_history --model ml/models/<name>/secondary_gmc.pth --out ml/training_results/<name>/training_loss.png`.
+- Validate:
+  - `validation/secondary_cell_compare.py`: single cell vs held-out MC.
+  - `validation/secondary_mc_refs.py`: MC references (ElectronTransport venv).
+  - `validation/secondary_chain_compare.py`: chained dose maps, profiles, errors over `--n_seeds` runs.
+- Headline (20×20 chain, 1–10 MeV beam): dose-map error vs full analog MC is 1.18 ± 0.10 % with secondaries and 3.76 ± 0.24 % without, against a 1.10 % MC noise floor.

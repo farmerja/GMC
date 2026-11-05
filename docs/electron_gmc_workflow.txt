@@ -1,7 +1,7 @@
 ELECTRON GMC: STATUS, DESIGN AND HOW TO RUN
 ===========================================
-Last updated 2026-11-03. Run every GMC command from the GMC root (/home/aubrey/PycharmProjects/GMC) unless stated
-otherwise. Nothing described here is committed to git yet.
+Last updated 2026-11-04. Run every GMC command from the GMC root (/home/aubrey/PycharmProjects/GMC) unless stated
+otherwise.
 
 
 1. OVERVIEW
@@ -65,7 +65,8 @@ Pipeline for one cell transit (what the chaining code does):
   (--energy_encoding log_loss) did not fix it. To try next: more training data, and conditioning on the secondary
   count.
 - Joint classifier at high counts: only tested on 1 um / keV data (max 3 secondaries per primary). The 80-100 GeV,
-  1 mm datasets meant for this were hit by a stack overflow (section 5) and must be regenerated.
+  1 mm datasets have been regenerated (*_v2, section 7) but the classifier is not trained on them yet. Even there
+  escaping counts are low: mean 0.15, P(n >= 4) = 0.2%, P(n >= 10) = 0.02% (~70 of 300k primaries).
 - Analog MC: photons are banked at birth, not transported. There is no pair production and no positrons. The
   combined face + electron + photon classifier waits until these are added.
 - Only 2D square cells are wired end to end. cell_topology.py already covers quads, triangles, boxes and tetrahedra
@@ -105,10 +106,17 @@ Pipeline for one cell transit (what the chaining code does):
   train on it. Use analog_tp_cu_1um_200k_42_current.npz or analog_tp_cu_1um_1M_42.npz.
 - material_data.build_library defaults to E_max = 1e2 MeV (100 MeV). Pass E_max=1e5 for GeV runs; the h5 data
   goes to 100 GeV.
-- Secondary stack overflow: in the 2D (infinite-z) geometry, high-energy electrons moving almost along z can travel
-  cm to m of material inside one cell and overflow the default per-history stack (4096). Overflowed secondaries
-  are deposited locally, so the energy balance still closes and check_bank_complete does not catch it. Read the
-  "[!] Overflows -- stack" line printed by run_transport, and use stack_size=1_000_000 for GeV runs.
+- Secondary stack overflow (fixed 2026-11-04 in analog_stepper): in the 2D (infinite-z) geometry, high-energy
+  electrons moving almost along z can travel cm to m of material inside one cell. run_transport now pauses the
+  current electron when the stack is 75% full and follows the waiting secondaries first (suspend_fraction), so the
+  default stack_size=4096 is enough at 100 GeV / 1 mm. Still read any "[!] Overflows" line: overflowed
+  secondaries are deposited locally, so the energy balance closes and check_bank_complete does not catch it.
+  The old (pre-v2) GeV files were overflowed, but their cell-exit statistics agree with v2 within noise.
+- Banks and segment tables now grow automatically (run_transport auto_grow=True: one exact-size, bit-identical
+  rerun on overflow; default segment_factor 20). At GeV they are still large (~140 tracked electrons, ~80 KB per
+  primary), and run_transport raises MemoryError past 80% of RAM: use ElectronTransport/generate_analog_batches.py.
+- Relevance (ElectronTransport/gmc_segments.py): see section 7b for the definition and how the models use it.
+  Old segment parts can be re-cut from their raw tables with build_segments.
 - The GMC venv has no h5py, so validation/mc_chain.py must run with the ElectronTransport venv. The ElectronTransport
   venv has no torch, so GMC training and chains run with the GMC venv.
 - ml/train.py --run_tag suffixes model, result and norm-param paths so a new run does not overwrite the defaults.
@@ -136,8 +144,10 @@ Step 0. Generate analog MC data (ElectronTransport venv, from /home/aubrey/Pycha
     np.savez_compressed("analog_tp_cu_1um_1M_42.npz", **d)
 
   Make an independent test file the same way with another seed (e.g. 7). About 0.4 s per 50k histories at keV.
-  For GeV runs, run_simulation does not expose stack_size/bank_factor: call analog_stepper.run_transport
-  directly with stack_size=1_000_000 and bank_factor=60, and save the same keys as run_simulation.
+  For GeV runs use generate_analog_batches.py (defaults are the 80-100 GeV, 1 mm Cu setup), e.g.
+      python generate_analog_batches.py --N 300000 --seed 42 --out analog_tp_cu_1mm_80-100GeV_300k_42_v2
+  It writes a merged <out>.npz (same keys as run_simulation minus segment tables; GMC loaders read it directly)
+  and <out>_segments/part_XXX.npz (full per-batch datasets with segment tables, local indices + primary_offset).
 
 Step 1. Face-only exit classifier (GMC venv)
     python ml/exit_classifier.py --data_dim 2d_electron \
@@ -220,14 +230,111 @@ Changed (GMC):
 New data (ElectronTransport):
     analog_tp_cu_1um_200k_42_current.npz, analog_tp_cu_1um_1M_42.npz   training
     analog_tp_cu_1um_500k_7.npz, analog_tp_cu_1um_500k_43.npz         test / noise floor
-    analog_tp_cu_1mm_80-100GeV_300k_42.npz, ..._100k_7.npz            stack overflow: regenerate before use
+    analog_tp_cu_1mm_80-100GeV_300k_42.npz, ..._100k_7.npz            superseded (stack overflow); use _v2
+    analog_tp_cu_1mm_80-100GeV_300k_42_v2.npz, ..._100k_7_v2.npz      train / test, + *_segments/ (16 + 5 GB)
 Results: validation/results/electron_cell_analog_cu*, validation/results/chain_analog_cu*
+
+
+7b. SECONDARIES (2026-11-05): 100 um Cu, 1 keV - 10 MeV
+-------------------------------------------------------
+Files: ml/secondary_gmc.py (models, training, sampling kernel), validation/chain_secondaries.py (chain loop),
+validation/secondary_mc_refs.py (MC references, ElectronTransport venv), validation/secondary_cell_compare.py and
+validation/secondary_chain_compare.py (comparisons). Results and the exact commands:
+validation/results/secondary_gmc_cu_100um.md.
+
+7b.1 Relevant secondaries
+  A tracked secondary electron (above the 1 keV cutoff) is RELEVANT to the cell it is born in if it, or any of its
+  descendants, leaves that cell. Every other secondary, together with its whole subtree, stays in the cell. The GMC
+  never simulates those: their energy is dose of the transit that made them.
+  - Computed exactly from the analog MC family trees (gmc_segments.relevance), at every depth. In practice two
+    levels catch everything: a secondary that escapes itself, or one that is absorbed but has a daughter that
+    escapes (about 1 in 600 relevant secondaries in the 100 um data; one 3-level case in the 2M test primaries).
+  - Photons. The 100 um data were cut with photons_relevant=False (generate_analog_batches.py
+    --photons_irrelevant): emitting a photon does NOT make an electron relevant, because photons are not
+    transported. Photon energy simply leaves, as in the analog MC, which banks photons without transporting them.
+    The photon energy from irrelevant subtrees is charged to the transit that made them (segment column E_sub_ph).
+    The default photons_relevant=True is for when photon transport exists: then a subtree that emits a photon
+    must be simulated so the photon can be handed to photon transport.
+  - Why it matters: at 100 um only about 0.5 % of tracked secondaries are relevant (about 0.02 per primary,
+    rarely more than 2 in one transit). The GMC follows those few instead of all of them, and the rest is exact dose.
+  - Relevant secondaries are a BIASED sample: they are known to have an escaping subtree, so they leave far more
+    often than a typical electron born at the same point. They must not be run through a model trained on all
+    electrons, which would absorb most of them and lose the escapes they were selected for. Hence the separate
+    interior models below, trained on relevant secondaries only.
+
+7b.2 What one transit samples
+  An electron either ENTERS a cell through a face (a primary, or any electron crossing from a neighbour) or is a
+  relevant secondary STARTING at its birth point inside the cell. Each case has its own classifier and exit flow.
+  1. Joint classifier: exit class x number of relevant daughters x photon flag (7b.3).
+  2. Exit flow (exits only): position along the exit face s, angle from the outward normal psi, in-plane magnitude
+     r (which encodes |w|) and the energy-loss fraction lambda = (E0 - E_out) / (E0 - E_cut). It is conditioned on
+     the classifier's face (one-hot), n / 3 and the photon flag, so the exit state matches the sampled branch.
+     Absorbed: E_out = 0.
+  3. Daughter flow, once per relevant daughter j = 0 .. n-1: birth point, direction (w relative to the parent's
+     w sign) and the energy share f_j of the budget B_j, with B_0 = E0 - E_out and B_{j+1} = B_j - E_j.
+     Shared by entry and interior parents (a start-type input tells them apart).
+  4. Photon flow (only if the photon flag is set): photon energy q as a share of what is left, B_n.
+  5. dose = B_n - q. Energy is conserved exactly in every transit by construction.
+  Each relevant daughter becomes an interior particle in the same cell (step 1 again with the interior models).
+  An electron that leaves a cell, primary or secondary, enters the neighbour as a fresh entry: relevance is per
+  cell, so in the new cell it is unconditioned and uses the entry models.
+
+7b.3 The joint classifier in detail
+  Classes (40): label = (exit * 4 + min(n, 3)) * 2 + photon_flag   (SecondaryGMC.spec.encode / decode)
+    exit         0 bottom, 1 right, 2 top, 3 left, 4 absorbed. Faces are numbered CCW as in cell_topology; in the
+                 entry models' canonical frame the electron enters through face 3 (left).
+    n            relevant DIRECT daughters made in this transit (segment column n_rel_e), capped at 3. The top class
+                 means "3 or more"; at most 3 daughters are then generated, and the energy of any 4th stays in the
+                 budget and becomes dose. 4 or more occurred in 6 of 10.2M training transits and 1 of 2.04M test
+                 transits. Grandchildren are not counted here:
+                 a relevant daughter's own relevant daughters come from its own interior transit.
+    photon_flag  1 if any photon energy leaves in this transit: q = E0 - E_out - E_rel - E_dep_rel > 1e-12 E0.
+                 This counts the transit's own photons plus those of its irrelevant subtrees. About 6 % of transits.
+                 The flag is a class rather than part of the photon flow so that the 94 % of transits with q = 0
+                 exactly are reproduced exactly; a flow cannot represent a point mass at zero.
+  The three are sampled JOINTLY, so their correlations are kept: for example, transits that make a relevant
+  daughter lose more energy and exit differently.
+  Inputs (in [-1, 1]; the same vector conditions the exit flow):
+    entry     (clf_B): 2y - 1 (entry point along the left face), cos phi, sin phi, 2r - 1, e
+    interior  (clf_I): 2x - 1, 2y - 1, cos phi, sin phi, 2r - 1, e
+    phi = in-plane direction angle, r = sqrt(u^2 + v^2) (so |w| = sqrt(1 - r^2); the sign of w is irrelevant to the
+    x-y transport), e = log-energy scaled between the 1 keV cutoff and 10 MeV.
+  Training data (ElectronTransport/analog_cu_100um_1keV-10MeV_log_10M_42.npz, --simulated_only):
+    clf_B  every primary's transit: 10M rows; 39 of the 40 classes occur.
+    clf_I  every relevant secondary's first transit (origin = born, generation > 0): about 200k rows, x 8 by the
+           square's symmetries (4 rotations x reflection). The positions, directions and exit face are transformed
+           together, so the exit class is relabelled consistently. 27 classes occur. "absorbed with n = 0" is
+           impossible here: a relevant secondary that stops must have a relevant daughter. The model learns
+           near-zero probability for it.
+  Network and fit: ml/exit_classifier.ExitClassifier (MLP, 256 hidden, 4 residual blocks), trained with
+  train_exit_classifier: plain cross-entropy with no class reweighting (so probabilities stay calibrated), output
+  bias started at the log class frequencies (prior_bias, so rare and unseen classes start near zero), AdamW +
+  OneCycle, 15 epochs, batch 16384, 10 % validation split. A temperature is then fitted on the validation split
+  (T = 1.00 for clf_B). Sampling draws from the probabilities, never the most likely class, with a seeded
+  generator (SecondaryGMC seed).
+  Checks (validation/results/secondary_cell_cu_100um, 2M held-out primaries, seed 7):
+    exit-class fractions within 2 sigma in every energy bin, for both classifiers;
+    P(>= 1 relevant daughter) within 4.2 sigma (entry) and 3.1 sigma (interior); worst at 10 MeV, 5 % low;
+    relevant daughters made: GMC 9840 vs MC 10080 (entry), 308 vs 359 (interior);
+    photon energy leaving vs E matches (boundary_rates_vs_E.png).
+
+7b.4 What is NOT modelled
+  - Splits (K = 10 relevant daughters in one transit, models B->I / I->I): none occur at 100 um. The 10 M training
+    primaries contain zero. They are needed for thick (cm), high-energy cells.
+  - Interior electrons that are NOT known to be relevant (photo- or Compton electrons once photons are transported,
+    volume sources) need unconditioned interior models, trained on an interior source
+    (AnalogMC source="interior"); clf_I must not be used for them.
+  - One cell size and one material per model set.
+
+7b.5 Results (20 x 20 chain, 4 GMC runs each)
+  At 1-10 MeV the dose-map error vs full analog MC is 1.18 +- 0.10 % with secondaries and 3.76 +- 0.24 % without,
+  against a 1.1 % noise floor. The MC-chained version with secondaries reproduces the full MC (1.06 %). Run-to-run
+  spread is about 0.1-0.2 %, so compare models over several seeds (--n_seeds).
 
 
 8. NEXT STEPS (in order)
 ------------------------
-1. Regenerate the 80-100 GeV, 1 mm data with stack_size=1_000_000. Train the joint classifier on it to test high
-   counts.
+1. [done 2026-11-04: *_v2 files] Train the joint classifier on the regenerated 80-100 GeV, 1 mm data.
 2. MC-chained reference with secondaries (step 3d above). It should match the full-grid MC.
 3. Secondary model (exit face + state + energy share), primary flow conditioned on n_sec, growable chain stack.
 4. Energy-loss tail: more training data, 2-3 training seeds, conditioning on n_sec.
