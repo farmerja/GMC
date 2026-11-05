@@ -13,6 +13,11 @@ each returning a dict (positions in the unit cell, frame of the call):
                                 (the MC kernel reports escaping secondaries this way)
 Exits enter the neighbour cell as boundary entries; particles leaving the grid are tallied as escaped.
 
+Several materials: pass material_map (nx, ny) of indices into a LIST of kernels, one per material. Each step, every
+particle is transported by the kernel of the material of the cell it is in. An electron crossing an interface is an
+ordinary boundary entry of the neighbour, so it uses the neighbour's entry models; relevant daughters stay in their
+birth cell, so they always use the interior models of the material they were born in.
+
 MCCellKernel (ElectronTransport venv) runs the analog MC on one cell; with secondaries=True it returns every
 escaping electron, which makes the chain exact (Markov property of the analog MC), so its dose must match the
 full-grid MC: that is the check of this file. secondaries=False reproduces the primary-only structure (escaping
@@ -59,8 +64,16 @@ class _Bank:
 
 
 def chain_secondaries(kernel, source, nx, ny, cell_size, E_cutoff, max_steps=5000, log=print, log_every=20,
-                      max_generation=50):
+                      max_generation=50, material_map=None):
     N = source.shape[0]
+    kernels = list(kernel) if isinstance(kernel, (list, tuple)) else [kernel]
+    if material_map is None:
+        if len(kernels) != 1:
+            raise ValueError("several kernels need a material_map")
+        material_map = np.zeros((nx, ny), dtype=np.int64)
+    material_map = np.asarray(material_map, dtype=np.int64)
+    if material_map.shape != (nx, ny) or material_map.min() < 0 or material_map.max() >= len(kernels):
+        raise ValueError(f"material_map must be ({nx}, {ny}) with indices < {len(kernels)} kernels")
     dose = np.zeros((nx, ny))
     dose_by_gen = np.zeros((2, nx, ny))  # [0] primaries' transits, [1] secondaries' transits
     escaped = {"left": 0.0, "right": 0.0, "bottom": 0.0, "top": 0.0}
@@ -98,10 +111,12 @@ def chain_secondaries(kernel, source, nx, ny, cell_size, E_cutoff, max_steps=500
         n_act = len(P["E"])
         if n_act == 0:
             break
-        for mode in (0, 1):
-            idx = np.flatnonzero(P["mode"] == mode)
+        mat = material_map[P["cx"], P["cy"]]
+        for mode, m in ((mode, m) for mode in (0, 1) for m in range(len(kernels))):
+            idx = np.flatnonzero((P["mode"] == mode) & (mat == m))
             if idx.size == 0:
                 continue
+            kernel = kernels[m]
             cx, cy, face = P["cx"][idx], P["cy"][idx], P["face"][idx]
             w, E, gen = P["w"][idx], P["E"][idx], P["gen"][idx]
             if mode == 0:

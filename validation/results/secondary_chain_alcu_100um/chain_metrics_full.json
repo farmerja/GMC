@@ -1,0 +1,322 @@
+{
+ "beam": "full",
+ "E_range_MeV": [
+  0.001,
+  10.0
+ ],
+ "N": 200000,
+ "grid": [
+  20,
+  20
+ ],
+ "cell_cm": 0.01,
+ "materials": [
+  "Al",
+  "Cu"
+ ],
+ "layout": "insert",
+ "models": [
+  "ml/models/secondary_gmc_al_100um/secondary_gmc.pth",
+  "ml/models/secondary_gmc_cu_100um/secondary_gmc.pth"
+ ],
+ "chains": {
+  "gmc_sec": [
+   {
+    "seed": 11,
+    "seconds": 253.11269855499268,
+    "steps": 91,
+    "transits_boundary": 1309774,
+    "transits_interior": 33044,
+    "daughters": 33044,
+    "escaped_MeV": {
+     "left": 54327.56327133417,
+     "right": 11659.874490506312,
+     "bottom": 41391.34493419319,
+     "top": 41312.64421991673
+    },
+    "photon_MeV": 4168.70540005191,
+    "energy_closure": -4.027249329116323e-16,
+    "dose_from_secondary_transits_frac": 0.06319950526699486
+   },
+   {
+    "seed": 111,
+    "seconds": 233.92440056800842,
+    "steps": 91,
+    "transits_boundary": 1306943,
+    "transits_interior": 33637,
+    "daughters": 33637,
+    "escaped_MeV": {
+     "left": 54321.10523016103,
+     "right": 11497.492361876893,
+     "bottom": 41150.89073540123,
+     "top": 41557.32404466055
+    },
+    "photon_MeV": 4337.477104202053,
+    "energy_closure": 1.3424164430387745e-16,
+    "dose_from_secondary_transits_frac": 0.06332716682054446
+   },
+   {
+    "seed": 211,
+    "seconds": 171.1593267917633,
+    "steps": 98,
+    "transits_boundary": 1309460,
+    "transits_interior": 32985,
+    "daughters": 32985,
+    "escaped_MeV": {
+     "left": 54502.2002309834,
+     "right": 11593.835481693246,
+     "bottom": 41142.50559821126,
+     "top": 41725.41078043472
+    },
+    "photon_MeV": 4045.203561941972,
+    "energy_closure": 0.0,
+    "dose_from_secondary_transits_frac": 0.06376467517944163
+   },
+   {
+    "seed": 311,
+    "seconds": 160.13394284248352,
+    "steps": 92,
+    "transits_boundary": 1315675,
+    "transits_interior": 33692,
+    "daughters": 33692,
+    "escaped_MeV": {
+     "left": 53409.52087971393,
+     "right": 11499.861489287898,
+     "bottom": 41495.36467909428,
+     "top": 41856.798570486244
+    },
+    "photon_MeV": 4268.5165610206805,
+    "energy_closure": -5.369665772155098e-16,
+    "dose_from_secondary_transits_frac": 0.06303102320609111
+   }
+  ],
+  "gmc_prim": [
+   {
+    "seed": 12,
+    "seconds": 193.65092301368713,
+    "steps": 98,
+    "transits_boundary": 1241051,
+    "transits_interior": 0,
+    "daughters": 0,
+    "escaped_MeV": {
+     "left": 54023.95864403024,
+     "right": 11828.413964853078,
+     "bottom": 41037.58327563796,
+     "top": 41220.191395299364
+    },
+    "photon_MeV": 3971.587174649612,
+    "energy_closure": 1.3424164430387745e-16,
+    "dose_from_secondary_transits_frac": 0.0
+   },
+   {
+    "seed": 112,
+    "seconds": 232.1677668094635,
+    "steps": 95,
+    "transits_boundary": 1240475,
+    "transits_interior": 0,
+    "daughters": 0,
+    "escaped_MeV": {
+     "left": 53602.29851412481,
+     "right": 11651.83085264528,
+     "bottom": 41420.03189259467,
+     "top": 41559.89120924025
+    },
+    "photon_MeV": 3927.3728973154175,
+    "energy_closure": -1.3424164430387745e-16,
+    "dose_from_secondary_transits_frac": 0.0
+   },
+   {
+    "seed": 212,
+    "seconds": 136.54482865333557,
+    "steps": 87,
+    "transits_boundary": 1239706,
+    "transits_interior": 0,
+    "daughters": 0,
+    "escaped_MeV": {
+     "left": 53345.9490148728,
+     "right": 11576.698475654615,
+     "bottom": 41379.39225650292,
+     "top": 41584.78527027129
+    },
+    "photon_MeV": 4088.455530468543,
+    "energy_closure": -2.684832886077549e-16,
+    "dose_from_secondary_transits_frac": 0.0
+   },
+   {
+    "seed": 312,
+    "seconds": 111.45915269851685,
+    "steps": 95,
+    "transits_boundary": 1239337,
+    "transits_interior": 0,
+    "daughters": 0,
+    "escaped_MeV": {
+     "left": 53824.661909331255,
+     "right": 11313.198367220739,
+     "bottom": 41346.4616817788,
+     "top": 41580.0456512975
+    },
+    "photon_MeV": 4105.451069139531,
+    "energy_closure": -6.712082215193873e-16,
+    "dose_from_secondary_transits_frac": 0.0
+   }
+  ]
+ },
+ "vs_full_MC": {
+  "noise": {
+   "rel_L2_map": 0.017365425150488847,
+   "total_dose_ratio": 0.996213122869589,
+   "rel_L2_depth_profile": 0.007765481969640922,
+   "rel_L2_lateral_profile": 0.008826176830457118,
+   "per_material": {
+    "Al": {
+     "rel_L2_map": 0.010350134133943487,
+     "total_dose_ratio": 0.9975108329237893,
+     "dose_fraction_MC": 0.670740703437408
+    },
+    "Cu": {
+     "rel_L2_map": 0.036077358149291444,
+     "total_dose_ratio": 0.9935695317433881,
+     "dose_fraction_MC": 0.329259296562592
+    }
+   }
+  },
+  "mcc_sec": {
+   "rel_L2_map": 0.01759153927248516,
+   "total_dose_ratio": 0.9986866503208974,
+   "rel_L2_depth_profile": 0.00658327588397216,
+   "rel_L2_lateral_profile": 0.010433495611921997,
+   "per_material": {
+    "Al": {
+     "rel_L2_map": 0.00993887936770217,
+     "total_dose_ratio": 1.0013057371736394,
+     "dose_fraction_MC": 0.670740703437408
+    },
+    "Cu": {
+     "rel_L2_map": 0.03732356922341181,
+     "total_dose_ratio": 0.9933512560698866,
+     "dose_fraction_MC": 0.329259296562592
+    }
+   }
+  },
+  "mcc_prim": {
+   "rel_L2_map": 0.033214785992064566,
+   "total_dose_ratio": 1.0108531383729609,
+   "rel_L2_depth_profile": 0.023758492335091985,
+   "rel_L2_lateral_profile": 0.013396899851074907,
+   "per_material": {
+    "Al": {
+     "rel_L2_map": 0.032865176819744095,
+     "total_dose_ratio": 1.0195558842073371,
+     "dose_fraction_MC": 0.670740703437408
+    },
+    "Cu": {
+     "rel_L2_map": 0.03495772308687006,
+     "total_dose_ratio": 0.9931246006407636,
+     "dose_fraction_MC": 0.329259296562592
+    }
+   }
+  },
+  "gmc_sec": {
+   "rel_L2_map": 0.015707510342404564,
+   "total_dose_ratio": 1.000472816602236,
+   "rel_L2_depth_profile": 0.0055794684936660436,
+   "rel_L2_lateral_profile": 0.009750510072352189,
+   "per_material": {
+    "Al": {
+     "rel_L2_map": 0.010743820349405162,
+     "total_dose_ratio": 1.0024298835546992,
+     "dose_fraction_MC": 0.670740703437408,
+     "rel_L2_map_per_seed": [
+      0.010743820349405162,
+      0.012513245226975084,
+      0.01104854331446073,
+      0.01249977720473526
+     ],
+     "rel_L2_map_mean": 0.011701346523894058,
+     "rel_L2_map_std": 0.0009380262009935172,
+     "total_dose_ratio_mean": 1.001786733825749
+    },
+    "Cu": {
+     "rel_L2_map": 0.030364720546763483,
+     "total_dose_ratio": 0.9964860363409842,
+     "dose_fraction_MC": 0.329259296562592,
+     "rel_L2_map_per_seed": [
+      0.030364720546763483,
+      0.03428405720959195,
+      0.03643820611400911,
+      0.03094075788747908
+     ],
+     "rel_L2_map_mean": 0.033006935439460906,
+     "rel_L2_map_std": 0.0028667663358601324,
+     "total_dose_ratio_mean": 0.9998976915291203
+    }
+   },
+   "rel_L2_map_per_seed": [
+    0.015707510342404564,
+    0.01795617190745407,
+    0.017841797866657624,
+    0.016930601358707015
+   ],
+   "rel_L2_map_mean": 0.01710902036880582,
+   "rel_L2_map_std": 0.0010409438486392905,
+   "total_dose_ratio_per_seed": [
+    1.0004728166022359,
+    1.0004077709776649,
+    0.9981411008756641,
+    1.005637307896371
+   ],
+   "total_dose_ratio_mean": 1.001164749087984
+  },
+  "gmc_prim": {
+   "rel_L2_map": 0.034936275237334176,
+   "total_dose_ratio": 1.0126521340743078,
+   "rel_L2_depth_profile": 0.02374081649653978,
+   "rel_L2_lateral_profile": 0.017331971147711556,
+   "per_material": {
+    "Al": {
+     "rel_L2_map": 0.03458688227515222,
+     "total_dose_ratio": 1.0208251673987052,
+     "dose_fraction_MC": 0.670740703437408,
+     "rel_L2_map_per_seed": [
+      0.03458688227515222,
+      0.03624767807186461,
+      0.04052927418902181,
+      0.03574470362152364
+     ],
+     "rel_L2_map_mean": 0.03677713453939056,
+     "rel_L2_map_std": 0.002596279047823935,
+     "total_dose_ratio_mean": 1.0211837367542762
+    },
+    "Cu": {
+     "rel_L2_map": 0.03668075413935632,
+     "total_dose_ratio": 0.9960026842988428,
+     "dose_fraction_MC": 0.329259296562592,
+     "rel_L2_map_per_seed": [
+      0.03668075413935632,
+      0.0377313720085184,
+      0.03868779325396582,
+      0.0440839606147247
+     ],
+     "rel_L2_map_mean": 0.03929597000414131,
+     "rel_L2_map_std": 0.003295555287242655,
+     "total_dose_ratio_mean": 0.994543727814402
+    }
+   },
+   "rel_L2_map_per_seed": [
+    0.034936275237334176,
+    0.03649330450020262,
+    0.04023526123013924,
+    0.037229671365231774
+   ],
+   "rel_L2_map_mean": 0.037223628083226955,
+   "rel_L2_map_std": 0.0022237600522818325,
+   "total_dose_ratio_per_seed": [
+    1.0126521340743075,
+    1.0114052384208678,
+    1.0143177808982717,
+    1.0112739112078013
+   ],
+   "total_dose_ratio_mean": 1.0124122661503119
+  }
+ }
+}

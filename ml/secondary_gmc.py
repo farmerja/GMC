@@ -604,6 +604,20 @@ def cmd_train(args):
     print(f"\nSaved {os.path.join(args.out, 'secondary_gmc.pth')}")
 
 
+MATERIAL_BY_DENSITY = {8.96: "Cu", 2.699: "Al"}  # g/cm^3 as stored by ElectronTransport/NIST_EPICS_convert.py
+
+
+def describe(spec):
+    """'100 µm Cu, 1 keV – 10 MeV' from a Spec or its dict (material named from its density)."""
+    if isinstance(spec, dict):
+        spec = SimpleNamespace(**spec)
+    rho = float(getattr(spec, "material_density", float("nan")))
+    mat = next((n for d, n in MATERIAL_BY_DENSITY.items() if abs(d - rho) < 1e-3), f"ρ = {rho:g} g/cm³")
+    lo, hi = 10 ** spec.logE_lo, 10 ** spec.logE_hi
+    fmt = lambda E: f"{E * 1e3:.3g} keV" if E < 1 else f"{E:.3g} MeV"  # noqa: E731
+    return f"{spec.L * 1e4:g} µm {mat}, {fmt(lo)} – {fmt(hi)}"
+
+
 def cmd_plot_history(args):
     """Train / validation loss per epoch of every flow in a checkpoint (classifier histories are not stored; their
     final validation NLL is in train_info.json)."""
@@ -627,7 +641,7 @@ def cmd_plot_history(args):
             ax.spines[side].set_visible(False)
     axs[0, 0].set_ylabel("flow-matching loss (standardized targets)")
     axs[0, 0].legend(frameon=False)
-    fig.suptitle("Secondary GMC training, 100 µm Cu, 1 keV – 10 MeV", fontweight="bold")
+    fig.suptitle(f"Secondary GMC training, {describe(blob['spec'])}", fontweight="bold")
     fig.tight_layout()
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     fig.savefig(args.out, dpi=130)

@@ -481,6 +481,24 @@ validation/results/secondary_gmc_cu_100um.md.
        the chained dose error drops from 3.76 % to 1.18 % against a 1.10 % noise floor.
 
 
+7c. TWO MATERIALS (2026-11-05): 100 um Al + Cu, 1 keV - 10 MeV
+-------------------------------------------------------------
+One model set per material, each trained exactly as in 7b.6 (Al: ElectronTransport/aluminum_mc_database.h5,
+generate_analog_batches.py --h5 aluminum_mc_database.h5 --Z 13). They are combined only in the chain:
+chain_secondaries(kernels, ..., material_map=M) runs every transit with the model of the material of the cell it is in.
+  - An electron crossing an interface is an ordinary entry of the neighbour, so it uses the neighbour's entry models.
+    Relevance is per cell (7b.7), so nothing about the previous material is carried over.
+  - Relevant daughters stay in their birth cell, so they use the interior models of their birth material.
+  - Both models must use the same cell size and cutoff.
+MC references with a material map: secondary_mc_refs.py --materials Al,Cu --layout insert|slab|uniform (index 0 is
+the background). Comparison: secondary_chain_compare.py --model <one checkpoint per material, same order>. It adds
+per-material errors and draws the interfaces.
+Result (Cu block in Al, 20 x 20, 4 GMC runs): 1.50 +- 0.13 % at 1-10 MeV against a 1.24 % noise floor and 1.36 %
+for the exact MC chain; 1.71 +- 0.10 % against 1.74 % for the full spectrum. Primary-only: 4.96 %, mostly in the Al
+cells; secondaries matter more in Al (lower density, so knock-ons leave the cell more often).
+Details and commands: validation/results/secondary_gmc_alcu_100um.md.
+
+
 8. NEXT STEPS (in order)
 ------------------------
 1. Generation B, more data where it is thin: more relevant secondaries at 1-10 MeV (a larger run, or an interior
@@ -490,7 +508,7 @@ validation/results/secondary_gmc_cu_100um.md.
    1 keV - 100 GeV (cost estimate: ElectronTransport/figures/sweep_cell_size_energy_cu.png).
 3. Photon transport (EPDL), pair production and positrons in the analog MC; then photons_relevant=True,
    unconditioned interior models for photon-produced electrons, and cells up to ~1 cm (where splits appear).
-4. Other materials (one model set each) and quad / triangle cells (cell_topology.py already has the class
+4. More materials (one model set each; Al + Cu done, 7c) and quad / triangle cells (cell_topology.py already has the class
    numbering and face coordinates).
 5. Generation A leftovers: the high-energy dose shortfall of the 1 um flows; joint escaping-secondary classifier
    on the GeV *_v2 data (regenerated 2026-11-04, not trained yet).

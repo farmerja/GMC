@@ -22,7 +22,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import sec_plot_style as S  # noqa: E402
-from ml.secondary_gmc import SecondaryGMC, load_tables, NF, ABSORBED, exit_targets, sigmoid  # noqa: E402
+from ml.secondary_gmc import SecondaryGMC, load_tables, NF, ABSORBED, exit_targets, sigmoid, describe  # noqa: E402
 
 plt = S.plt
 CLASS_NAMES = ("bottom", "right (transmitted)", "top", "left (back)", "absorbed")
@@ -136,7 +136,8 @@ def compare(which, T, rows, K, edges, out_dir, metrics, rng):
         ax.set_xlabel("Entry energy (MeV)")
     axs.flat[0].legend(loc="best", fontsize=8)
     axs.flat[7].legend(loc="best", fontsize=8)
-    fig.suptitle(f"{which.capitalize()} transits, 100 µm Cu: GMC vs held-out analog MC ({len(rows)} entries)",
+    fig.suptitle(f"{which.capitalize()} transits, {describe(spec).split(',')[0]}: GMC vs held-out analog MC "
+                 f"({len(rows)} entries)",
                  fontweight="bold")
     fig.tight_layout()
     fig.savefig(os.path.join(out_dir, f"{which}_rates_vs_E.png"), dpi=130)
