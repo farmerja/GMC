@@ -1,5 +1,11 @@
 # Generative Monte Carlo
 
+> **Electron transport work** (branch `Aubrey_Electron`) is documented separately. Start with
+> [`docs/electron_gmc_workflow.txt`](docs/electron_gmc_workflow.txt) (section 0 gives the reading order and a
+> glossary), then the results page [`validation/results/secondary_gmc_cu_100um.md`](validation/results/secondary_gmc_cu_100um.md).
+> The electron training data comes from the companion repository `ElectronTransport` (its README lists every script
+> and dataset). The sections below up to "Electron Transport Notes" describe the neutron workflow.
+
 This folder contains a generative Monte Carlo workflow for neutron transport problems. The codebase has three main parts:
 
 - `physics/`: Monte Carlo data generation for 1D, 2D, 3D, and time-dependent transport problems.
@@ -136,10 +142,13 @@ For `lattice_steady.py`, the current results directory is:
 
 ## ⚡ Electron Transport Notes
 
-Electron training data comes from `ElectronTransport/ElectronMC.py` (3D directions, 2D position, projected onto the x-y plane).
+Electron training data comes from the companion repository `ElectronTransport`: 3D directions, 2D position, infinite in z.
+
+- **Current data source:** the analog (event-by-event, EPICS-based) MC, `AnalogMC.py` / `generate_analog_batches.py`. All the `analog_*` datasets and every model trained since 2026-11-03 use it.
+- **Legacy data source:** the condensed-history `ElectronMC.py` (stopping powers + Highland scattering). It produced the `gmc_tp_*` / `gmc_training_pairs_*` files and the original `2d_electron_boundary` model. The Highland bullet below applies only to it.
 
 - Generate data with training inputs that include an out-of-plane component (`w_max_angle_deg`), so `r_in = sqrt(u² + v²)` spans `[cos(w_max_angle), 1]`. The hidden `w` is recoverable from `r` (`w² = 1 - r²`), and the model already conditions on `(phi, r)`.
-- Scattering in the MC is memoryless (depends on energy and step only), which is required for cell-to-cell chaining to be consistent with a continuous MC track. Highland's log factor is frozen at `L_ref` (default: the training box size).
+- (Legacy `ElectronMC.py`) Scattering in the MC is memoryless (depends on energy and step only), which is required for cell-to-cell chaining to be consistent with a continuous MC track. Highland's log factor is frozen at `L_ref` (default: the training box size).
 - Train: `python ml/train.py --data_dim 2d_electron --electron_npz <file.npz>`
 - When chaining with `validation/macro_chaining_plot.py`, pass `--cell_size` equal to the training box (cm) and use `--ode_steps` of 50 or more (the default of 10 can narrow sampled distributions).
 

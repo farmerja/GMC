@@ -5,6 +5,22 @@ Training data: 10M analog-MC primaries on one 100 µm Cu cell, log-uniform energ
 hemisphere of directions (`ElectronTransport/analog_cu_100um_1keV-10MeV_log_10M_42.npz`). Test data: an
 independent 2M-primary run (seed 7).
 
+## How to read this page
+
+- **Analog MC** (`ElectronTransport/analog_stepper.py`) is the reference physics: every collision sampled from
+  EPICS data. The geometry is 2D (x-y) and infinite in z. Photons are not transported.
+- **GMC** = the learned cell models. A **chain** runs them cell by cell over a grid: an electron leaving one cell
+  enters the neighbour.
+- **Full-grid MC** = the analog MC on the whole grid: the true dose map. **MC-chained** = the analog MC used as the
+  cell model in the same chain loop as the GMC. With secondaries passed on it must reproduce the full-grid MC, which
+  checks the chain code. Primary-only, it is the best any GMC that ignores secondaries can do.
+- **Noise floor** = a second, independent full-grid MC compared with the first. A perfect GMC with the same number of
+  primaries scores about this, because both are comparisons of two statistically noisy samples.
+- **rel-L2** = sqrt(Σ(d − d_MC)² / Σ d_MC²) over the 400 cells of the dose map. Lower is better.
+- **Relevant secondary** = a secondary electron whose energy (directly or through its own secondaries) reaches
+  another cell. Only these are followed. Everything else is dose where it is born.
+- Glossary and design details: `docs/electron_gmc_workflow.txt`, sections 0 and 7b.
+
 ## Scheme
 
 Relevance-based cell transits (`ElectronTransport/gmc_segments.py`). A secondary is *relevant* if its subtree
