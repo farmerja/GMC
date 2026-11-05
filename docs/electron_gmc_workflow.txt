@@ -18,7 +18,8 @@ differ in what one cell transit returns:
      Secondary electrons whose energy reaches another cell are followed too. Code: ml/secondary_gmc.py,
      validation/chain_secondaries.py, secondary_*.py. Results: validation/results/secondary_gmc_cu_100um.md.
 
-  New to the project? Read 0 (glossary), 7b, then the results page, then sections 4-5 for conventions and pitfalls.
+  New to the project? Read 0 (glossary), 7b (7b.7 is a plain-language walk-through), then the results page,
+  then sections 4-5 for conventions and pitfalls.
 
 Glossary
   analog MC          the reference physics code (ElectronTransport/analog_stepper.py): every collision sampled from
@@ -327,6 +328,7 @@ validation/results/secondary_gmc_cu_100um.md.
   Each relevant daughter becomes an interior particle in the same cell (step 1 again with the interior models).
   An electron that leaves a cell, primary or secondary, enters the neighbour as a fresh entry: relevance is per
   cell, so in the new cell it is unconditioned and uses the entry models.
+  How this covers every generation of relevant daughters, and why it is exact: 7b.7.
 
 7b.3 The joint classifier in detail
   Classes (40): label = (exit * 4 + min(n, 3)) * 2 + photon_flag   (SecondaryGMC.spec.encode / decode)
@@ -405,6 +407,78 @@ validation/results/secondary_gmc_cu_100um.md.
     Add --replot to redraw the figures from the saved chain doses without rerunning.
   The .npz files under validation/results/ are git-ignored (regenerate them with steps 3-4); figures and JSON are
   committed.
+
+7b.7 How every relevant daughter is handled (explainer)
+  Short version: no model ever produces "all daughters". Each model call produces only the relevant daughters of
+  ONE transit, and the chain loop repeats that for every new particle. Two pieces make this complete: exact labels
+  from the MC family trees, and recursion in the chain.
+
+  1. The training data marks every relevant daughter exactly.
+     The analog MC records the full family tree of every primary: each tracked electron, the collision that made
+     it and how it ended (left the cell or stopped). gmc_segments.relevance walks each tree bottom-up, from the
+     deepest generation to the primary:
+       - an electron that leaves the cell is relevant;
+       - an electron with any relevant child is relevant, so the flag climbs the tree.
+     After one pass every electron at every depth is labelled exactly. A grandchild that escapes makes its absorbed
+     parent relevant, so that branch is kept. Nothing is cut off at a fixed depth. That is why the training data
+     contains every relevant daughter, and why the energy check closes to round-off: the sum of E_dep_rel over the
+     simulated segments equals the MC dose tally, so everything not followed is accounted for as dose.
+
+  2. The GMC generates only one generation per transit.
+     For one electron in one cell (7b.2):
+       entry state -> classifier -> exit face (or absorbed)
+                                 -> n = relevant daughters made in THIS transit (0, 1, 2, 3+)
+                                 -> photon flag
+                   -> exit flow -> where / how it leaves, and its energy loss
+                   -> daughter flow, once per daughter j = 0 .. n-1:
+                          birth point, direction, energy = share of the budget still left
+                   -> photon flow (if flagged) -> photon energy leaving
+                   dose = whatever energy remains
+     Only DIRECT daughters are made here. A daughter's own daughters are not this transit's job.
+
+  3. The chain loop handles all generations by repetition (validation/chain_secondaries.py).
+     It keeps a growing list of particles of two kinds: ENTERING (crossing into a cell through a face) and
+     INTERIOR (a relevant daughter at its birth point). Every step it runs the right models on every particle:
+       - daughters are added to the list as interior particles in the same cell. Next step the interior models
+         transport them, and they can make their own relevant daughters, which join the list too;
+       - anything that leaves a cell, primary or secondary, is added as an entering particle in the neighbour.
+     The loop stops when the list is empty. Third, fourth and later generations come from repeating that one
+     step; no model ever needs to know about grandchildren.
+
+     Worked example. A 5 MeV primary enters a cell:
+       a. entry classifier: exits right, 1 relevant daughter, no photons;
+       b. exit flow: exit state, energy loss 400 keV;
+       c. daughter flow: a 300 keV knock-on near the entrance, heading up;
+       d. dose in this cell: 400 - 300 = 100 keV;
+       e. next step: the primary is an entering particle in the right-hand neighbour, the knock-on an interior
+          particle in the first cell;
+       f. interior classifier: the knock-on exits the top with 0 daughters. It then enters the cell above as an
+          ordinary entering electron, where it may make relevant daughters of its own.
+
+  4. Why this is correct.
+     - The cutting is exact physics. In the analog MC particles do not interact with each other and an
+       electron's future depends only on its current state, so stopping at a birth point or a cell face and
+       continuing later loses nothing. Check: the MC-chained run with secondaries reproduces the full-grid MC
+       (1.06 % vs a 1.10 % noise floor), which confirms the loop before any learning is involved.
+     - Relevant daughters are a biased sample (their subtree is known to escape), so the interior models are
+       trained on relevant secondaries only. Given their birth states, different daughters' subtrees are
+       independent, so conditioning each daughter on its own relevance is exact.
+     - Relevance is per cell. Once a daughter crosses a face it is an ordinary entering electron in the new cell,
+       with no bias, so the general entry models apply. Interior models only ever see particles in the cell where
+       they were born.
+     - Several daughters in one transit are sampled one after another, each conditioned on the parent, its
+       sampled outcome, n, the index j and the energy budget left. They stay correlated and energy cannot
+       overshoot.
+
+  5. Cost and limits.
+     - Affordable: at 100 um only about 0.5 % of tracked secondaries are relevant (about 0.02 per primary). In
+       the 1-10 MeV chain that came to about 95k daughter transits against 2.8M entry transits. The other 99.5 %
+       are dose computed in one step, never simulated.
+     - Limits: the classifier stops counting at 3 daughters per transit (hit in 7 of 12M training + test
+       transits); sampled daughters below the 1 keV cutoff are deposited on the spot; the 10-daughter split case
+       is not modelled (it does not occur at 100 um); photon energy is treated as leaving.
+     - Evidence: single-cell checks give the right number (-2.4 %), energy, position and direction of daughters;
+       the chained dose error drops from 3.76 % to 1.18 % against a 1.10 % noise floor.
 
 
 8. NEXT STEPS (in order)
