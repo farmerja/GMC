@@ -182,6 +182,11 @@ Electron training data comes from the companion repository `ElectronTransport`: 
 
 **Results, figures and reproduction commands: [validation/results/secondary_gmc_cu_100um.md](validation/results/secondary_gmc_cu_100um.md).**
 The design, including how the relevant-secondary classifier works, is in section 7b of `docs/electron_gmc_workflow.txt`.
+Other materials: Al and Al/Cu ([secondary_gmc_alcu_100um.md](validation/results/secondary_gmc_alcu_100um.md)); water at
+100 µm and 1 mm, cost vs cell size and energy, and the relevant-daughter count cap
+([sweep_cost_water_cap.md](validation/results/sweep_cost_water_cap.md)). Timing tools: `validation/gmc_timing.py` (GMC cost per
+transit), `validation/gmc_size_timing.py` (cost vs network size and ODE steps) and `validation/chain_timing.py` (full-grid MC vs
+chained GMC, end to end).
 
 - `ml/secondary_gmc.py` is the relevance-based model set. A secondary is followed only if its subtree leaves the cell. A joint classifier samples exit face × relevant daughters × photon energy; then exit, daughter and photon flows run; the dose is the energy that is left (conserved exactly). There are separate models for electrons entering a cell and for relevant secondaries starting inside it.
 - Train: `python ml/secondary_gmc.py train --train_npz <generate_analog_batches.py --simulated_only file> --out ml/models/<name>`. Plot losses: `python ml/secondary_gmc.py plot_history --model ml/models/<name>/secondary_gmc.pth --out ml/training_results/<name>/training_loss.png`.

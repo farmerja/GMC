@@ -499,16 +499,43 @@ cells; secondaries matter more in Al (lower density, so knock-ons leave the cell
 Details and commands: validation/results/secondary_gmc_alcu_100um.md.
 
 
+7d. COST, WATER AND THE COUNT CAP (2026-11-07)
+---------------------------------------------
+Results page: validation/results/sweep_cost_water_cap.md.
+- Cost:
+  - One GMC call costs ~20 us per transit at 50 ODE steps and ~5 us at 10 steps (batch >= 1e4 on the GPU), for
+    every cell size, energy and material.
+  - The analog MC cost grows with rho L and E, so the GMC pays off from about 0.03-0.1 g/cm2 (100 um Cu, 1 mm
+    water). Measured chains: 1.7-4.9x faster at 100 um Cu and 3.7-4.4x at 1 mm water. Al and water at 100 um are
+    slower than the MC at 50 steps.
+  - Projection over 10 nm - 1 cm: ElectronTransport/figures/sweep_cost.png (sweep_cell_size_energy.py +
+    validation/gmc_timing.py). Measured end to end: validation/chain_timing.py.
+  - Scaling: MC time per cell ~ 50 ns + (30-45 ns) x L / mfp. So the speedup is linear in rho L (log-log slope
+    1.00 +- 0.07) until the cell is thicker than the electron range, then flat. It is not exponential.
+  - Smaller nets (validation/gmc_size_timing.py): 64 x 3 at 10 ODE steps costs ~1.3 us per transit, which moves
+    break-even down one decade (Cu 10 um ~5x, water 100 um ~9x). Accuracy is untested. Cells <= 1 um cannot be won
+    back: the kernel overhead floor is ~0.3 us per transit, and the MC there costs 0.05-0.8 us.
+- Water:
+  - material_data.NAMED_MATERIALS["Water"] is H2O by atoms at 1.0 g/cm3, free atoms (Bragg additivity). H and O
+    are EPICS2017, which for this physics is identical to 2023.
+  - Same GMC pipeline with --material Water. Models: secondary_gmc_water_100um, secondary_gmc_water_1mm. Both are at
+    the MC noise floor when chained, including a Cu insert in water.
+- Cap NR = 3: keep it for every cell <= 1 mm. The energy misplaced by the cap is <= 2e-6 of the source energy
+  (<= 3e-5 with photons_relevant). Only 1 cm cells with photons transported need NR ~ 8-10. The high-count tail
+  comes mostly from grazing |w| ~ 1 tracks, an artefact of the infinite-z 2D cells.
+
 8. NEXT STEPS (in order)
 ------------------------
 1. Generation B, more data where it is thin: more relevant secondaries at 1-10 MeV (a larger run, or an interior
    source restricted to relevant secondaries); train 2-3 seeds and compare with --n_seeds.
 2. Cell size as a model input: one model set per material over 100 nm - 1 mm, conditioned on mass thickness
    (rho L) and L / CSDA range. Data: a sweep with a random cell size per batch and log-uniform energies over
-   1 keV - 100 GeV (cost estimate: ElectronTransport/figures/sweep_cell_size_energy_cu.png).
+   1 keV - 100 GeV. Cost estimate: ElectronTransport/figures/sweep_cost.png. Note the GMC only beats the MC above
+   rho L ~ 0.03-0.1 g/cm2, so the lower end of the range is for accuracy at interfaces, not speed. Also test fewer
+   ODE steps (10 steps is 4x faster; first chain checks in 7d).
 3. Photon transport (EPDL), pair production and positrons in the analog MC; then photons_relevant=True,
    unconditioned interior models for photon-produced electrons, and cells up to ~1 cm (where splits appear).
-4. More materials (one model set each; Al + Cu done, 7c) and quad / triangle cells (cell_topology.py already has the class
+4. More materials (one model set each; Al + Cu done, 7c; water done, 7d) and quad / triangle cells (cell_topology.py already has the class
    numbering and face coordinates).
 5. Generation A leftovers: the high-energy dose shortfall of the 1 um flows; joint escaping-secondary classifier
    on the GeV *_v2 data (regenerated 2026-11-04, not trained yet).

@@ -1,0 +1,809 @@
+{
+ "meta": {
+  "model": "ml/models/secondary_gmc_cu_100um/secondary_gmc.pth",
+  "device": "NVIDIA GeForce RTX 5080",
+  "torch": "2.13.0+cu130"
+ },
+ "rows": [
+  {
+   "steps": 50,
+   "batch": 100,
+   "E": 0.01,
+   "us_boundary": 520.8308930014027,
+   "us_interior": 406.57650900175213,
+   "daughters_per_boundary": 0.04,
+   "daughters_per_interior": 0.01,
+   "device": "cuda"
+  },
+  {
+   "steps": 50,
+   "batch": 100,
+   "E": 0.1,
+   "us_boundary": 632.7449489981518,
+   "us_interior": 641.9568279998203,
+   "daughters_per_boundary": 0.03,
+   "daughters_per_interior": 0.0,
+   "device": "cuda"
+  },
+  {
+   "steps": 50,
+   "batch": 100,
+   "E": 1.0,
+   "us_boundary": 740.2928929986956,
+   "us_interior": 708.962632001203,
+   "daughters_per_boundary": 0.01,
+   "daughters_per_interior": 0.01,
+   "device": "cuda"
+  },
+  {
+   "steps": 50,
+   "batch": 100,
+   "E": 10.0,
+   "us_boundary": 783.6168969988648,
+   "us_interior": 739.6504059979634,
+   "daughters_per_boundary": 0.06,
+   "daughters_per_interior": 0.05,
+   "device": "cuda"
+  },
+  {
+   "steps": 50,
+   "batch": 1000,
+   "E": 0.01,
+   "us_boundary": 67.43860919996223,
+   "us_interior": 69.99821649988007,
+   "daughters_per_boundary": 0.005,
+   "daughters_per_interior": 0.006,
+   "device": "cuda"
+  },
+  {
+   "steps": 50,
+   "batch": 1000,
+   "E": 0.1,
+   "us_boundary": 85.60127050004667,
+   "us_interior": 92.36611759988591,
+   "daughters_per_boundary": 0.016,
+   "daughters_per_interior": 0.026,
+   "device": "cuda"
+  },
+  {
+   "steps": 50,
+   "batch": 1000,
+   "E": 1.0,
+   "us_boundary": 109.14974560000701,
+   "us_interior": 100.60899540003447,
+   "daughters_per_boundary": 0.028,
+   "daughters_per_interior": 0.02,
+   "device": "cuda"
+  },
+  {
+   "steps": 50,
+   "batch": 1000,
+   "E": 10.0,
+   "us_boundary": 121.45581939985277,
+   "us_interior": 96.50347069982672,
+   "daughters_per_boundary": 0.058,
+   "daughters_per_interior": 0.028,
+   "device": "cuda"
+  },
+  {
+   "steps": 50,
+   "batch": 10000,
+   "E": 0.01,
+   "us_boundary": 19.493624049937353,
+   "us_interior": 23.169930599942745,
+   "daughters_per_boundary": 0.0094,
+   "daughters_per_interior": 0.0025,
+   "device": "cuda"
+  },
+  {
+   "steps": 50,
+   "batch": 10000,
+   "E": 0.1,
+   "us_boundary": 19.964951099973405,
+   "us_interior": 24.515435549983522,
+   "daughters_per_boundary": 0.0165,
+   "daughters_per_interior": 0.0198,
+   "device": "cuda"
+  },
+  {
+   "steps": 50,
+   "batch": 10000,
+   "E": 1.0,
+   "us_boundary": 25.750358650111593,
+   "us_interior": 25.726652899902547,
+   "daughters_per_boundary": 0.03,
+   "daughters_per_interior": 0.019,
+   "device": "cuda"
+  },
+  {
+   "steps": 50,
+   "batch": 10000,
+   "E": 10.0,
+   "us_boundary": 29.05384134992346,
+   "us_interior": 25.823277050039906,
+   "daughters_per_boundary": 0.0564,
+   "daughters_per_interior": 0.0234,
+   "device": "cuda"
+  },
+  {
+   "steps": 50,
+   "batch": 100000,
+   "E": 0.01,
+   "us_boundary": 13.96323098000721,
+   "us_interior": 23.732769169982934,
+   "daughters_per_boundary": 0.00929,
+   "daughters_per_interior": 0.00222,
+   "device": "cuda"
+  },
+  {
+   "steps": 50,
+   "batch": 100000,
+   "E": 0.1,
+   "us_boundary": 14.429264110003714,
+   "us_interior": 23.915200629999163,
+   "daughters_per_boundary": 0.01524,
+   "daughters_per_interior": 0.01801,
+   "device": "cuda"
+  },
+  {
+   "steps": 50,
+   "batch": 100000,
+   "E": 1.0,
+   "us_boundary": 24.882884100006777,
+   "us_interior": 24.317554699991884,
+   "daughters_per_boundary": 0.03229,
+   "daughters_per_interior": 0.0175,
+   "device": "cuda"
+  },
+  {
+   "steps": 50,
+   "batch": 100000,
+   "E": 10.0,
+   "us_boundary": 25.425494729970527,
+   "us_interior": 24.34531083003094,
+   "daughters_per_boundary": 0.05516,
+   "daughters_per_interior": 0.0243,
+   "device": "cuda"
+  },
+  {
+   "steps": 50,
+   "batch": 300000,
+   "E": 0.01,
+   "us_boundary": 13.042194903331014,
+   "us_interior": 23.113142556661238,
+   "daughters_per_boundary": 0.008906666666666667,
+   "daughters_per_interior": 0.0021133333333333334,
+   "device": "cuda"
+  },
+  {
+   "steps": 50,
+   "batch": 300000,
+   "E": 0.1,
+   "us_boundary": 14.129009416659148,
+   "us_interior": 23.30603097666123,
+   "daughters_per_boundary": 0.014906666666666667,
+   "daughters_per_interior": 0.018353333333333333,
+   "device": "cuda"
+  },
+  {
+   "steps": 50,
+   "batch": 300000,
+   "E": 1.0,
+   "us_boundary": 24.182485866670806,
+   "us_interior": 23.880989023333917,
+   "daughters_per_boundary": 0.030736666666666666,
+   "daughters_per_interior": 0.01748,
+   "device": "cuda"
+  },
+  {
+   "steps": 50,
+   "batch": 300000,
+   "E": 10.0,
+   "us_boundary": 25.171963693331538,
+   "us_interior": 23.914964326662204,
+   "daughters_per_boundary": 0.0544,
+   "daughters_per_interior": 0.024606666666666666,
+   "device": "cuda"
+  },
+  {
+   "steps": 20,
+   "batch": 100,
+   "E": 0.01,
+   "us_boundary": 221.52240500145126,
+   "us_interior": 153.026124000462,
+   "daughters_per_boundary": 0.02,
+   "daughters_per_interior": 0.01,
+   "device": "cuda"
+  },
+  {
+   "steps": 20,
+   "batch": 100,
+   "E": 0.1,
+   "us_boundary": 268.50395200017374,
+   "us_interior": 268.2287490024464,
+   "daughters_per_boundary": 0.01,
+   "daughters_per_interior": 0.01,
+   "device": "cuda"
+  },
+  {
+   "steps": 20,
+   "batch": 100,
+   "E": 1.0,
+   "us_boundary": 304.2075859993929,
+   "us_interior": 290.76042599990615,
+   "daughters_per_boundary": 0.02,
+   "daughters_per_interior": 0.0,
+   "device": "cuda"
+  },
+  {
+   "steps": 20,
+   "batch": 100,
+   "E": 10.0,
+   "us_boundary": 315.72384199898806,
+   "us_interior": 300.80216500209644,
+   "daughters_per_boundary": 0.05,
+   "daughters_per_interior": 0.01,
+   "device": "cuda"
+  },
+  {
+   "steps": 20,
+   "batch": 1000,
+   "E": 0.01,
+   "us_boundary": 29.923483599850442,
+   "us_interior": 26.10991949986783,
+   "daughters_per_boundary": 0.006,
+   "daughters_per_interior": 0.003,
+   "device": "cuda"
+  },
+  {
+   "steps": 20,
+   "batch": 1000,
+   "E": 0.1,
+   "us_boundary": 37.221671199949924,
+   "us_interior": 40.14444669992372,
+   "daughters_per_boundary": 0.014,
+   "daughters_per_interior": 0.019,
+   "device": "cuda"
+  },
+  {
+   "steps": 20,
+   "batch": 1000,
+   "E": 1.0,
+   "us_boundary": 45.002146400292986,
+   "us_interior": 39.16099909984041,
+   "daughters_per_boundary": 0.032,
+   "daughters_per_interior": 0.02,
+   "device": "cuda"
+  },
+  {
+   "steps": 20,
+   "batch": 1000,
+   "E": 10.0,
+   "us_boundary": 51.26871460015536,
+   "us_interior": 40.48563180003839,
+   "daughters_per_boundary": 0.06,
+   "daughters_per_interior": 0.017,
+   "device": "cuda"
+  },
+  {
+   "steps": 20,
+   "batch": 10000,
+   "E": 0.01,
+   "us_boundary": 8.23251710007753,
+   "us_interior": 9.108626399938657,
+   "daughters_per_boundary": 0.0096,
+   "daughters_per_interior": 0.0018,
+   "device": "cuda"
+  },
+  {
+   "steps": 20,
+   "batch": 10000,
+   "E": 0.1,
+   "us_boundary": 7.933648049947806,
+   "us_interior": 10.74366579996422,
+   "daughters_per_boundary": 0.016,
+   "daughters_per_interior": 0.0173,
+   "device": "cuda"
+  },
+  {
+   "steps": 20,
+   "batch": 10000,
+   "E": 1.0,
+   "us_boundary": 11.229380599979777,
+   "us_interior": 10.697167249963968,
+   "daughters_per_boundary": 0.0315,
+   "daughters_per_interior": 0.0203,
+   "device": "cuda"
+  },
+  {
+   "steps": 20,
+   "batch": 10000,
+   "E": 10.0,
+   "us_boundary": 12.117568100075005,
+   "us_interior": 10.71330794984533,
+   "daughters_per_boundary": 0.0527,
+   "daughters_per_interior": 0.0241,
+   "device": "cuda"
+  },
+  {
+   "steps": 20,
+   "batch": 100000,
+   "E": 0.01,
+   "us_boundary": 5.822819509994588,
+   "us_interior": 9.80476249998901,
+   "daughters_per_boundary": 0.00944,
+   "daughters_per_interior": 0.00224,
+   "device": "cuda"
+  },
+  {
+   "steps": 20,
+   "batch": 100000,
+   "E": 0.1,
+   "us_boundary": 6.080712160000985,
+   "us_interior": 9.990113899984863,
+   "daughters_per_boundary": 0.01487,
+   "daughters_per_interior": 0.0181,
+   "device": "cuda"
+  },
+  {
+   "steps": 20,
+   "batch": 100000,
+   "E": 1.0,
+   "us_boundary": 10.374374749990238,
+   "us_interior": 10.12929675001942,
+   "daughters_per_boundary": 0.0322,
+   "daughters_per_interior": 0.01735,
+   "device": "cuda"
+  },
+  {
+   "steps": 20,
+   "batch": 100000,
+   "E": 10.0,
+   "us_boundary": 10.603067060001194,
+   "us_interior": 10.140692890017817,
+   "daughters_per_boundary": 0.05551,
+   "daughters_per_interior": 0.02443,
+   "device": "cuda"
+  },
+  {
+   "steps": 20,
+   "batch": 300000,
+   "E": 0.01,
+   "us_boundary": 5.515757606663101,
+   "us_interior": 9.658926073340504,
+   "daughters_per_boundary": 0.0089,
+   "daughters_per_interior": 0.0021266666666666665,
+   "device": "cuda"
+  },
+  {
+   "steps": 20,
+   "batch": 300000,
+   "E": 0.1,
+   "us_boundary": 5.923818506671523,
+   "us_interior": 9.714704200002114,
+   "daughters_per_boundary": 0.014686666666666667,
+   "daughters_per_interior": 0.01841,
+   "device": "cuda"
+  },
+  {
+   "steps": 20,
+   "batch": 300000,
+   "E": 1.0,
+   "us_boundary": 10.045604156669773,
+   "us_interior": 9.927007483335426,
+   "daughters_per_boundary": 0.03143666666666667,
+   "daughters_per_interior": 0.017503333333333333,
+   "device": "cuda"
+  },
+  {
+   "steps": 20,
+   "batch": 300000,
+   "E": 10.0,
+   "us_boundary": 10.444270113330276,
+   "us_interior": 9.931579636662113,
+   "daughters_per_boundary": 0.05515,
+   "daughters_per_interior": 0.02485,
+   "device": "cuda"
+  },
+  {
+   "steps": 10,
+   "batch": 100,
+   "E": 0.01,
+   "us_boundary": 119.76489899825538,
+   "us_interior": 87.30941500107292,
+   "daughters_per_boundary": 0.04,
+   "daughters_per_interior": 0.0,
+   "device": "cuda"
+  },
+  {
+   "steps": 10,
+   "batch": 100,
+   "E": 0.1,
+   "us_boundary": 152.7043899986893,
+   "us_interior": 160.38834099890664,
+   "daughters_per_boundary": 0.03,
+   "daughters_per_interior": 0.01,
+   "device": "cuda"
+  },
+  {
+   "steps": 10,
+   "batch": 100,
+   "E": 1.0,
+   "us_boundary": 169.78879200178199,
+   "us_interior": 163.28881499794076,
+   "daughters_per_boundary": 0.01,
+   "daughters_per_interior": 0.0,
+   "device": "cuda"
+  },
+  {
+   "steps": 10,
+   "batch": 100,
+   "E": 10.0,
+   "us_boundary": 195.0284910017217,
+   "us_interior": 180.54687899712007,
+   "daughters_per_boundary": 0.02,
+   "daughters_per_interior": 0.05,
+   "device": "cuda"
+  },
+  {
+   "steps": 10,
+   "batch": 1000,
+   "E": 0.01,
+   "us_boundary": 16.229935399678652,
+   "us_interior": 16.68093170010252,
+   "daughters_per_boundary": 0.01,
+   "daughters_per_interior": 0.003,
+   "device": "cuda"
+  },
+  {
+   "steps": 10,
+   "batch": 1000,
+   "E": 0.1,
+   "us_boundary": 20.355330199890886,
+   "us_interior": 22.164267699918128,
+   "daughters_per_boundary": 0.014,
+   "daughters_per_interior": 0.016,
+   "device": "cuda"
+  },
+  {
+   "steps": 10,
+   "batch": 1000,
+   "E": 1.0,
+   "us_boundary": 24.367143800191116,
+   "us_interior": 23.542159000135143,
+   "daughters_per_boundary": 0.03,
+   "daughters_per_interior": 0.026,
+   "device": "cuda"
+  },
+  {
+   "steps": 10,
+   "batch": 1000,
+   "E": 10.0,
+   "us_boundary": 30.121578000034788,
+   "us_interior": 22.66740960003517,
+   "daughters_per_boundary": 0.054,
+   "daughters_per_interior": 0.022,
+   "device": "cuda"
+  },
+  {
+   "steps": 10,
+   "batch": 10000,
+   "E": 0.01,
+   "us_boundary": 4.63733244996547,
+   "us_interior": 5.35539245011023,
+   "daughters_per_boundary": 0.01,
+   "daughters_per_interior": 0.0015,
+   "device": "cuda"
+  },
+  {
+   "steps": 10,
+   "batch": 10000,
+   "E": 0.1,
+   "us_boundary": 4.7588879000613815,
+   "us_interior": 5.737837500055321,
+   "daughters_per_boundary": 0.0151,
+   "daughters_per_interior": 0.0183,
+   "device": "cuda"
+  },
+  {
+   "steps": 10,
+   "batch": 10000,
+   "E": 1.0,
+   "us_boundary": 6.04592865001905,
+   "us_interior": 6.021667849927326,
+   "daughters_per_boundary": 0.0308,
+   "daughters_per_interior": 0.0198,
+   "device": "cuda"
+  },
+  {
+   "steps": 10,
+   "batch": 10000,
+   "E": 10.0,
+   "us_boundary": 6.495076999999583,
+   "us_interior": 6.0029930999007775,
+   "daughters_per_boundary": 0.0543,
+   "daughters_per_interior": 0.0243,
+   "device": "cuda"
+  },
+  {
+   "steps": 10,
+   "batch": 100000,
+   "E": 0.01,
+   "us_boundary": 3.261544659981155,
+   "us_interior": 5.496771640027873,
+   "daughters_per_boundary": 0.00963,
+   "daughters_per_interior": 0.00192,
+   "device": "cuda"
+  },
+  {
+   "steps": 10,
+   "batch": 100000,
+   "E": 0.1,
+   "us_boundary": 3.3875084500323283,
+   "us_interior": 5.573876159978681,
+   "daughters_per_boundary": 0.01518,
+   "daughters_per_interior": 0.01796,
+   "device": "cuda"
+  },
+  {
+   "steps": 10,
+   "batch": 100000,
+   "E": 1.0,
+   "us_boundary": 5.752615179990244,
+   "us_interior": 5.643194279982708,
+   "daughters_per_boundary": 0.03259,
+   "daughters_per_interior": 0.01705,
+   "device": "cuda"
+  },
+  {
+   "steps": 10,
+   "batch": 100000,
+   "E": 10.0,
+   "us_boundary": 5.871461079987057,
+   "us_interior": 5.640919959987514,
+   "daughters_per_boundary": 0.05498,
+   "daughters_per_interior": 0.02438,
+   "device": "cuda"
+  },
+  {
+   "steps": 10,
+   "batch": 300000,
+   "E": 0.01,
+   "us_boundary": 3.109146850001707,
+   "us_interior": 5.351225386669587,
+   "daughters_per_boundary": 0.009023333333333333,
+   "daughters_per_interior": 0.0022,
+   "device": "cuda"
+  },
+  {
+   "steps": 10,
+   "batch": 300000,
+   "E": 0.1,
+   "us_boundary": 3.3214917333316407,
+   "us_interior": 5.4012523133254335,
+   "daughters_per_boundary": 0.014746666666666667,
+   "daughters_per_interior": 0.017986666666666668,
+   "device": "cuda"
+  },
+  {
+   "steps": 10,
+   "batch": 300000,
+   "E": 1.0,
+   "us_boundary": 5.582774600006815,
+   "us_interior": 5.519240843338291,
+   "daughters_per_boundary": 0.030606666666666667,
+   "daughters_per_interior": 0.01746,
+   "device": "cuda"
+  },
+  {
+   "steps": 10,
+   "batch": 300000,
+   "E": 10.0,
+   "us_boundary": 5.802362833322452,
+   "us_interior": 5.5258577566686045,
+   "daughters_per_boundary": 0.05417,
+   "daughters_per_interior": 0.025246666666666667,
+   "device": "cuda"
+  },
+  {
+   "steps": 5,
+   "batch": 100,
+   "E": 0.01,
+   "us_boundary": 66.0067530006927,
+   "us_interior": 49.09816199869965,
+   "daughters_per_boundary": 0.03,
+   "daughters_per_interior": 0.01,
+   "device": "cuda"
+  },
+  {
+   "steps": 5,
+   "batch": 100,
+   "E": 0.1,
+   "us_boundary": 78.55777100121485,
+   "us_interior": 84.6409429977939,
+   "daughters_per_boundary": 0.03,
+   "daughters_per_interior": 0.02,
+   "device": "cuda"
+  },
+  {
+   "steps": 5,
+   "batch": 100,
+   "E": 1.0,
+   "us_boundary": 84.62831300130347,
+   "us_interior": 81.86627100076292,
+   "daughters_per_boundary": 0.0,
+   "daughters_per_interior": 0.0,
+   "device": "cuda"
+  },
+  {
+   "steps": 5,
+   "batch": 100,
+   "E": 10.0,
+   "us_boundary": 88.07134400194627,
+   "us_interior": 87.04859199860948,
+   "daughters_per_boundary": 0.04,
+   "daughters_per_interior": 0.03,
+   "device": "cuda"
+  },
+  {
+   "steps": 5,
+   "batch": 1000,
+   "E": 0.01,
+   "us_boundary": 8.432836900101393,
+   "us_interior": 8.291924299919629,
+   "daughters_per_boundary": 0.009,
+   "daughters_per_interior": 0.005,
+   "device": "cuda"
+  },
+  {
+   "steps": 5,
+   "batch": 1000,
+   "E": 0.1,
+   "us_boundary": 10.147099200185039,
+   "us_interior": 11.644247999720392,
+   "daughters_per_boundary": 0.012,
+   "daughters_per_interior": 0.017,
+   "device": "cuda"
+  },
+  {
+   "steps": 5,
+   "batch": 1000,
+   "E": 1.0,
+   "us_boundary": 12.200648599900887,
+   "us_interior": 10.951946799832513,
+   "daughters_per_boundary": 0.026,
+   "daughters_per_interior": 0.014,
+   "device": "cuda"
+  },
+  {
+   "steps": 5,
+   "batch": 1000,
+   "E": 10.0,
+   "us_boundary": 14.457524399767863,
+   "us_interior": 11.094825500185834,
+   "daughters_per_boundary": 0.055,
+   "daughters_per_interior": 0.027,
+   "device": "cuda"
+  },
+  {
+   "steps": 5,
+   "batch": 10000,
+   "E": 0.01,
+   "us_boundary": 2.2733509500540094,
+   "us_interior": 2.4846769500072696,
+   "daughters_per_boundary": 0.01,
+   "daughters_per_interior": 0.0027,
+   "device": "cuda"
+  },
+  {
+   "steps": 5,
+   "batch": 10000,
+   "E": 0.1,
+   "us_boundary": 2.33198514997639,
+   "us_interior": 2.763562250038376,
+   "daughters_per_boundary": 0.0145,
+   "daughters_per_interior": 0.0166,
+   "device": "cuda"
+  },
+  {
+   "steps": 5,
+   "batch": 10000,
+   "E": 1.0,
+   "us_boundary": 2.9051149500446627,
+   "us_interior": 2.904227900035039,
+   "daughters_per_boundary": 0.0302,
+   "daughters_per_interior": 0.0182,
+   "device": "cuda"
+  },
+  {
+   "steps": 5,
+   "batch": 10000,
+   "E": 10.0,
+   "us_boundary": 3.2377034000091953,
+   "us_interior": 2.7591686999585363,
+   "daughters_per_boundary": 0.0524,
+   "daughters_per_interior": 0.0258,
+   "device": "cuda"
+  },
+  {
+   "steps": 5,
+   "batch": 100000,
+   "E": 0.01,
+   "us_boundary": 1.5662116699968465,
+   "us_interior": 2.5311177900221082,
+   "daughters_per_boundary": 0.00965,
+   "daughters_per_interior": 0.00237,
+   "device": "cuda"
+  },
+  {
+   "steps": 5,
+   "batch": 100000,
+   "E": 0.1,
+   "us_boundary": 1.6251148599985754,
+   "us_interior": 2.575026019985671,
+   "daughters_per_boundary": 0.01522,
+   "daughters_per_interior": 0.01778,
+   "device": "cuda"
+  },
+  {
+   "steps": 5,
+   "batch": 100000,
+   "E": 1.0,
+   "us_boundary": 2.6704377500209375,
+   "us_interior": 2.617493319994537,
+   "daughters_per_boundary": 0.0325,
+   "daughters_per_interior": 0.01709,
+   "device": "cuda"
+  },
+  {
+   "steps": 5,
+   "batch": 100000,
+   "E": 10.0,
+   "us_boundary": 2.74341402000573,
+   "us_interior": 2.6099979300124687,
+   "daughters_per_boundary": 0.05515,
+   "daughters_per_interior": 0.02451,
+   "device": "cuda"
+  },
+  {
+   "steps": 5,
+   "batch": 300000,
+   "E": 0.01,
+   "us_boundary": 1.4974832133278444,
+   "us_interior": 2.518534949995228,
+   "daughters_per_boundary": 0.009053333333333333,
+   "daughters_per_interior": 0.0023066666666666665,
+   "device": "cuda"
+  },
+  {
+   "steps": 5,
+   "batch": 300000,
+   "E": 0.1,
+   "us_boundary": 1.5985752133322724,
+   "us_interior": 2.539732000004733,
+   "daughters_per_boundary": 0.014793333333333334,
+   "daughters_per_interior": 0.018223333333333334,
+   "device": "cuda"
+  },
+  {
+   "steps": 5,
+   "batch": 300000,
+   "E": 1.0,
+   "us_boundary": 2.6127872633272395,
+   "us_interior": 2.5802806800008207,
+   "daughters_per_boundary": 0.03126333333333333,
+   "daughters_per_interior": 0.017363333333333335,
+   "device": "cuda"
+  },
+  {
+   "steps": 5,
+   "batch": 300000,
+   "E": 10.0,
+   "us_boundary": 2.7090614400003687,
+   "us_interior": 2.582882843344123,
+   "daughters_per_boundary": 0.05439,
+   "daughters_per_interior": 0.024756666666666666,
+   "device": "cuda"
+  }
+ ]
+}

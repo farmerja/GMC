@@ -1,0 +1,11 @@
+Loaded analog_cu_100um_1keV-10MeV_log_10M_42.npz: 9990636 transits (9797204 boundary, 193432 interior), 238564500 image entries (23.9 per transit), 64x64 bins + in-bin moments, L = 100 um
+Flow: 2.01 M parameters, 8 couplings x 32 spline bins; weights 'dose'; 40000 steps x 32768
+  step 2000/40000: train NLL -1.8567  val NLL (EMA) -0.7205 nats  (66s)
+  step 4000/40000: train NLL -2.4047  val NLL (EMA) -1.8138 nats  (132s)
+  step 6000/40000: train NLL -2.4956  val NLL (EMA) -2.3975 nats  (198s)
+  step 8000/40000: train NLL -2.5401  val NLL (EMA) -2.5691 nats  (262s)
+  step 10000/40000: train NLL -2.5681  val NLL (EMA) -2.6222 nats  (324s)
+  step 12000/40000: train NLL -2.5927  val NLL (EMA) -2.6483 nats  (385s)
+  step 14000/40000: train NLL -2.6104  val NLL (EMA) -2.6633 nats  (446s)
+  step 16000/40000: train NLL -2.6269  val NLL (EMA) -2.6749 nats  (507s)
+  step 18000/40000: train NLL -2.6425  val NLL (EMA) -2.6838 nats  (568s)

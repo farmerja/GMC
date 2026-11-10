@@ -1,0 +1,310 @@
+{
+ "device": "NVIDIA GeForce RTX 5080",
+ "torch": "2.13.0+cu130",
+ "E_MeV": 1.0,
+ "model": "ml/models/secondary_gmc_cu_100um/secondary_gmc.pth",
+ "rows": [
+  {
+   "hidden": 256,
+   "depth": 6,
+   "steps": 50,
+   "batch": 10000,
+   "us_per_transit": 26.634661033313023,
+   "exit_flow_params": 3312900,
+   "trained": true
+  },
+  {
+   "hidden": 256,
+   "depth": 6,
+   "steps": 50,
+   "batch": 100000,
+   "us_per_transit": 24.997627310003736,
+   "exit_flow_params": 3312900,
+   "trained": true
+  },
+  {
+   "hidden": 256,
+   "depth": 6,
+   "steps": 10,
+   "batch": 10000,
+   "us_per_transit": 6.2642032001652606,
+   "exit_flow_params": 3312900,
+   "trained": true
+  },
+  {
+   "hidden": 256,
+   "depth": 6,
+   "steps": 10,
+   "batch": 100000,
+   "us_per_transit": 5.742214609999792,
+   "exit_flow_params": 3312900,
+   "trained": true
+  },
+  {
+   "hidden": 256,
+   "depth": 6,
+   "steps": 4,
+   "batch": 10000,
+   "us_per_transit": 3.093155400226048,
+   "exit_flow_params": 3312900,
+   "trained": true
+  },
+  {
+   "hidden": 256,
+   "depth": 6,
+   "steps": 4,
+   "batch": 100000,
+   "us_per_transit": 2.7099795299970237,
+   "exit_flow_params": 3312900,
+   "trained": true
+  },
+  {
+   "hidden": 256,
+   "depth": 6,
+   "steps": 1,
+   "batch": 10000,
+   "us_per_transit": 1.3165594333258923,
+   "exit_flow_params": 3312900,
+   "trained": true
+  },
+  {
+   "hidden": 256,
+   "depth": 6,
+   "steps": 1,
+   "batch": 100000,
+   "us_per_transit": 1.1562336666732638,
+   "exit_flow_params": 3312900,
+   "trained": true
+  },
+  {
+   "hidden": 128,
+   "depth": 4,
+   "steps": 50,
+   "batch": 10000,
+   "us_per_transit": 16.609162433208745,
+   "exit_flow_params": 573316,
+   "trained": false
+  },
+  {
+   "hidden": 128,
+   "depth": 4,
+   "steps": 50,
+   "batch": 100000,
+   "us_per_transit": 13.004233393342776,
+   "exit_flow_params": 573316,
+   "trained": false
+  },
+  {
+   "hidden": 128,
+   "depth": 4,
+   "steps": 10,
+   "batch": 10000,
+   "us_per_transit": 4.318952266718648,
+   "exit_flow_params": 573316,
+   "trained": false
+  },
+  {
+   "hidden": 128,
+   "depth": 4,
+   "steps": 10,
+   "batch": 100000,
+   "us_per_transit": 3.399661233318814,
+   "exit_flow_params": 573316,
+   "trained": false
+  },
+  {
+   "hidden": 128,
+   "depth": 4,
+   "steps": 4,
+   "batch": 10000,
+   "us_per_transit": 2.1072030998766422,
+   "exit_flow_params": 573316,
+   "trained": false
+  },
+  {
+   "hidden": 128,
+   "depth": 4,
+   "steps": 4,
+   "batch": 100000,
+   "us_per_transit": 1.5962417366730128,
+   "exit_flow_params": 573316,
+   "trained": false
+  },
+  {
+   "hidden": 128,
+   "depth": 4,
+   "steps": 1,
+   "batch": 10000,
+   "us_per_transit": 1.0285965334333014,
+   "exit_flow_params": 573316,
+   "trained": false
+  },
+  {
+   "hidden": 128,
+   "depth": 4,
+   "steps": 1,
+   "batch": 100000,
+   "us_per_transit": 0.735904929994528,
+   "exit_flow_params": 573316,
+   "trained": false
+  },
+  {
+   "hidden": 64,
+   "depth": 3,
+   "steps": 50,
+   "batch": 10000,
+   "us_per_transit": 10.121987566526514,
+   "exit_flow_params": 114180,
+   "trained": false
+  },
+  {
+   "hidden": 64,
+   "depth": 3,
+   "steps": 50,
+   "batch": 100000,
+   "us_per_transit": 4.6657564166525844,
+   "exit_flow_params": 114180,
+   "trained": false
+  },
+  {
+   "hidden": 64,
+   "depth": 3,
+   "steps": 10,
+   "batch": 10000,
+   "us_per_transit": 2.6571941998554394,
+   "exit_flow_params": 114180,
+   "trained": false
+  },
+  {
+   "hidden": 64,
+   "depth": 3,
+   "steps": 10,
+   "batch": 100000,
+   "us_per_transit": 1.2736703200062038,
+   "exit_flow_params": 114180,
+   "trained": false
+  },
+  {
+   "hidden": 64,
+   "depth": 3,
+   "steps": 4,
+   "batch": 10000,
+   "us_per_transit": 1.4540726001238604,
+   "exit_flow_params": 114180,
+   "trained": false
+  },
+  {
+   "hidden": 64,
+   "depth": 3,
+   "steps": 4,
+   "batch": 100000,
+   "us_per_transit": 0.7417495733291919,
+   "exit_flow_params": 114180,
+   "trained": false
+  },
+  {
+   "hidden": 64,
+   "depth": 3,
+   "steps": 1,
+   "batch": 10000,
+   "us_per_transit": 0.8380522999990111,
+   "exit_flow_params": 114180,
+   "trained": false
+  },
+  {
+   "hidden": 64,
+   "depth": 3,
+   "steps": 1,
+   "batch": 100000,
+   "us_per_transit": 0.47978040667658206,
+   "exit_flow_params": 114180,
+   "trained": false
+  },
+  {
+   "hidden": 32,
+   "depth": 2,
+   "steps": 50,
+   "batch": 10000,
+   "us_per_transit": 8.19119986651155,
+   "exit_flow_params": 22052,
+   "trained": false
+  },
+  {
+   "hidden": 32,
+   "depth": 2,
+   "steps": 50,
+   "batch": 100000,
+   "us_per_transit": 2.221557706652675,
+   "exit_flow_params": 22052,
+   "trained": false
+  },
+  {
+   "hidden": 32,
+   "depth": 2,
+   "steps": 10,
+   "batch": 10000,
+   "us_per_transit": 2.330781800022426,
+   "exit_flow_params": 22052,
+   "trained": false
+  },
+  {
+   "hidden": 32,
+   "depth": 2,
+   "steps": 10,
+   "batch": 100000,
+   "us_per_transit": 0.7345859800019146,
+   "exit_flow_params": 22052,
+   "trained": false
+  },
+  {
+   "hidden": 32,
+   "depth": 2,
+   "steps": 4,
+   "batch": 10000,
+   "us_per_transit": 1.3150634333821167,
+   "exit_flow_params": 22052,
+   "trained": false
+  },
+  {
+   "hidden": 32,
+   "depth": 2,
+   "steps": 4,
+   "batch": 100000,
+   "us_per_transit": 0.5156475900002988,
+   "exit_flow_params": 22052,
+   "trained": false
+  },
+  {
+   "hidden": 32,
+   "depth": 2,
+   "steps": 1,
+   "batch": 10000,
+   "us_per_transit": 0.7370452665782068,
+   "exit_flow_params": 22052,
+   "trained": false
+  },
+  {
+   "hidden": 32,
+   "depth": 2,
+   "steps": 1,
+   "batch": 100000,
+   "us_per_transit": 0.3509835333291752,
+   "exit_flow_params": 22052,
+   "trained": false
+  }
+ ],
+ "floor": [
+  {
+   "batch": 10000,
+   "us_per_transit": 0.692764000026121
+  },
+  {
+   "batch": 100000,
+   "us_per_transit": 0.3244965100020636
+  },
+  {
+   "batch": 300000,
+   "us_per_transit": 0.38162653778272215
+  }
+ ]
+}

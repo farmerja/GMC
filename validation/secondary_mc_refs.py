@@ -39,7 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from chain_secondaries import chain_secondaries, log_uniform_source, MCCellKernel  # noqa: E402
 
 BEAMS = {"mev": (1.0, 10.0), "full": (1e-3, 10.0)}
-MATERIALS = {"Cu": ("copper_mc_database.h5", 29), "Al": ("aluminum_mc_database.h5", 13)}  # in ElectronTransport/
+MATERIALS = ("Cu", "Al", "Water")  # ElectronTransport/material_data.NAMED_MATERIALS
 
 
 def material_layout(layout, nx, ny):
@@ -75,14 +75,14 @@ def main():
     sys.path.insert(0, a.et_dir)
     os.chdir(a.et_dir)
     from analog_stepper import VoxelGeometry, run_transport
-    from material_data import Material, build_library
+    from material_data import build_library, named_material
 
     names = a.materials.split(",")
     mmap = material_layout(a.layout, a.nx, a.ny)
     if mmap.max() >= len(names):
         raise ValueError(f"layout {a.layout} needs {mmap.max() + 1} materials, got {names}")
-    h5s = [MATERIALS[n][0] for n in names]
-    lib = build_library([Material.from_element(h, MATERIALS[n][1]) for n, h in zip(names, h5s)], h5s)
+    mats = [named_material(n) for n in names]
+    lib = build_library([m for m, _ in mats], [h for _, h in mats])
     E_low, E_high = BEAMS[a.beam]
     y_max = a.ny * a.cell_size
     lo = (a.ny - a.beam_cells) // 2
