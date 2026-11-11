@@ -64,17 +64,37 @@ MIN_W, MIN_H, MIN_D = 1e-3, 1e-3, 1e-3
 D_OFF = math.log(math.expm1(1.0 - MIN_D))      # raw 0 -> derivative 1 (identity spline at zero init)
 
 
+_TRI = {}
+
+
+def _cumsum(w):
+    """Inclusive cumsum over the (short) last dim as a matmul with a triangular ones matrix: a GPU scan over an innermost
+    dim of 32 is ~20x slower and was ~30% of the sampling time. w is split into a TF32-exact high part (low 13 mantissa
+    bits zeroed) and the remainder, so the sum stays fp32-accurate (~1e-7) even with TF32 matmuls enabled. Inference
+    only: with gradients on (training) the plain cumsum is kept, since the matmul's backward would carry TF32 error."""
+    if w.dtype != torch.float32 or torch.is_grad_enabled():
+        return torch.cumsum(w, -1)
+    K = w.shape[-1]
+    key = (K, w.device)
+    tri = _TRI.get(key)
+    if tri is None:
+        tri = _TRI[key] = torch.triu(torch.ones(K, K, device=w.device, dtype=torch.float32))
+    hi = (w.detach().contiguous().view(torch.int32) & -8192).view(torch.float32)
+    return hi @ tri + (w - hi) @ tri
+
+
 def _knots(u, min_size):
     K = u.shape[-1]
     w = min_size + (1.0 - min_size * K) * torch.softmax(u, -1)
-    c = torch.cumsum(w, -1)
+    c = _cumsum(w)
     c = torch.cat([torch.zeros_like(c[..., :1]), c[..., :-1], torch.ones_like(c[..., :1])], -1)
     return w, c
 
 
-def rq_spline(x, uw, uh, ud, inverse=False):
+def rq_spline(x, uw, uh, ud, inverse=False, logdet=True):
     """Monotone RQ spline [0, 1] -> [0, 1] with K bins; uw, uh (..., K), ud (..., K + 1) unconstrained.
-    Returns (y, log|dy/dx|) of the forward map, or (x, -log|dy/dx|) of the inverse."""
+    Returns (y, log|dy/dx|) of the forward map, or (x, -log|dy/dx|) of the inverse; logdet=False returns None for the
+    log-determinant (sampling does not need it)."""
     w, cw = _knots(uw, MIN_W)
     h, ch = _knots(uh, MIN_H)
     d = MIN_D + F.softplus(ud + D_OFF)
@@ -95,6 +115,8 @@ def rq_spline(x, uw, uh, ud, inverse=False):
     b = hk * dk - dy * (dk1 + dk - 2.0 * s)
     c = -s * dy
     th = (2.0 * c / (-b - torch.sqrt((b * b - 4.0 * a * c).clamp_min(0.0)))).clamp(0.0, 1.0)
+    if not logdet:
+        return (xk + th * wk).clamp(0.0, 1.0), None
     t1 = th * (1.0 - th)
     den = s + (dk1 + dk - 2.0 * s) * t1
     dydx = s * s * (dk1 * th * th + 2.0 * s * t1 + dk * (1.0 - th) ** 2) / (den * den)
@@ -133,12 +155,45 @@ class Coupling(nn.Module):
         K = self.K
         return p[..., :K], p[..., K:2 * K], p[..., 2 * K:]
 
-    def forward(self, x, h, inverse=False):
+    def forward(self, x, h, inverse=False, logdet=True):
         a = self.active
         xa, xp = x[..., a], x[..., 1 - a]
-        ya, ld = rq_spline(xa, *self.params(xp, h), inverse=inverse)
+        ya, ld = rq_spline(xa, *self.params(xp, h), inverse=inverse, logdet=logdet)
         y = torch.stack([ya, xp] if a == 0 else [xp, ya], -1)
         return y, ld
+
+
+_SOBOL = {}
+
+
+def base_points(rows, n, device, gen=None, method="random"):
+    """(rows, n, 2) base points on [0, 1]^2, independent between rows.
+    random  i.i.d. uniform
+    jitter  jittered m x m grid (n = m^2): one uniform point in each grid cell
+    sobol   the first n points of the 2D Sobol sequence (a (0, m, 2)-net when n = 2^m: every dyadic box of area 1/n,
+            of any aspect ratio, holds exactly one point) with an independent random digital shift (XOR of the 32-bit
+            coordinates) per row, plus uniform jitter below 2^-32. The digital shift keeps the net property and makes
+            every point uniform on [0, 1]^2, so the tally stays unbiased."""
+    if method == "random":
+        return torch.rand(rows, n, 2, device=device, generator=gen)
+    if method == "jitter":
+        m = int(round(math.sqrt(n)))
+        if m * m != n:
+            raise ValueError(f"jitter needs a square number of samples, got {n}")
+        g = torch.arange(m, device=device, dtype=torch.float32)
+        ij = torch.stack(torch.meshgrid(g, g, indexing="ij"), -1).reshape(1, n, 2)
+        return (ij + torch.rand(rows, n, 2, device=device, generator=gen)) / m
+    if method == "sobol":
+        key = (n, device)
+        pts = _SOBOL.get(key)
+        if pts is None:
+            eng = torch.quasirandom.SobolEngine(2, scramble=False)
+            pts = _SOBOL[key] = (eng.draw(n, dtype=torch.float64) * 2.0 ** 32).long().to(device)  # exact integers
+        shift = torch.randint(0, 2 ** 32, (rows, 1, 2), device=device, generator=gen, dtype=torch.long)
+        u = torch.bitwise_xor(pts.unsqueeze(0), shift).to(torch.float64)
+        u = (u + torch.rand(rows, n, 2, device=device, generator=gen, dtype=torch.float64)) / 2.0 ** 32
+        return u.float().clamp(0.0, 1.0 - 2 ** -24)
+    raise ValueError(method)
 
 
 class SubcellFlow(nn.Module):
@@ -163,12 +218,15 @@ class SubcellFlow(nn.Module):
         return lp
 
     @torch.no_grad()
-    def sample(self, h, n, gen=None):
-        """n points per context row: (N, n, 2)."""
-        z = torch.rand(h.shape[0], n, 2, device=h.device, dtype=h.dtype, generator=gen)
+    def sample(self, h, n, gen=None, base="random"):
+        """n points per context row: (N, n, 2). base: how the n base points per row are placed on [0, 1]^2
+        (base_points): 'random' (independent), 'jitter' (one point per cell of an m x m grid, n = m^2) or 'sobol'
+        (digitally shifted Sobol net). All three are unbiased; the stratified ones put exactly one point in each
+        1/n of the transit's dose (the flow maps base area to probability), which cuts the tally noise."""
+        z = base_points(h.shape[0], n, h.device, gen, base).to(h.dtype)
         hh = h.unsqueeze(1)
         for L in reversed(self.layers):
-            z, _ = L(z, hh, inverse=True)
+            z, _ = L(z, hh, inverse=True, logdet=False)
         return z
 
 
@@ -553,6 +611,123 @@ def kernel_images_sampled(model, spec, Rd, rows, n, n_samples=4096, max_points=1
         h.scatter_add_(1, b, torch.full_like(b, 1.0 / n_samples, dtype=torch.float32))
         out.append(h.reshape(len(r), n, n))
     return torch.cat(out), torch.ones(len(rows), device=Rd["E0"].device)
+
+
+# ====================================================================================================================
+# SCR tally: chain transit log -> dose on a fine mesh (n x n bins per transport cell)
+# ====================================================================================================================
+def canonical_to_cell(x, y, face):
+    """Positions in the canonical frame (entered through the left face) -> cell frame of a cell entered through
+    `face` (0 left, 1 right, 2 bottom, 3 top; -1 = interior start, already in the cell frame). Same map as
+    chain_core.transform_from_canonical, on positions only."""
+    f = face.reshape(-1, *([1] * (x.dim() - 1))).expand_as(x)
+    xo = torch.where(f == 1, 1.0 - x, torch.where(f == 2, y, torch.where(f == 3, y, x)))
+    yo = torch.where(f == 2, x, torch.where(f == 3, 1.0 - x, y))
+    return xo, yo
+
+
+def transit_log_tensors(T, rows, device):
+    """Transit-log rows (chain_secondaries(..., transit_log=True)["transits"]) -> RAW tensors for cond_features."""
+    g = lambda k: np.asarray(T[k])[rows]  # noqa: E731
+    absorbed = g("cls") == ABSORBED
+    R = {"start": g("start"), "x0": g("x0"), "y0": g("y0"), "u0": g("u0"), "v0": g("v0"), "E0": g("E0"),
+         "cls": g("cls"), "x1": g("x1"), "y1": g("y1"), "u1": g("u1"), "v1": g("v1"),
+         "E_out": np.where(absorbed, 0.0, g("E_out")), "dose": g("dose"), "n_rel": g("n_rel"), "flag": g("flag")}
+    return to_device(R, device)
+
+
+@torch.no_grad()
+def auto_samples(n):
+    """Kernel samples per transit for an n x n sub-grid: 2n rounded up to a power of two, at least 32. Measured on
+    100 um Cu with Sobol sampling (accuracy per unit time vs analog MC): n = 8 best at K = 32, n = 16 at 32-64,
+    n = 32 at 64-128. The sampling variance scales as (n / K) when K < n, so K must grow with the sub-grid."""
+    return max(32, 1 << math.ceil(math.log2(2 * n)))
+
+
+def scr_tally(log, kernels, nx, ny, n, mode="sample", n_samples=None, quad_sub=4, device="cpu", gen=None,
+              max_points=1 << 19, tf32=False, sampling="sobol"):
+    """See _scr_tally. n_samples None = auto_samples(n); sampling 'sobol' (default) is about 2x more sample-efficient
+    than 'random' at fine sub-grids. tf32: TF32 tensor-core matmuls for the flow's MLPs. Off by default: it gains only ~10-15% and
+    moves samples by up to ~1e-2 cell widths at sharp (keV) densities. The global flag is restored afterwards."""
+    if n_samples is None:
+        n_samples = auto_samples(n)
+    prev = torch.backends.cuda.matmul.allow_tf32
+    torch.backends.cuda.matmul.allow_tf32 = tf32
+    try:
+        return _scr_tally(log, kernels, nx, ny, n, mode, n_samples, quad_sub, device, gen, max_points, sampling)
+    finally:
+        torch.backends.cuda.matmul.allow_tf32 = prev
+
+
+@torch.no_grad()
+def _scr_tally(log, kernels, nx, ny, n, mode, n_samples, quad_sub, device, gen, max_points, sampling):
+    """Fine-mesh dose (nx * n, ny * n) from a chain transit log.
+
+    kernels: {material index: (spec, model)}; transits of a material without a kernel are spread uniformly over
+    their cell. mode 'sample': n_samples flow samples per transit, each worth dose / n_samples (unbiased at any n;
+    base points per SubcellFlow.sample, sampling = 'random' | 'jitter' | 'sobol');
+    'quad': expected image by midpoint quadrature (quad_sub^2 points per fine bin, renormalized) - no sampling noise,
+    but it under-resolves densities sharper than a fine bin. Point deposits (log["points"]) go to their bin.
+    Returns (dose_fine, info) with the dose per route for closure checks."""
+    T, P = log["transits"], log["points"]
+    fine = torch.zeros(nx * n * ny * n, dtype=torch.float64, device=device)
+    info = {"kernel": 0.0, "flat": 0.0, "points": 0.0, "quad_mass_min": 1.0}
+
+    def add(cx, cy, x, y, wgt):
+        """Cell (cx, cy) per row; x, y, wgt per row (1-D) or per row and point (2-D)."""
+        if x.dim() > 1:
+            cx, cy = cx.unsqueeze(-1), cy.unsqueeze(-1)
+        ix = cx.long() * n + (x * n).long().clamp(0, n - 1)
+        iy = cy.long() * n + (y * n).long().clamp(0, n - 1)
+        fine.index_add_(0, (ix * (ny * n) + iy).reshape(-1), wgt.reshape(-1).double())
+
+    dose_all = np.asarray(T["dose"], dtype=np.float64)
+    mat = np.asarray(T["mat"])
+    for m in np.unique(mat):
+        rows_m = np.flatnonzero((mat == m) & (dose_all > 0))
+        if rows_m.size == 0:
+            continue
+        if int(m) not in kernels:      # no kernel: uniform over the cell
+            cx = torch.as_tensor(np.asarray(T["cx"])[rows_m], device=device)
+            cy = torch.as_tensor(np.asarray(T["cy"])[rows_m], device=device)
+            d = torch.as_tensor(dose_all[rows_m], device=device)
+            c = (torch.arange(n, device=device, dtype=torch.float64) + 0.5) / n
+            gx, gy = torch.meshgrid(c, c, indexing="ij")
+            add(cx, cy, gx.reshape(1, -1).expand(len(d), -1), gy.reshape(1, -1).expand(len(d), -1),
+                (d / (n * n)).unsqueeze(-1).expand(-1, n * n))
+            info["flat"] += float(d.sum())
+            continue
+        spec, model = kernels[int(m)]
+        per = n_samples if mode == "sample" else (n * quad_sub) ** 2
+        chunk = max(1, max_points // per)
+        for i in range(0, rows_m.size, chunk):
+            r = rows_m[i:i + chunk]
+            Rd = transit_log_tensors(T, r, device)
+            d = torch.as_tensor(dose_all[r], device=device)
+            face = torch.as_tensor(np.asarray(T["face"])[r], device=device)
+            cx = torch.as_tensor(np.asarray(T["cx"])[r], device=device)
+            cy = torch.as_tensor(np.asarray(T["cy"])[r], device=device)
+            h = model.context(cond_features(spec, Rd))
+            if mode == "sample":
+                z = model.sample(h, n_samples, gen=gen, base=sampling).clamp(0.0, 1.0)
+                x, y = canonical_to_cell(z[..., 0], z[..., 1], face)
+                wgt = (d / n_samples).unsqueeze(-1).expand(-1, n_samples)
+            else:
+                img, mass = kernel_images(model, spec, Rd, torch.arange(len(r), device=device), n, sub=quad_sub)
+                info["quad_mass_min"] = min(info["quad_mass_min"], float(mass.min()))
+                c = (torch.arange(n, device=device, dtype=torch.float32) + 0.5) / n
+                gx, gy = torch.meshgrid(c, c, indexing="ij")
+                x, y = canonical_to_cell(gx.reshape(1, -1).expand(len(r), -1), gy.reshape(1, -1).expand(len(r), -1),
+                                         face)
+                wgt = img.reshape(len(r), -1).double() * d.unsqueeze(-1)
+            add(cx, cy, x, y, wgt)
+            info["kernel"] += float(d.sum())
+    if len(P["E"]):
+        e = torch.as_tensor(np.asarray(P["E"], dtype=np.float64), device=device)
+        add(torch.as_tensor(np.asarray(P["cx"]), device=device), torch.as_tensor(np.asarray(P["cy"]), device=device),
+            torch.as_tensor(np.asarray(P["x"]), device=device), torch.as_tensor(np.asarray(P["y"]), device=device), e)
+        info["points"] = float(e.sum())
+    return fine.reshape(nx * n, ny * n).cpu().numpy(), info
 
 
 def truth_images(ent, starts, rows, n_sub, n):

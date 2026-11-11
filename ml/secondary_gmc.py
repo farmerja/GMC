@@ -544,6 +544,8 @@ class SecondaryGMC:
             q[ph] = g * avail
         out["dose"] = np.maximum(budget + local_dep - q, 0.0)
         out["photon_E"] = q
+        out["n_rel"] = nr            # sampled relevant-daughter count and photon flag (SCR kernel conditioning)
+        out["flag"] = flag
         return out
 
 

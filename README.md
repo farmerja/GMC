@@ -195,3 +195,20 @@ chained GMC, end to end).
   - `validation/secondary_mc_refs.py`: MC references (ElectronTransport venv).
   - `validation/secondary_chain_compare.py`: chained dose maps, profiles, errors over `--n_seeds` runs.
 - Headline (20×20 chain, 1–10 MeV beam): dose-map error vs full analog MC is 1.18 ± 0.10 % with secondaries and 3.76 ± 0.24 % without, against a 1.10 % MC noise floor.
+
+### SCR-GMC: Sub-Cell Dose Reconstruction
+
+**Results, figures and reproduction commands: [validation/results/subcell_kernel_cu_100um.md](validation/results/subcell_kernel_cu_100um.md).**
+A learned kernel (`ml/subcell_kernel.py`, a conditional spline flow) places each GMC transit's dose inside its cell.
+The GMC transports on coarse cells, and dose is tallied afterwards on any finer mesh. On 100 µm Cu with 3.1 µm dose
+voxels, it agrees with analog MC within noise and is 4× faster at equal noise. The speedup shrinks as the dose voxels
+get finer relative to the block, because the MC tallies at any resolution for free and the SCR tally does not. For
+example, a 1 mm water block breaks even with MC at about 1–2 µm voxels. See section 6 of the results page.
+
+- Chain with `chain_secondaries(..., transit_log=True)`, then tally with `subcell_kernel.scr_tally`. The defaults are
+  Sobol sampling with an automatic samples-per-transit setting.
+- Validate:
+  - `validation/scr_mc_ref.py`: fine-voxel MC reference (ElectronTransport venv).
+  - `validation/scr_chain_compare.py`: chained GMC + SCR vs the fine MC; noise/bias split over seeds; several
+    tallies on the same chains.
+  - `validation/scr_figures.py`: the results-page figures, from a saved run.

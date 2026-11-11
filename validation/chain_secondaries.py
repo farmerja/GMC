@@ -13,6 +13,16 @@ each returning a dict (positions in the unit cell, frame of the call):
                                 (the MC kernel reports escaping secondaries this way)
 Exits enter the neighbour cell as boundary entries; particles leaving the grid are tallied as escaped.
 
+Transit log (transit_log=True, for SCR-GMC sub-cell dose reconstruction, ml/subcell_kernel.py): the result gets
+    "transits"  one row per kernel call, in the frame of that call (canonical for boundary entries, cell frame for
+                interior starts): cx, cy, mat, start (0 boundary / 1 interior), face (entry face, -1 interior), gen,
+                x0, y0, u0, v0, w0, E0 (entry), cls, x1, y1, u1, v1, w1, E_out (exit), dose, n_rel, flag
+                (n_rel / flag: the kernel's sampled relevant-daughter count and photon flag when it reports them, else
+                the number of daughters it emitted and photon_E > 0)
+    "points"    point deposits at a known position, cell frame: cx, cy, x, y, E (electrons entering a cell below the
+                cutoff, deposited at their entry point)
+Map a transit's reference-frame points to its cell with transform_from_canonical(..., face) (boundary) or identity.
+
 Several materials: pass material_map (nx, ny) of indices into a LIST of kernels, one per material. Each step, every
 particle is transported by the kernel of the material of the cell it is in. An electron crossing an interface is an
 ordinary boundary entry of the neighbour, so it uses the neighbour's entry models; relevant daughters stay in their
@@ -64,7 +74,7 @@ class _Bank:
 
 
 def chain_secondaries(kernel, source, nx, ny, cell_size, E_cutoff, max_steps=5000, log=print, log_every=20,
-                      max_generation=50, material_map=None):
+                      max_generation=50, material_map=None, transit_log=False):
     N = source.shape[0]
     kernels = list(kernel) if isinstance(kernel, (list, tuple)) else [kernel]
     if material_map is None:
@@ -80,6 +90,7 @@ def chain_secondaries(kernel, source, nx, ny, cell_size, E_cutoff, max_steps=500
     stats = {"transits_boundary": 0, "transits_interior": 0, "daughters": 0, "extra_exits": 0, "photon_E": 0.0,
              "cutoff_dep": 0.0}
     bank = _Bank()
+    tlog = {"transits": [], "points": []} if transit_log else None
     cy0 = np.clip(np.floor(source[:, 1] / cell_size).astype(np.int64), 0, ny - 1)
     bank.add(mode=0, cx=0, cy=cy0, face=LEFT, x=0.0, y=np.clip(source[:, 1] / cell_size - cy0, 0, 1),
              u=source[:, 2], v=source[:, 3], w=source[:, 7], E=source[:, 4], gen=0)
@@ -101,6 +112,8 @@ def chain_secondaries(kernel, source, nx, ny, cell_size, E_cutoff, max_steps=500
         np.add.at(dose, (ncx[dead], ncy[dead]), E[dead])
         np.add.at(dose_by_gen, (np.minimum(gen[dead], 1), ncx[dead], ncy[dead]), E[dead])
         stats["cutoff_dep"] += float(E[dead].sum())
+        if tlog is not None and dead.any():
+            tlog["points"].append({"cx": ncx[dead], "cy": ncy[dead], "x": xl[dead], "y": yl[dead], "E": E[dead]})
         live = k & ~dead
         bank.add(mode=0, cx=ncx[live], cy=ncy[live], face=_ENTRY_FACE[f[live]], x=xl[live], y=yl[live], u=u[live],
                  v=v[live], w=w[live], E=E[live], gen=gen[live])
@@ -126,12 +139,16 @@ def chain_secondaries(kernel, source, nx, ny, cell_size, E_cutoff, max_steps=500
 
                 def to_cell(x_, y_, u_, v_, parent):
                     return transform_from_canonical(x_, y_, u_, v_, face[parent])
+                ref_in = (np.zeros(idx.size), y_c, u_c, v_c)
             else:
                 stats["transits_interior"] += idx.size
                 out = kernel.interior(P["x"][idx], P["y"][idx], P["u"][idx], P["v"][idx], w, E)
 
                 def to_cell(x_, y_, u_, v_, parent):
                     return x_, y_, u_, v_
+                ref_in = (P["x"][idx], P["y"][idx], P["u"][idx], P["v"][idx])
+            if tlog is not None:
+                tlog["transits"].append(_transit_rows(out, mode, m, cx, cy, face, gen, ref_in, w, E))
             np.add.at(dose, (cx, cy), out["dose"])
             np.add.at(dose_by_gen, (np.minimum(gen, 1), cx, cy), out["dose"])
             stats["photon_E"] += float(np.sum(out.get("photon_E", 0.0)))
@@ -155,9 +172,44 @@ def chain_secondaries(kernel, source, nx, ny, cell_size, E_cutoff, max_steps=500
             log(f"step {step:4d}: {n_act:7d} active")
     left = bank.take()
     in_flight = float(left["E"].sum()) if len(left["E"]) else 0.0
+    extra = {}
+    if tlog is not None:
+        extra = {"transits": _concat_rows(tlog["transits"], TRANSIT_COLUMNS),
+                 "points": _concat_rows(tlog["points"], POINT_COLUMNS)}
     return {"dose": dose, "dose_primary_transits": dose_by_gen[0], "dose_secondary_transits": dose_by_gen[1],
             "escaped": escaped, "in_flight": in_flight, "steps": step + 1, "E_source": float(source[:, 4].sum()),
-            **stats}
+            **stats, **extra}
+
+
+TRANSIT_COLUMNS = ("cx", "cy", "mat", "start", "face", "gen", "x0", "y0", "u0", "v0", "w0", "E0", "cls", "x1", "y1",
+                   "u1", "v1", "w1", "E_out", "dose", "n_rel", "flag")
+POINT_COLUMNS = ("cx", "cy", "x", "y", "E")
+_INT_COLUMNS = {"cx", "cy", "mat", "start", "face", "gen", "cls", "n_rel", "flag"}
+
+
+def _transit_rows(out, mode, mat, cx, cy, face, gen, ref_in, w, E):
+    """One kernel call -> transit-log columns (entry/exit in the frame of the call)."""
+    n = len(E)
+    if "n_rel" in out:
+        n_rel = np.asarray(out["n_rel"])
+    else:
+        D = out.get("daughters")
+        n_rel = np.bincount(np.asarray(D["parent"], dtype=np.int64), minlength=n) if D is not None and len(D["E"]) \
+            else np.zeros(n, dtype=np.int64)
+    flag = np.asarray(out["flag"]) if "flag" in out else (np.asarray(out.get("photon_E", np.zeros(n))) > 0)
+    x0, y0, u0, v0 = ref_in
+    return {"cx": cx, "cy": cy, "mat": np.full(n, mat), "start": np.full(n, mode),
+            "face": face if mode == 0 else np.full(n, -1), "gen": gen, "x0": x0, "y0": y0, "u0": u0, "v0": v0,
+            "w0": w, "E0": E, "cls": np.asarray(out["cls"]), "x1": out["x"], "y1": out["y"], "u1": out["u"],
+            "v1": out["v"], "w1": out["w"], "E_out": out["E_out"], "dose": out["dose"], "n_rel": n_rel,
+            "flag": flag.astype(np.int64)}
+
+
+def _concat_rows(rows, cols):
+    if not rows:
+        return {c: np.zeros(0, dtype=np.int64 if c in _INT_COLUMNS else np.float64) for c in cols}
+    return {c: np.concatenate([np.asarray(r[c]) for r in rows]).astype(np.int64 if c in _INT_COLUMNS else np.float64)
+            for c in cols}
 
 
 class MCCellKernel:
