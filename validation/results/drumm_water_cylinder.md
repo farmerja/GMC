@@ -29,6 +29,7 @@ Runs (500k primaries each, same source):
 
 ![](drumm_water_cylinder/fig8a_energy.png)
 ![](drumm_water_cylinder/fig8b_charge.png)
+![](drumm_water_cylinder/fig8b_charge_fine.png)
 
 [Dose maps](drumm_water_cylinder/dose_maps.png). Numbers: `drumm_water_cylinder/metrics.json`.
 
@@ -97,7 +98,24 @@ Runs (500k primaries each, same source):
    strip-averaged ITS values.
 2. *Statistics:* 500k histories vs ITS's 3.2 billion, and charge is a small difference of creations and stops.
    ±0.02 e⁻/cm³ per 0.5 mm bin across the beam, ±0.03 along the axis.
-3. *Faster broadening:* the remaining gap at x = +0.5 (−0.139 vs −0.209 at equal strip width) is the same physics as
+   - *Finer strips* (added 2026-11-12): [fine-resolution figure](drumm_water_cylinder/fig8b_charge_fine.png), made
+     from the stored 125 µm MC maps. Resolved only across the trough (in y); along the axis the x-bins stay 0.5 mm, and
+     across the beam the x-strip stays 1 mm. Inside r < 0.95 cm the circle and both staircase runs agree within noise
+     (scatter 1.01–1.04× the expected noise, no mean offset), so they are pooled there (1.5M histories). ITS is averaged
+     over the same bins. On-axis trough, ours / ITS:
+
+     | strip | x = −0.5 | x = 0 | x = +0.5 |
+     |---|---|---|---|
+     | 1 mm (circle only) | −0.350 / −0.349 | −0.270 / −0.285 | −0.139 / −0.209 |
+     | 0.5 mm (pooled) | −0.361 / −0.374 | −0.306 / −0.306 | −0.133 / −0.214 |
+     | 0.25 mm (pooled) | −0.350 / −0.368 | −0.329 / −0.308 | −0.144 / −0.217 |
+
+     Pooled noise of one strip value: about ±0.013 (0.5 mm) and ±0.024 (0.25 mm). Across-beam profiles vs ITS in the
+     same bins: rms 0.019–0.023 at 0.25 mm (pooled noise per bin 0.016–0.024) and 0.025–0.030 at 0.125 mm (noise
+     0.033–0.035). So at x = −0.5 and 0 the whole across profile matches ITS within noise at every resolution, and the
+     shallower 1 mm curves were strip width. At x = +0.5 the profile also matches except the central ~0.5 mm, where ours
+     stays at about −0.14 while ITS reaches −0.21 (about 6σ at 0.5 mm).
+3. *Faster broadening (likely):* the remaining gap at x = +0.5 (−0.139 vs −0.209 at equal strip width) is the same physics as
    the energy slope.
 4. *Not the cause:* the 1 keV cutoff. Counting all electrons vs only those born > 0.1 MeV changes the axis values by
    < 0.02, except in the first 2 mm.

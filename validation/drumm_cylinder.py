@@ -311,6 +311,7 @@ def cmd_plot(a):
     keys = {"E": ["E_along", "E_xm05", "E_x0", "E_xp05"], "Q": ["Q_along", "Q_xm05", "Q_x0", "Q_xp05"]}
     M = {"N_mc": int(C["N"]), "N_gmc": int(G["N"]), "fine_bin_cm": h, "strip_cm": 2 * a.strip * h, "profiles": {}}
     BLUE, GREY, ORANGE, GREEN, PURPLE = "#2a7ab0", "#8a8a8a", "#d9480f", "#2f9e44", "#7048e8"
+    FINE_COLS = ["#0ca678", "#e64980", "#f59f00"]
     for qty in ("E", "Q"):
         strips, along_ax = {}, None
         fig, ax = plt.subplots(2, 2, figsize=(13, 9.5), constrained_layout=True)
@@ -407,12 +408,83 @@ def cmd_plot(a):
             along_ax.plot(ps, [strips[p_][1] for p_ in ps], "s", mfc="none", mec="0.55", ms=8, mew=1.6,
                           label="ITS across-profile averaged over 2 mm (GMC cells)", zorder=5)
         ax[0, 0].legend(fontsize=8, loc="lower left" if qty == "E" else "lower right")
+        if qty == "Q":  # the ITS-averaged lines appear only in the across panels
+            hs, ls = ax[0, 1].get_legend_handles_labels()
+            ax[0, 1].legend([h_ for h_, l_ in zip(hs, ls) if l_.startswith("ITS averaged")],
+                            [l_ for l_ in ls if l_.startswith("ITS averaged")], fontsize=8, loc="lower right")
         fig.suptitle(f"20 MeV triangular beam on the side of an infinite water cylinder (Drumm et al. 2007, Fig. 8"
                      f"{'a' if qty == 'E' else 'b'}); "
                      + (f"strips {2 * a.strip * h * 10:g} mm wide" if qty == "E" else f"strips {2 * hq * 10:g} mm wide")
                      + ("; bremsstrahlung deposited locally" if qty == "E" else ""))
         fig.savefig(OUT / f"fig8{'a_energy' if qty == 'E' else 'b_charge'}.png", dpi=130)
         plt.close(fig)
+
+    # Fine-resolution charge figure: our MC resolved only across the trough (in y), against ITS averaged the same way.
+    # Along the axis: a y-strip 2 x q_fine fine bins wide, binned at --q_bin in x. Across the beam: y-bins of q_fine
+    # fine bins in a 2 x q_bin x-strip (the gradient in x is gentle). Inside r < R_POOL the circle and the two staircase
+    # runs agree within noise (same physics, the geometries only differ at the surface), so they are pooled there.
+    R_POOL = 0.95
+    xx = (np.arange(NC * n) + 0.5) * h - 1.0
+    pool = np.hypot(xx[:, None], xx[None, :]) < R_POOL
+    qp = np.where(pool, (mc["circle"]["q_thr"] + mc["stair"]["q_thr"] + mc["stair2"]["q_thr"]) / 3, mc["circle"]["q_thr"])
+    n_pool = int(C["N"]) + int(S1["N"]) + int(S2["N"])
+
+    def fine_profile(d, which, pos, qf):
+        if which == "along":
+            j = NC * n // 2  # y = 0 sits on this fine-bin edge
+            return xq, d[:, j - qf:j + qf].mean(1).reshape(-1, qb).mean(1)
+        i_ = int(round((pos + 1.0) / h))
+        p_ = d[i_ - qb:i_ + qb, :].mean(0).reshape(-1, qf).mean(1)
+        return (np.arange(len(p_)) + 0.5) * qf * h - 1.0, p_
+
+    fig, ax = plt.subplots(2, 2, figsize=(13, 9.5), constrained_layout=True)
+    fine_strips = {}
+    for a_, (which, pos, title), key in zip(ax.ravel(), panels, keys["Q"]):
+        it = its[key]
+        ix, iy = np.asarray(it["x"]), np.asarray(it["y"])
+        a_.plot(ix, iy, color="0.1", lw=2.4, label="ITS/ACCEPT (paper, digitized)", zorder=1)
+        m = M["profiles"][key]
+        for qf, col in zip(a.q_fine, FINE_COLS):
+            fx, fp = fine_profile(qp, which, pos, qf)
+            w_ = qf * h
+            lab = f"{2 * w_ * 10:g} mm strip" if which == "along" else f"{w_ * 10:g} mm bins"
+            a_.step(fx, fp, where="mid", color=col, lw=1.1, label=f"analog MC, {lab}")
+            if which == "across":
+                edges = np.linspace(-1, 1, len(fx) + 1)
+                k_ = np.digitize(ix, edges) - 1
+                ib = np.array([iy[k_ == j].mean() if np.any(k_ == j) else np.nan for j in range(len(fx))])
+                a_.step(fx, ib, where="mid", color=col, lw=1.0, ls="--", alpha=0.9,
+                        label=f"ITS averaged over {w_ * 10:g} mm bins")
+                # noise of one pooled bin: single-run noise from the two staircase seeds, / sqrt(3 runs)
+                s1 = fine_profile(mc["stair"]["q_thr"], which, pos, qf)[1]
+                s2 = fine_profile(mc["stair2"]["q_thr"], which, pos, qf)[1]
+                sig = float(np.std((s1 - s2)[np.abs(fx) < 0.3]) / np.sqrt(2) / np.sqrt(3))
+                fine_strips.setdefault(qf, {})[pos] = float(iy[np.abs(ix) < w_ * 1.0001].mean())
+                m[f"its_strip_{2 * w_ * 10:g}mm"] = fine_strips[qf][pos]
+                m[f"mc_pooled_strip_{2 * w_ * 10:g}mm"] = float(fp[np.abs(fx) < w_ * 1.0001].mean())
+                m[f"mc_pooled_noise_per_bin_{w_ * 10:g}mm"] = sig
+                ok = np.isfinite(ib)
+                m[f"mc_pooled_vs_its_rms_abs_{w_ * 10:g}mm"] = float(np.sqrt(np.mean((fp[ok] - ib[ok]) ** 2)))
+        a_.set_title(title)
+        a_.set_xlabel("position (cm)")
+        a_.set_ylabel("charge deposition (e⁻/cm³ per e⁻/cm)")
+        a_.set_xlim(-1, 1)
+        if which == "along":
+            along_ax = a_
+        else:
+            a_.set_xlim(-0.6, 0.6)  # the structure is within |y| < 0.6
+    for qf, col in zip(a.q_fine, FINE_COLS):
+        st = fine_strips[qf]
+        along_ax.plot(sorted(st), [st[p_] for p_ in sorted(st)], "D", mfc="none", mec=col, ms=8, mew=1.8,
+                      label=f"ITS across-profile averaged over {2 * qf * h * 10:g} mm", zorder=5)
+    ax[0, 0].legend(fontsize=8, loc="lower right")
+    ax[0, 1].legend(handles=ax[0, 1].get_legend_handles_labels()[0][1:],
+                    labels=ax[0, 1].get_legend_handles_labels()[1][1:], fontsize=8, loc="lower right")
+    fig.suptitle(f"Fig. 8b at fine resolution: analog MC ({n_pool / 1e6:g}M histories pooled inside r < {R_POOL} cm, "
+                 f"electrons born > 0.1 MeV) vs ITS averaged over the same bins")
+    fig.savefig(OUT / "fig8b_charge_fine.png", dpi=130)
+    plt.close(fig)
+    M["fine_charge"] = {"pooled_runs": ["circle", "stair", "stair2"], "pool_radius_cm": R_POOL, "N_pooled": n_pool}
 
     # whole-map scores inside the cylinder (1 mm staircase, like for like): fine 125 um map and 1 mm cells
     inside_c = stair_map() == 0
@@ -499,6 +571,9 @@ def main():
     p.add_argument("--strip", type=int, default=1, help="fine bins on each side of a profile line")
     p.add_argument("--along_bin", type=int, default=4, help="fine bins averaged in x for along-axis energy")
     p.add_argument("--q_bin", type=int, default=4, help="fine bins per charge bin (per axis)")
+    p.add_argument("--q_fine", type=int, nargs="*", default=[2, 1],
+                   help="extra MC charge lines resolved in y: fine bins per y-bin across the beam (strip = 2x this "
+                        "along the axis); x stays at the --q_bin binning")
     a = ap.parse_args()
     {"mc": cmd_mc, "gmc": cmd_gmc, "plot": cmd_plot}[a.cmd](a)
 

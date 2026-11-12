@@ -84,7 +84,15 @@
    "its_strip_1mm": -0.3493125,
    "its_strip_2mm": -0.2886488636363636,
    "mc_strip_1mm": -0.35,
-   "gmc_strip_2mm": -0.28074999999999994
+   "gmc_strip_2mm": -0.28074999999999994,
+   "its_strip_0.5mm": -0.37391874999999997,
+   "mc_pooled_strip_0.5mm": -0.3606666666666667,
+   "mc_pooled_noise_per_bin_0.25mm": 0.02406127594289214,
+   "mc_pooled_vs_its_rms_abs_0.25mm": 0.02224688642254721,
+   "its_strip_0.25mm": -0.3682,
+   "mc_pooled_strip_0.25mm": -0.3496,
+   "mc_pooled_noise_per_bin_0.125mm": 0.03447199346329326,
+   "mc_pooled_vs_its_rms_abs_0.125mm": 0.027018995200611365
   },
   "Q_x0": {
    "mc_vs_its_rms_abs": 0.019357614259863525,
@@ -98,7 +106,15 @@
    "its_strip_1mm": -0.28521162790697674,
    "its_strip_2mm": -0.25125402298850574,
    "mc_strip_1mm": -0.2698,
-   "gmc_strip_2mm": -0.221825
+   "gmc_strip_2mm": -0.221825,
+   "its_strip_0.5mm": -0.3057666666666667,
+   "mc_pooled_strip_0.5mm": -0.3056,
+   "mc_pooled_noise_per_bin_0.25mm": 0.01559287586616971,
+   "mc_pooled_vs_its_rms_abs_0.25mm": 0.018542983729738376,
+   "its_strip_0.25mm": -0.3084,
+   "mc_pooled_strip_0.25mm": -0.3290666666666667,
+   "mc_pooled_noise_per_bin_0.125mm": 0.034669358869821115,
+   "mc_pooled_vs_its_rms_abs_0.125mm": 0.02532001483264131
   },
   "Q_xp05": {
    "mc_vs_its_rms_abs": 0.027158757067753923,
@@ -112,8 +128,25 @@
    "its_strip_1mm": -0.20898333333333333,
    "its_strip_2mm": -0.19053020833333334,
    "mc_strip_1mm": -0.1394,
-   "gmc_strip_2mm": -0.16449999999999998
+   "gmc_strip_2mm": -0.16449999999999998,
+   "its_strip_0.5mm": -0.21442916666666667,
+   "mc_pooled_strip_0.5mm": -0.13333333333333333,
+   "mc_pooled_noise_per_bin_0.25mm": 0.018216699705164714,
+   "mc_pooled_vs_its_rms_abs_0.25mm": 0.023241138117811814,
+   "its_strip_0.25mm": -0.21718333333333337,
+   "mc_pooled_strip_0.25mm": -0.14426666666666665,
+   "mc_pooled_noise_per_bin_0.125mm": 0.03318579571197649,
+   "mc_pooled_vs_its_rms_abs_0.125mm": 0.029558801301323448
   }
+ },
+ "fine_charge": {
+  "pooled_runs": [
+   "circle",
+   "stair",
+   "stair2"
+  ],
+  "pool_radius_cm": 0.95,
+  "N_pooled": 1500000
  },
  "maps": {
   "loc": {
