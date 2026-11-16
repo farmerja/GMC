@@ -17,6 +17,8 @@ One transit, entry state -> outputs (all models share one cell frame: the cell i
                             E_j = f_j * B_j, with B_0 = E0 - E_out and B_{j+1} = B_j - E_j (energy conserved)
     4. photon flow (flag)-> photon energy q = g * B_n
        dose = B_n - q (exactly what is left)
+    5. stop flow (c = 4, optional "stop" model) -> where an absorbed electron stops (logit x, logit y); only the
+                            charge tally needs it (an electron stopping adds -e at that point)
 Two model sets: BOUNDARY (electron entering through a face, canonical frame: entering through the left face x = 0)
 and INTERIOR (a relevant secondary at its birth point, in the cell frame). A relevant secondary is a biased sample
 (its subtree is known to leave), so the interior models are trained on relevant secondaries only; an electron
@@ -146,6 +148,20 @@ def d4(k, x, y, u, v):
     return x + 0.5, y + 0.5, u, v
 
 
+# Boundary (entry) rows: the entry face x = 0 is kept only by the identity and the y-mirror y -> 1 - y, v -> -v, which
+# is D4 element 6 (half turn, then x -> 1 - x). Without the mirrored copies the entry models are only approximately
+# y-symmetric: in the Drumm cylinder benchmark (2026-11-12) that drifted a 20 MeV beam sideways by ~90 um over 2 cm.
+K_YMIRROR = 6
+BOUNDARY_SYM = (0, K_YMIRROR)
+
+
+def sym_set(kind, augment):
+    """D4 elements used to augment rows of this kind."""
+    if not augment:
+        return (0,)
+    return BOUNDARY_SYM if kind == "boundary" else tuple(range(8))
+
+
 def exit_class_from_point(x, y):
     """Nearest face of a point on the boundary (0 bottom, 1 right, 2 top, 3 left)."""
     d = np.stack([y, 1 - x, 1 - y, x], 1)
@@ -225,7 +241,7 @@ def load_tables(path, NR=3, max_rows=None):
 
 
 def _aug_interior(T, rows, k):
-    """D4-transformed copies of interior segment rows: entry, exit and class."""
+    """D4-transformed copies of segment rows: entry, exit and class (boundary rows: k in BOUNDARY_SYM only)."""
     x0, y0, u0, v0 = d4(k, T["x0"][rows], T["y0"][rows], T["u0"][rows], T["v0"][rows])
     x1, y1, u1, v1 = d4(k, T["x1"][rows], T["y1"][rows], T["u1"][rows], T["v1"][rows])
     cls = T["cls"][rows].copy()
@@ -236,16 +252,12 @@ def _aug_interior(T, rows, k):
 
 def classifier_data(T, kind, augment=True):
     spec = T["spec"]
-    if kind == "boundary":
-        r = np.flatnonzero(T["boundary"])
-        cond = boundary_cond(spec, T["y0"][r], T["u0"][r], T["v0"][r], T["E0"][r])
-        lab = spec.encode(T["cls"][r], T["n_rel"][r], T["flag"][r])
-        return cond, lab
-    r = np.flatnonzero(T["interior"])
+    r = np.flatnonzero(T[kind])
     conds, labs = [], []
-    for k in (range(8) if augment else [0]):
+    for k in sym_set(kind, augment):
         x0, y0, u0, v0, _, _, _, _, cls = _aug_interior(T, r, k)
-        conds.append(interior_cond(spec, x0, y0, u0, v0, T["E0"][r]))
+        conds.append(boundary_cond(spec, y0, u0, v0, T["E0"][r]) if kind == "boundary"
+                     else interior_cond(spec, x0, y0, u0, v0, T["E0"][r]))
         labs.append(spec.encode(cls, T["n_rel"][r], T["flag"][r]))
     return np.concatenate(conds), np.concatenate(labs)
 
@@ -254,14 +266,10 @@ def exit_flow_data(T, kind, augment=True):
     spec = T["spec"]
     rows = np.flatnonzero(T[kind] & (T["cls"] < NF))
     conds, tgts = [], []
-    for k in ([0] if kind == "boundary" or not augment else range(8)):
-        if kind == "boundary":
-            x0, y0, u0, v0 = T["x0"][rows], T["y0"][rows], T["u0"][rows], T["v0"][rows]
-            x1, y1, u1, v1, cls = T["x1"][rows], T["y1"][rows], T["u1"][rows], T["v1"][rows], T["cls"][rows]
-            base = boundary_cond(spec, y0, u0, v0, T["E0"][rows])
-        else:
-            x0, y0, u0, v0, x1, y1, u1, v1, cls = _aug_interior(T, rows, k)
-            base = interior_cond(spec, x0, y0, u0, v0, T["E0"][rows])
+    for k in sym_set(kind, augment):
+        x0, y0, u0, v0, x1, y1, u1, v1, cls = _aug_interior(T, rows, k)
+        base = (boundary_cond(spec, y0, u0, v0, T["E0"][rows]) if kind == "boundary"
+                else interior_cond(spec, x0, y0, u0, v0, T["E0"][rows]))
         extra = np.concatenate([np.eye(NF, dtype=np.float32)[cls],
                                 (np.minimum(T["n_rel"][rows], spec.NR) / spec.NR).reshape(-1, 1),
                                 T["flag"][rows].reshape(-1, 1)], 1).astype(np.float32)
@@ -271,17 +279,18 @@ def exit_flow_data(T, kind, augment=True):
 
 
 def _parent_block(T, prow, k):
-    """Parent features + class one-hot + n + lambda for parent segment rows prow under symmetry k (interior only)."""
+    """Parent features + class one-hot + n + lambda for parent segment rows prow under symmetry k. Returns the block
+    and the mask of rows the symmetry applies to (interior parents: all k; boundary parents: k in BOUNDARY_SYM)."""
     spec = T["spec"]
     is_int = T["interior"][prow]
+    ok = is_int | (k in BOUNDARY_SYM)
     x0, y0, u0, v0 = T["x0"][prow].copy(), T["y0"][prow].copy(), T["u0"][prow].copy(), T["v0"][prow].copy()
     cls = T["cls"][prow].copy()
     if k:
         xa, ya, ua, va = d4(k, x0, y0, u0, v0)
-        x0, y0, u0, v0 = np.where(is_int, xa, x0), np.where(is_int, ya, y0), np.where(is_int, ua, u0), \
-            np.where(is_int, va, v0)
+        x0, y0, u0, v0 = np.where(ok, xa, x0), np.where(ok, ya, y0), np.where(ok, ua, u0), np.where(ok, va, v0)
         x1, y1, _, _ = d4(k, T["x1"][prow], T["y1"][prow], T["u1"][prow], T["v1"][prow])
-        ex = is_int & (cls < NF)
+        ex = ok & (cls < NF)
         cls[ex] = exit_class_from_point(x1[ex], y1[ex])
     E0 = T["E0"][prow]
     lam = (E0 - T["E_out"][prow]) / np.maximum(E0 - spec.E_cut, 1e-300)
@@ -289,7 +298,7 @@ def _parent_block(T, prow, k):
     blk = np.concatenate([pf, np.eye(N_EXIT, dtype=np.float32)[cls],
                           (np.minimum(T["n_rel"][prow], spec.NR) / spec.NR).reshape(-1, 1),
                           logit(lam, 1e-12).reshape(-1, 1) / 10.0], 1).astype(np.float32)
-    return blk, is_int
+    return blk, ok
 
 
 def daughter_flow_data(T, augment=True):
@@ -298,15 +307,14 @@ def daughter_flow_data(T, augment=True):
     p = D["parent"]
     conds, tgts = [], []
     for k in (range(8) if augment else [0]):
-        blk, is_int = _parent_block(T, p, k)
+        blk, ok = _parent_block(T, p, k)
         x, y, u, v = D["x"], D["y"], D["u"], D["v"]
         if k:
             xa, ya, ua, va = d4(k, x, y, u, v)
-            x, y, u, v = np.where(is_int, xa, x), np.where(is_int, ya, y), np.where(is_int, ua, u), \
-                np.where(is_int, va, v)
-            if not is_int.any():
+            x, y, u, v = np.where(ok, xa, x), np.where(ok, ya, y), np.where(ok, ua, u), np.where(ok, va, v)
+            if not ok.any():
                 continue
-            sel = is_int                               # boundary parents only have the identity
+            sel = ok                                   # boundary parents: identity and y-mirror only
         else:
             sel = np.ones(len(p), bool)
         extra = np.stack([D["j"] / spec.NR, spec.e_feat(D["B"])], 1).astype(np.float32)
@@ -323,13 +331,39 @@ def photon_flow_data(T, augment=True):
     g = T["q"][rows] / np.maximum(avail, 1e-300)
     conds, tgts = [], []
     for k in (range(8) if augment else [0]):
-        blk, is_int = _parent_block(T, rows, k)
-        sel = np.ones(len(rows), bool) if k == 0 else is_int
+        blk, ok = _parent_block(T, rows, k)
+        sel = np.ones(len(rows), bool) if k == 0 else ok
         if not sel.any():
             continue
         conds.append(np.concatenate([blk, spec.e_feat(avail).reshape(-1, 1).astype(np.float32)], 1)[sel])
         tgts.append(logit(g, 1e-9).reshape(-1, 1)[sel])
     return np.concatenate(conds), np.concatenate(tgts).astype(np.float32)
+
+
+def stop_flow_data(T, augment=True):
+    """Absorbed transits: parent features + sampled n_rel / photon flag -> stop point (logit x1, logit y1).
+    Interior rows get all D4 copies, boundary rows the y-mirror (BOUNDARY_SYM)."""
+    spec = T["spec"]
+    rows = np.flatnonzero((T["boundary"] | T["interior"]) & (T["cls"] == ABSORBED))
+    is_int = T["interior"][rows]
+    conds, tgts = [], []
+    for k in (range(8) if augment else [0]):
+        sel = is_int | (k in BOUNDARY_SYM)
+        if not sel.any():
+            continue
+        r = rows[sel]
+        x0, y0, u0, v0 = d4(k, T["x0"][r], T["y0"][r], T["u0"][r], T["v0"][r])
+        x1, y1, _, _ = d4(k, T["x1"][r], T["y1"][r], T["u0"][r], T["v0"][r])
+        conds.append(stop_cond(spec, is_int[sel].astype(np.float32), x0, y0, u0, v0, T["E0"][r],
+                               T["n_rel"][r], T["flag"][r]))
+        tgts.append(np.stack([logit(x1), logit(y1)], 1))
+    return np.concatenate(conds), np.concatenate(tgts).astype(np.float32)
+
+
+def stop_cond(spec, start, x0, y0, u0, v0, E0, n_rel, flag):
+    return np.concatenate([parent_feats(spec, start, x0, y0, u0, v0, E0),
+                           (np.minimum(n_rel, spec.NR) / spec.NR).reshape(-1, 1),
+                           np.asarray(flag, np.float32).reshape(-1, 1)], 1).astype(np.float32)
 
 
 # ====================================================================================================================
@@ -422,7 +456,7 @@ def save_models(out_dir, spec, models):
         else:
             blob[name] = {"kind": "flow", "state": m["model"].state_dict(), "mu": m["mu"], "sd": m["sd"],
                           "cond_dim": m["cond_dim"], "target_dim": m["target_dim"], "arch": m["arch"],
-                          "history": m["history"]}
+                          "history": m.get("history", [])}
     torch.save(blob, os.path.join(out_dir, "secondary_gmc.pth"))
 
 
@@ -443,7 +477,8 @@ def load_models(path, device):
                           expansion_factor=a["expansion"])
             m.load_state_dict(b["state"])
             models[name] = {"kind": "flow", "model": m.to(device).eval(), "mu": b["mu"], "sd": b["sd"],
-                            "cond_dim": b["cond_dim"], "target_dim": b["target_dim"], "arch": a}
+                            "cond_dim": b["cond_dim"], "target_dim": b["target_dim"], "arch": a,
+                            "history": b.get("history", [])}
     return spec, models
 
 
@@ -489,6 +524,11 @@ class SecondaryGMC:
         out = {k: np.zeros(n) for k in ("x", "y", "u", "v", "w", "E_out", "dose")}
         out["cls"] = cls
         sgn = np.where(w0 < 0, -1.0, 1.0)
+        ab = np.flatnonzero(cls == ABSORBED)
+        if ab.size and "stop" in self.m:     # stop point of absorbed electrons (charge tally); else left at 0
+            start = START_BOUNDARY if which == "B" else START_INTERIOR
+            z = self._flow("stop", stop_cond(spec, start, x0[ab], y0[ab], u0[ab], v0[ab], E0[ab], nr[ab], flag[ab]))
+            out["x"][ab], out["y"][ab] = sigmoid(z[:, 0]), sigmoid(z[:, 1])
         ex = np.flatnonzero(cls < NF)
         if ex.size:
             extra = np.concatenate([np.eye(NF, dtype=np.float32)[cls[ex]], (nr[ex] / spec.NR).reshape(-1, 1),
@@ -586,7 +626,7 @@ def cmd_train(args):
             info[name] = {"rows": int(len(tgt))}
     if want("daughter"):
         cond, tgt = daughter_flow_data(T)
-        print(f"\n== daughter: {len(tgt)} rows (with D4 copies of interior parents), cond {cond.shape[1]}")
+        print(f"\n== daughter: {len(tgt)} rows (D4 copies of interior parents, y-mirror of boundary parents), cond {cond.shape[1]}")
         models["daughter"] = {"kind": "flow", **train_flow(cond, tgt, dev, epochs=args.small_epochs, batch=4096,
                                                            label="daughter", max_steps=args.max_steps)}
         info["daughter"] = {"rows": int(len(tgt))}
@@ -597,11 +637,20 @@ def cmd_train(args):
                                                          label="photon", hidden=128, depth=4,
                                                          max_steps=args.max_steps)}
         info["photon"] = {"rows": int(len(tgt))}
+    if want("stop") and (only is not None or args.stop):
+        cond, tgt = stop_flow_data(T)
+        print(f"\n== stop: {len(tgt)} rows (absorbed transits; D4 / y-mirror copies), cond {cond.shape[1]}")
+        models["stop"] = {"kind": "flow", **train_flow(cond, tgt, dev, epochs=args.flow_epochs, label="stop",
+                                                       max_steps=args.max_steps)}
+        info["stop"] = {"rows": int(len(tgt))}
     if prev is not None:
         for k, v in prev.items():
             models.setdefault(k, v)
     save_models(args.out, spec, models)
-    with open(os.path.join(args.out, "train_info.json"), "w") as f:
+    info_path = os.path.join(args.out, "train_info.json")
+    if prev is not None and os.path.exists(info_path):
+        info = {**json.load(open(info_path)).get("models", {}), **info}
+    with open(info_path, "w") as f:
         json.dump({"spec": vars(spec), "train_npz": args.train_npz, "models": info}, f, indent=2)
     print(f"\nSaved {os.path.join(args.out, 'secondary_gmc.pth')}")
 
@@ -666,6 +715,7 @@ def main():
     t.add_argument("--max_steps", type=int, default=None, help="cap on optimizer steps per flow")
     t.add_argument("--max_rows", type=int, default=None, help="use only the first rows (smoke tests)")
     t.add_argument("--only", default=None, help="comma list of models to (re)train; others kept from --out")
+    t.add_argument("--stop", action="store_true", help="also train the stop-point flow (charge tally) in a full run")
     args = ap.parse_args()
     if args.cmd == "train":
         cmd_train(args)

@@ -16,11 +16,15 @@ Exits enter the neighbour cell as boundary entries; particles leaving the grid a
 Transit log (transit_log=True, for SCR-GMC sub-cell dose reconstruction, ml/subcell_kernel.py): the result gets
     "transits"  one row per kernel call, in the frame of that call (canonical for boundary entries, cell frame for
                 interior starts): cx, cy, mat, start (0 boundary / 1 interior), face (entry face, -1 interior), gen,
-                x0, y0, u0, v0, w0, E0 (entry), cls, x1, y1, u1, v1, w1, E_out (exit), dose, n_rel, flag
+                x0, y0, u0, v0, w0, E0 (entry), cls, x1, y1, u1, v1, w1, E_out (exit; for cls 4 x1, y1 = stop point
+                when the kernel reports it), dose, n_rel, flag, dose_cond (the dose the sub-cell kernels condition on:
+                the kernel's own dose; differs from dose under drumm_cylinder.LocalPhotons), Eb (birth energy of the
+                electron: inf for source
+                electrons, E0 of its interior start for secondaries; carried across cells, for charge thresholds)
                 (n_rel / flag: the kernel's sampled relevant-daughter count and photon flag when it reports them, else
                 the number of daughters it emitted and photon_E > 0)
-    "points"    point deposits at a known position, cell frame: cx, cy, x, y, E (electrons entering a cell below the
-                cutoff, deposited at their entry point)
+    "points"    point deposits at a known position, cell frame: cx, cy, x, y, E, Eb (electrons entering a cell below
+                the cutoff, deposited at their entry point)
 Map a transit's reference-frame points to its cell with transform_from_canonical(..., face) (boundary) or identity.
 
 Several materials: pass material_map (nx, ny) of indices into a LIST of kernels, one per material. Each step, every
@@ -52,7 +56,7 @@ def log_uniform_source(N, y_max, E_low, E_high, beam=None, seed=0, **kw):
 
 
 class _Bank:
-    FIELDS = ("mode", "cx", "cy", "face", "x", "y", "u", "v", "w", "E", "gen")
+    FIELDS = ("mode", "cx", "cy", "face", "x", "y", "u", "v", "w", "E", "gen", "Eb")
 
     def __init__(self):
         self.d = {k: [] for k in self.FIELDS}
@@ -93,9 +97,9 @@ def chain_secondaries(kernel, source, nx, ny, cell_size, E_cutoff, max_steps=500
     tlog = {"transits": [], "points": []} if transit_log else None
     cy0 = np.clip(np.floor(source[:, 1] / cell_size).astype(np.int64), 0, ny - 1)
     bank.add(mode=0, cx=0, cy=cy0, face=LEFT, x=0.0, y=np.clip(source[:, 1] / cell_size - cy0, 0, 1),
-             u=source[:, 2], v=source[:, 3], w=source[:, 7], E=source[:, 4], gen=0)
+             u=source[:, 2], v=source[:, 3], w=source[:, 7], E=source[:, 4], gen=0, Eb=np.inf)
 
-    def move_out(cx, cy, x, y, u, v, w, E, gen):
+    def move_out(cx, cy, x, y, u, v, w, E, gen, Eb):
         """Particles on a face of cell (cx, cy) -> boundary entries of the neighbours (or escaped)."""
         if len(E) == 0:
             return
@@ -113,10 +117,11 @@ def chain_secondaries(kernel, source, nx, ny, cell_size, E_cutoff, max_steps=500
         np.add.at(dose_by_gen, (np.minimum(gen[dead], 1), ncx[dead], ncy[dead]), E[dead])
         stats["cutoff_dep"] += float(E[dead].sum())
         if tlog is not None and dead.any():
-            tlog["points"].append({"cx": ncx[dead], "cy": ncy[dead], "x": xl[dead], "y": yl[dead], "E": E[dead]})
+            tlog["points"].append({"cx": ncx[dead], "cy": ncy[dead], "x": xl[dead], "y": yl[dead], "E": E[dead],
+                                   "Eb": Eb[dead]})
         live = k & ~dead
         bank.add(mode=0, cx=ncx[live], cy=ncy[live], face=_ENTRY_FACE[f[live]], x=xl[live], y=yl[live], u=u[live],
-                 v=v[live], w=w[live], E=E[live], gen=gen[live])
+                 v=v[live], w=w[live], E=E[live], gen=gen[live], Eb=Eb[live])
 
     step = 0
     for step in range(max_steps):
@@ -131,7 +136,7 @@ def chain_secondaries(kernel, source, nx, ny, cell_size, E_cutoff, max_steps=500
                 continue
             kernel = kernels[m]
             cx, cy, face = P["cx"][idx], P["cy"][idx], P["face"][idx]
-            w, E, gen = P["w"][idx], P["E"][idx], P["gen"][idx]
+            w, E, gen, Eb = P["w"][idx], P["E"][idx], P["gen"][idx], P["Eb"][idx]
             if mode == 0:
                 stats["transits_boundary"] += idx.size
                 _, y_c, u_c, v_c = transform_to_canonical(P["x"][idx], P["y"][idx], P["u"][idx], P["v"][idx], face)
@@ -148,13 +153,13 @@ def chain_secondaries(kernel, source, nx, ny, cell_size, E_cutoff, max_steps=500
                     return x_, y_, u_, v_
                 ref_in = (P["x"][idx], P["y"][idx], P["u"][idx], P["v"][idx])
             if tlog is not None:
-                tlog["transits"].append(_transit_rows(out, mode, m, cx, cy, face, gen, ref_in, w, E))
+                tlog["transits"].append(_transit_rows(out, mode, m, cx, cy, face, gen, ref_in, w, E, Eb))
             np.add.at(dose, (cx, cy), out["dose"])
             np.add.at(dose_by_gen, (np.minimum(gen, 1), cx, cy), out["dose"])
             stats["photon_E"] += float(np.sum(out.get("photon_E", 0.0)))
             ex = np.flatnonzero(np.asarray(out["cls"]) != ABSORBED)
             x_, y_, u_, v_ = to_cell(out["x"][ex], out["y"][ex], out["u"][ex], out["v"][ex], ex)
-            move_out(cx[ex], cy[ex], x_, y_, u_, v_, out["w"][ex], out["E_out"][ex], gen[ex])
+            move_out(cx[ex], cy[ex], x_, y_, u_, v_, out["w"][ex], out["E_out"][ex], gen[ex], Eb[ex])
             for key in ("extra_exits", "daughters"):
                 D = out.get(key)
                 if D is None or len(D["E"]) == 0:
@@ -164,10 +169,11 @@ def chain_secondaries(kernel, source, nx, ny, cell_size, E_cutoff, max_steps=500
                 g = np.minimum(gen[p] + 1, max_generation)
                 if key == "extra_exits":
                     stats["extra_exits"] += len(p)
-                    move_out(cx[p], cy[p], x_, y_, u_, v_, D["w"], D["E"], g)
+                    move_out(cx[p], cy[p], x_, y_, u_, v_, D["w"], D["E"], g, D["E"])
                 else:
                     stats["daughters"] += len(p)
-                    bank.add(mode=1, cx=cx[p], cy=cy[p], face=0, x=x_, y=y_, u=u_, v=v_, w=D["w"], E=D["E"], gen=g)
+                    bank.add(mode=1, cx=cx[p], cy=cy[p], face=0, x=x_, y=y_, u=u_, v=v_, w=D["w"], E=D["E"], gen=g,
+                             Eb=D["E"])
         if log and log_every and step % log_every == 0:
             log(f"step {step:4d}: {n_act:7d} active")
     left = bank.take()
@@ -182,12 +188,12 @@ def chain_secondaries(kernel, source, nx, ny, cell_size, E_cutoff, max_steps=500
 
 
 TRANSIT_COLUMNS = ("cx", "cy", "mat", "start", "face", "gen", "x0", "y0", "u0", "v0", "w0", "E0", "cls", "x1", "y1",
-                   "u1", "v1", "w1", "E_out", "dose", "n_rel", "flag")
-POINT_COLUMNS = ("cx", "cy", "x", "y", "E")
+                   "u1", "v1", "w1", "E_out", "dose", "n_rel", "flag", "Eb", "dose_cond")
+POINT_COLUMNS = ("cx", "cy", "x", "y", "E", "Eb")
 _INT_COLUMNS = {"cx", "cy", "mat", "start", "face", "gen", "cls", "n_rel", "flag"}
 
 
-def _transit_rows(out, mode, mat, cx, cy, face, gen, ref_in, w, E):
+def _transit_rows(out, mode, mat, cx, cy, face, gen, ref_in, w, E, Eb):
     """One kernel call -> transit-log columns (entry/exit in the frame of the call)."""
     n = len(E)
     if "n_rel" in out:
@@ -202,7 +208,7 @@ def _transit_rows(out, mode, mat, cx, cy, face, gen, ref_in, w, E):
             "face": face if mode == 0 else np.full(n, -1), "gen": gen, "x0": x0, "y0": y0, "u0": u0, "v0": v0,
             "w0": w, "E0": E, "cls": np.asarray(out["cls"]), "x1": out["x"], "y1": out["y"], "u1": out["u"],
             "v1": out["v"], "w1": out["w"], "E_out": out["E_out"], "dose": out["dose"], "n_rel": n_rel,
-            "flag": flag.astype(np.int64)}
+            "flag": flag.astype(np.int64), "Eb": Eb, "dose_cond": out.get("dose_cond", out["dose"])}
 
 
 def _concat_rows(rows, cols):

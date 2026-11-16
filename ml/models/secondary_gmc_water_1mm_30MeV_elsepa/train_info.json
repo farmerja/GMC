@@ -1,0 +1,36 @@
+{
+  "spec": {
+    "L": 0.1,
+    "E_cut": 0.001,
+    "logE_lo": -3.0,
+    "logE_hi": 1.4771210921648394,
+    "NR": 3,
+    "material_density": 1.0
+  },
+  "train_npz": "../ElectronTransport/analog_water_1mm_1keV-30MeV_log_10M_42_elsepa.npz",
+  "models": {
+    "clf_B": {
+      "rows": 20000000,
+      "val_nll": 0.655251810546875
+    },
+    "exit_B": {
+      "rows": 12201774
+    },
+    "clf_I": {
+      "rows": 2173008,
+      "val_nll": 0.2438267273426714
+    },
+    "exit_I": {
+      "rows": 2169328
+    },
+    "daughter": {
+      "rows": 559314
+    },
+    "photon": {
+      "rows": 285536
+    },
+    "stop": {
+      "rows": 7801906
+    }
+  }
+}

@@ -17,7 +17,9 @@ Subcommands:
         tally voxels); --geom stair: the 1 mm staircase the GMC uses (cells whose centre is inside the circle are
         water, the rest vacuum), tallied --n x --n per cell. Writes energy and charge tallies (n per 1 mm cell).
   gmc   (GMC venv) chained GMC on the staircase (water model + a vacuum streaming kernel), in batches, several seeds;
-        per seed: cell dose, cell charge, SCR fine dose (sub-cell kernel) on the same n x n grid.
+        per seed: cell dose, cell charge, SCR fine dose (sub-cell kernel) and SCR fine charge (stop / birth points,
+        all electrons and born above --q_th; with --charge_kernel also the irrelevant secondaries born above --q_th)
+        on the same n x n grid.
   plot  Figs. 8a/8b layout plus metrics JSON.
 """
 import argparse
@@ -101,20 +103,27 @@ def cmd_mc(a):
     out = a.out or str(OUT / f"mc_{a.geom}_n{a.n}_{a.N // 1000}k_s{a.seed}.npz")
     os.makedirs(os.path.dirname(out), exist_ok=True)
     np.savez_compressed(out, **acc, n=a.n, N=a.N, source=src,
-                        meta=json.dumps({**vars(a), "seconds": secs, "balance": summ}))
+                        meta=json.dumps({**vars(a), "seconds": secs, "balance": summ,
+                                         "physics": {"elastic": getattr(lib, "elastic", "eedl"),
+                                                     "ionization_deflection": getattr(lib, "ionization_deflection",
+                                                                                      "binary"),
+                                                     "close_min_factor": getattr(lib, "close_min_factor", None)}}))
     print(f"saved {out}")
 
 
 # ----------------------------------------------------------------------------------------------------------- gmc
 class LocalPhotons:
     """Wraps a GMC kernel so the photon energy it emits stays in the transit's dose (the paper's convention: no photon
-    transport, bremsstrahlung deposited locally). The SCR tally then spreads it with the transit's deposition kernel."""
+    transport, bremsstrahlung deposited locally). The SCR tally then spreads it with the transit's deposition kernel.
+    The kernels still see the model's own dose (dose_cond): dose + photon energy is far outside their training range
+    (it inflated the charge kernel's rate 1.75x before this was split off, 2026-11-15)."""
 
     def __init__(self, k):
         self.k = k
 
     def _f(self, out):
         out = dict(out)
+        out["dose_cond"] = out["dose"]        # the model's own dose: what the SCR / charge kernels condition on
         out["dose"] = out["dose"] + out.get("photon_E", 0.0)
         out["photon_E"] = np.zeros_like(out["dose"])
         return out
@@ -201,6 +210,38 @@ def chain_charge(c):
     return q
 
 
+def chain_charge_fine(c, n, q_th):
+    """Sub-cell (SCR) charge from a transit log on the NC*n x NC*n fine grid, both tallies of the analog MC:
+    layer 0 every electron, layer 1 only electrons born above q_th (source electrons always count; Eb is the birth
+    energy the chain carries). +1 at the stop point of absorbed water transits (the GMC "stop" flow; boundary rows
+    mapped from the canonical frame), -1 at the birth point of every relevant daughter (interior start), +1 at the
+    entry point of electrons entering a cell below the cutoff. Irrelevant secondaries (< 10 keV, range ~2 um in
+    water) are born and stop in place and are left out of both layers."""
+    from chain_core import transform_from_canonical
+    T, P = c["transits"], c["points"]
+    G = NC * n
+    out = np.zeros((2, G, G))
+
+    def add(cx, cy, x, y, wt, thr):
+        ix = np.clip((cx * n + np.floor(np.clip(x, 0, 1) * n)).astype(np.int64), cx * n, cx * n + n - 1)
+        iy = np.clip((cy * n + np.floor(np.clip(y, 0, 1) * n)).astype(np.int64), cy * n, cy * n + n - 1)
+        np.add.at(out[0], (ix, iy), wt)
+        np.add.at(out[1], (ix[thr], iy[thr]), wt[thr])
+
+    wat = T["mat"] == 0
+    ab = np.flatnonzero(wat & (T["cls"] == 4))
+    bnd = T["start"][ab] == 0
+    x1, y1 = T["x1"][ab].copy(), T["y1"][ab].copy()
+    xb, yb, _, _ = transform_from_canonical(x1[bnd], y1[bnd], np.zeros(bnd.sum()), np.zeros(bnd.sum()),
+                                            T["face"][ab][bnd])
+    x1[bnd], y1[bnd] = xb, yb
+    add(T["cx"][ab], T["cy"][ab], x1, y1, np.ones(len(ab)), T["Eb"][ab] > q_th)
+    bi = np.flatnonzero(wat & (T["start"] == 1))
+    add(T["cx"][bi], T["cy"][bi], T["x0"][bi], T["y0"][bi], -np.ones(len(bi)), T["E0"][bi] > q_th)
+    add(P["cx"], P["cy"], P["x"], P["y"], np.ones(len(P["E"])), P["Eb"] > q_th)
+    return out
+
+
 def cmd_gmc(a):
     import torch
     from chain_secondaries import chain_secondaries
@@ -215,11 +256,20 @@ def cmd_gmc(a):
         spec, model, _ = load_kernel(a.kernel, dev)
         kern = {0: (spec, model)}
     gen = torch.Generator(device=dev)
-    res = {"dose": [], "charge": [], "scr": [], "chain_s": [], "tally_s": [], "transits": []}
+    ck = None
+    if a.charge_kernel:
+        from ml.charge_kernel import load_charge_kernel, charge_tally
+        ck = load_charge_kernel(a.charge_kernel, dev)
+        if abs(ck["q_th"] - a.q_th) > 1e-12:
+            raise ValueError(f"charge kernel threshold {ck['q_th']} != --q_th {a.q_th}")
+    res = {"dose": [], "charge": [], "scr": [], "scr_q": [], "scr_qi": [], "chain_s": [], "tally_s": [],
+           "transits": []}
     for s in range(a.n_seeds):
         seed = a.seed + 100 * s
         K = [SecondaryGMC(a.model, dev, ode_steps=a.ode_steps, seed=seed), VacuumKernel()]
         dose, q, fine = np.zeros((NC, NC)), np.zeros((NC, NC)), np.zeros((NC * a.n, NC * a.n))
+        fq = np.zeros((2, NC * a.n, NC * a.n))
+        fqi = np.zeros((NC * a.n, NC * a.n))
         tc = tt = 0.0
         ntr = 0
         for i, b in enumerate(range(0, N, a.batch)):
@@ -234,6 +284,10 @@ def cmd_gmc(a):
             tc += time.time() - t0
             dose += c["dose"]
             q += chain_charge(c)
+            fq += chain_charge_fine(c, a.n, a.q_th)
+            if ck is not None:
+                fqi += charge_tally(c, ck, NC, NC, a.n, device=dev, K=a.charge_K,
+                                    gen=torch.Generator().manual_seed(seed + 17 + 13 * i))
             ntr += int((c["transits"]["mat"] == 0).sum())
             if kern:
                 gen.manual_seed(seed + 5 + 13 * i)
@@ -246,6 +300,8 @@ def cmd_gmc(a):
             del c
         res["dose"].append(dose)
         res["charge"].append(q)
+        res["scr_q"].append(fq)
+        res["scr_qi"].append(fqi)
         res["scr"].append(fine)
         res["chain_s"].append(tc)
         res["tally_s"].append(tt)
@@ -256,6 +312,8 @@ def cmd_gmc(a):
     out = a.out or str(OUT / f"gmc_n{a.n}_{N // 1000}k.npz")
     np.savez_compressed(out, dose=np.array(res["dose"]), charge=np.array(res["charge"]),
                         scr=np.array(res["scr"]) if kern else np.zeros(0), n=a.n, N=N,
+                        scr_charge=np.array(res["scr_q"])[:, 0], scr_charge_thr=np.array(res["scr_q"])[:, 1],
+                        scr_charge_thr_irrelevant=np.array(res["scr_qi"]) if ck is not None else np.zeros(0),
                         meta=json.dumps({**vars(a), "chain_s": res["chain_s"], "tally_s": res["tally_s"],
                                          "transits": res["transits"]}))
     print(f"saved {out}")
@@ -272,6 +330,8 @@ def cmd_plot(a):
     its = json.load(open(OUT / "its_digitized.json"))
     ld = lambda p: np.load(p, allow_pickle=False)  # noqa: E731
     C, S1, S2, G, GL = ld(a.circle), ld(a.stair), ld(a.stair_noise), ld(a.gmc), ld(a.gmc_lp)
+    out_dir = Path(a.out_dir) if a.out_dir else OUT
+    os.makedirs(out_dir, exist_ok=True)
     n = int(C["n"])
     h = L / n
     fine = lambda F, k: F[k] / (int(F["N"]) * h * h)                    # noqa: E731  per primary per cm^3
@@ -287,6 +347,13 @@ def cmd_plot(a):
         NG = int(F["N"])
         gm[conv] = {"scr": [d / (NG * h * h) for d in F["scr"]], "cell": [d / (NG * L * L) for d in F["dose"]],
                     "q_c": [d / (NG * L * L) for d in F["charge"]], "meta": json.loads(str(F["meta"]))}
+        if "scr_charge_thr" in F.files:   # SCR charge (stop / birth points); same physics in both photon conventions
+            irr = F["scr_charge_thr_irrelevant"] if "scr_charge_thr_irrelevant" in F.files else np.zeros(0)
+            if a.no_irrelevant_charge or not len(irr):
+                irr = np.zeros_like(F["scr_charge_thr"])
+            gm[conv]["sq"] = [(d + di) / (NG * h * h) for d, di in zip(F["scr_charge_thr"], irr)]
+    # charge does not depend on the photon convention, and both runs use the same seeds: take one run's seeds
+    gsq = gm["esc"].get("sq") or gm["loc"].get("sq", [])
     xf = (np.arange(NC * n) + 0.5) * h - 1.0
     xc = (np.arange(NC) + 0.5) * L - 1.0
 
@@ -362,6 +429,14 @@ def cmd_plot(a):
                         label="analog MC, staircase, 1 mm cells (all electrons)")
                 gq = np.mean([line(d, which, pos, True) for d in gm["loc"]["q_c"]], 0)
                 a_.step(xc, gq, where="mid", color=GREEN, lw=1.4, ls="--", label="GMC, 1 mm cells")
+                if gsq:
+                    sm = np.mean([coarsen(d, qb) / (qb * qb) for d in gsq], 0)
+                    sq = sm[:, i - 1:i + 1].mean(1) if which == "along" else sm[i - 1:i + 1, :].mean(0)
+                    a_.step(xq, sq, where="mid", color=ORANGE, lw=1.4,
+                            label=f"GMC + SCR, {hq * 10:g} mm bins (electrons born > 0.1 MeV)")
+                    m["scr_extreme"] = float(sq[np.argmax(np.abs(sq))])
+                    if which == "across":
+                        m["scr_strip_1mm"] = float(sq[np.abs(xq) < hq * 1.0001].mean())
                 ours = np.interp(ix, xq, cq)
                 M_ = np.abs(iy).max()
                 m = {"mc_vs_its_rms_abs": float(np.sqrt(np.mean((ours - iy) ** 2))), "its_scale": float(M_),
@@ -416,7 +491,7 @@ def cmd_plot(a):
                      f"{'a' if qty == 'E' else 'b'}); "
                      + (f"strips {2 * a.strip * h * 10:g} mm wide" if qty == "E" else f"strips {2 * hq * 10:g} mm wide")
                      + ("; bremsstrahlung deposited locally" if qty == "E" else ""))
-        fig.savefig(OUT / f"fig8{'a_energy' if qty == 'E' else 'b_charge'}.png", dpi=130)
+        fig.savefig(out_dir / f"fig8{'a_energy' if qty == 'E' else 'b_charge'}.png", dpi=130)
         plt.close(fig)
 
     # Fine-resolution charge figure: our MC resolved only across the trough (in y), against ITS averaged the same way.
@@ -482,7 +557,7 @@ def cmd_plot(a):
                     labels=ax[0, 1].get_legend_handles_labels()[1][1:], fontsize=8, loc="lower right")
     fig.suptitle(f"Fig. 8b at fine resolution: analog MC ({n_pool / 1e6:g}M histories pooled inside r < {R_POOL} cm, "
                  f"electrons born > 0.1 MeV) vs ITS averaged over the same bins")
-    fig.savefig(OUT / "fig8b_charge_fine.png", dpi=130)
+    fig.savefig(out_dir / "fig8b_charge_fine.png", dpi=130)
     plt.close(fig)
     M["fine_charge"] = {"pooled_runs": ["circle", "stair", "stair2"], "pool_radius_cm": R_POOL, "N_pooled": n_pool}
 
@@ -509,11 +584,21 @@ def cmd_plot(a):
                                                lambda d: d[hot_c])
     M["net_charge_per_primary"] = {"mc_stair": float(mc["stair"]["q_c"].sum() * L * L),
                                    "gmc": [float(d.sum() * L * L) for d in gm["loc"]["q_c"]]}
+    if gsq:
+        cq = lambda d: coarsen(d, qb) / (qb * qb)  # noqa: E731
+        qref, qref2 = cq(mc["stair"]["q_thr"]), cq(mc["stair2"]["q_thr"])
+        inside_q = np.repeat(np.repeat(inside_c, n // qb, 0), n // qb, 1)
+        hot_q = inside_q & (np.abs(qref) > 0.05 * np.abs(qref).max())
+        M["maps"]["charge_thr_scr"] = {**noise_split([cq(d) for d in gsq], qref, qref2, lambda d: d[hot_q]),
+                                       "bins_mm": hq * 10, "n_bins": int(hot_q.sum())}
+        M["net_charge_per_primary"]["gmc_scr_thr"] = [float(d.sum() * h * h) for d in gsq]
+        M["net_charge_per_primary"]["mc_stair_thr"] = float(mc["stair"]["q_thr"].sum() * h * h)
+    like_for_like(out_dir, M, mc, gm, gsq, panels, line, rb, xf, xc, xq, qb, hq, plt)
     M["mc_balance"] = {k_: json.loads(str(F["meta"]))["balance"] for k_, F in (("circle", C), ("stair", S1))}
     M["timing_s"] = {"mc_circle": json.loads(str(C["meta"]))["seconds"], "mc_stair": json.loads(str(S1["meta"]))["seconds"],
                      "gmc_chain": gm["loc"]["meta"]["chain_s"], "scr_tally": gm["loc"]["meta"]["tally_s"],
                      "water_transits": gm["loc"]["meta"]["transits"]}
-    with open(OUT / "metrics.json", "w") as fh:
+    with open(out_dir / "metrics.json", "w") as fh:
         json.dump(M, fh, indent=1)
     print(json.dumps(M, indent=1))
 
@@ -531,7 +616,59 @@ def cmd_plot(a):
         a_.set_xlabel("x (cm)")
     ax[0].set_ylabel("y (cm)")
     fig.colorbar(im, ax=ax, label="MeV/cm³ per e⁻/cm", shrink=0.85)
-    fig.savefig(OUT / "dose_maps.png", dpi=120)
+    fig.savefig(out_dir / "dose_maps.png", dpi=120)
+    plt.close(fig)
+
+
+def like_for_like(out_dir, M, mc, gm, gsq, panels, line, rb, xf, xc, xq, qb, hq, plt):
+    """GMC vs the analog MC on the same 1 mm staircase, the GMC's own convention (photons escape; charge of electrons
+    born > 0.1 MeV): MC = mean of the two staircase seeds with a +-2 sd band from their difference."""
+    BLUE, ORANGE, GREEN = "#2a7ab0", "#d9480f", "#2f9e44"
+    fig, ax = plt.subplots(2, 4, figsize=(21, 9), constrained_layout=True)
+    M["like_for_like"] = {}
+    for row, (qty, key_mc, key_g) in enumerate((("E", "esc", "scr"), ("Q", "q_thr", "sq"))):
+        if qty == "Q" and not gsq:
+            continue
+        for a_, (which, pos, title) in zip(ax[row], panels):
+            if qty == "E":
+                f = lambda d: rb(line(d, which, pos), which)  # noqa: E731
+                x, s1, s2 = xf, f(mc["stair"]["esc"]), f(mc["stair2"]["esc"])
+                g = [f(d) for d in gm["esc"]["scr"]]
+                cell = np.mean([line(d, which, pos, True) for d in gm["esc"]["cell"]], 0)
+            else:
+                def f(d):
+                    dm = coarsen(d, qb) / (qb * qb)
+                    i = int(round((pos + 1.0) / hq))
+                    return dm[:, i - 1:i + 1].mean(1) if which == "along" else dm[i - 1:i + 1, :].mean(0)
+                x, s1, s2 = xq, f(mc["stair"]["q_thr"]), f(mc["stair2"]["q_thr"])
+                g = [f(d) for d in gsq]
+                cell = None
+            ref = (s1 + s2) / 2
+            # sd of the 2-run mean: |s1 - s2| / 2 is a 1-dof estimate per bin, so smooth its square over 5 bins
+            sd = np.sqrt(np.convolve(((s1 - s2) / 2) ** 2, np.ones(5) / 5, mode="same"))
+            gmean = np.mean(g, 0)
+            a_.fill_between(x, ref - 2 * sd, ref + 2 * sd, step="mid", color=BLUE, alpha=0.25, lw=0,
+                            label="analog MC staircase, +-2 sd")
+            a_.step(x, ref, where="mid", color=BLUE, lw=1.3, label="analog MC staircase (2 seeds)")
+            a_.step(x, gmean, where="mid", color=ORANGE, lw=1.3, label=f"GMC + SCR ({len(g)} seeds)")
+            if cell is not None:
+                a_.step(xc, cell, where="mid", color=GREEN, lw=1.2, ls="--", label="GMC, cell average")
+            hot = np.abs(ref) > 0.1 * np.abs(ref).max()
+            gsd = (np.sqrt(np.convolve(np.var(g, 0, ddof=1) / len(g), np.ones(5) / 5, mode="same")) if len(g) > 1
+                   else np.zeros_like(gmean))
+            z = (gmean - ref)[hot] / np.sqrt(sd[hot] ** 2 + gsd[hot] ** 2 + 1e-30)
+            M["like_for_like"][f"{qty}_{which}_{pos:g}"] = {
+                "rel_L2": float(np.linalg.norm((gmean - ref)[hot]) / np.linalg.norm(ref[hot])),
+                "mc_rel_noise": float(np.linalg.norm(sd[hot]) / np.linalg.norm(ref[hot])),
+                "rms_z": float(np.sqrt(np.mean(z ** 2))), "max_abs_z": float(np.abs(z).max())}
+            a_.set_title(("energy, photons escape: " if qty == "E" else "charge, born > 0.1 MeV: ") + title)
+            a_.set_xlabel("position (cm)")
+            a_.set_xlim(-1, 1) if which == "along" else a_.set_xlim(-0.6, 0.6)
+        ax[row, 0].set_ylabel("MeV/cm³ per e⁻/cm" if qty == "E" else "e⁻/cm³ per e⁻/cm")
+        ax[row, 0].legend(fontsize=8)
+    fig.suptitle("Drumm water cylinder: GMC + SCR vs analog MC on the same 1 mm staircase (like for like; "
+                 f"energy on {xf[1] - xf[0]:.4g} cm bins, charge on {hq * 10:g} mm bins)")
+    fig.savefig(out_dir / "gmc_vs_mc.png", dpi=120)
     plt.close(fig)
 
 
@@ -564,6 +701,11 @@ def main():
     p.add_argument("--E_cutoff", type=float, default=1e-3)
     p.add_argument("--local_photons", action="store_true", help="photon energy deposited in the emitting transit")
     p.add_argument("--mirror", action="store_true", help="y-mirror symmetrization of the GMC (MirrorY)")
+    p.add_argument("--q_th", type=float, default=0.1, help="birth-energy threshold of the scr_charge_thr tally (MeV)")
+    p.add_argument("--charge_kernel", default=None,
+                   help="ml/charge_kernel.py model: expected sub-cell charge of the irrelevant secondaries born above "
+                        "--q_th, saved as scr_charge_thr_irrelevant (add it to scr_charge_thr)")
+    p.add_argument("--charge_K", type=int, default=1, help="charge-kernel pair samples per transit")
     p.add_argument("--out", default=None)
     p = sp.add_parser("plot")
     for k in ("circle", "stair", "stair_noise", "gmc", "gmc_lp"):
@@ -571,6 +713,9 @@ def main():
     p.add_argument("--strip", type=int, default=1, help="fine bins on each side of a profile line")
     p.add_argument("--along_bin", type=int, default=4, help="fine bins averaged in x for along-axis energy")
     p.add_argument("--q_bin", type=int, default=4, help="fine bins per charge bin (per axis)")
+    p.add_argument("--out_dir", default=None, help="figures + metrics.json (default the results folder)")
+    p.add_argument("--no_irrelevant_charge", action="store_true",
+                   help="leave out the charge kernel's irrelevant-secondary term of the SCR charge")
     p.add_argument("--q_fine", type=int, nargs="*", default=[2, 1],
                    help="extra MC charge lines resolved in y: fine bins per y-bin across the beam (strip = 2x this "
                         "along the axis); x stays at the --q_bin binning")

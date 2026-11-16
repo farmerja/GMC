@@ -51,8 +51,9 @@ from ml.cell_topology import classes_from_status  # noqa: E402
 N_EXIT = 5            # 4 faces (0 bottom, 1 right, 2 top, 3 left) + absorbed
 ABSORBED = 4
 NR = 3                # relevant-daughter count one-hot: 0, 1, 2, NR or more
-E_BANDS = (1e-3, 1e-2, 1e-1, 1.0, 10.0 + 1e-9)
-BAND_NAMES = ("1-10 keV", "10-100 keV", "0.1-1 MeV", "1-10 MeV")
+E_BANDS = (1e-3, 1e-2, 1e-1, 1.0, 10.0 + 1e-9, 100.0)
+BAND_NAMES = ("1-10 keV", "10-100 keV", "0.1-1 MeV", "1-10 MeV", "10-100 MeV")
+NB = len(BAND_NAMES)
 # per-transit raw columns (float32), see load_kernel_data
 RAW = ("start", "x0", "y0", "u0", "v0", "E0", "cls", "x1", "y1", "u1", "v1", "E_out", "dose", "n_rel", "flag")
 
@@ -331,11 +332,13 @@ def random_sym(start, gen=None):
 # ====================================================================================================================
 # Data
 # ====================================================================================================================
-def load_kernel_data(seg_npz, sub_npz=None, check_sha=True, max_segments=None):
+def load_kernel_data(seg_npz, sub_npz=None, check_sha=True, max_segments=None, entries=True, return_rows=False):
     """Simulated-only segment table + its sub-cell images -> per-transit raw columns and per-point entries.
 
     Kept transits: status 1-5 (exit or absorbed), boundary primaries (origin 0) and relevant secondaries at birth
-    (origin 1), E_dep_rel > 0 (a transit without dose needs no kernel). Entries: (seg = kept-transit row, bin, E)."""
+    (origin 1), E_dep_rel > 0 (a transit without dose needs no kernel). Entries: (seg = kept-transit row, bin, E).
+    entries=False skips the image entries (returns None for them); return_rows=True also returns the segment-table
+    row of every kept transit."""
     sub_npz = sub_npz or seg_npz[:-4] + "_subcell.npz"
     D = np.load(seg_npz, allow_pickle=False)
     S = np.load(sub_npz, allow_pickle=False)
@@ -377,6 +380,9 @@ def load_kernel_data(seg_npz, sub_npz=None, check_sha=True, max_segments=None):
     R["E0"] = E0                                      # float64 for exact dose fractions on the host
     R["dose"] = dose[rows]
     del seg
+    if not entries:
+        print(f"Loaded {os.path.basename(seg_npz)}: {len(rows)} transits (no image entries)", flush=True)
+        return (spec, R, None, rows) if return_rows else (spec, R, None)
     new = np.full(len(keep), -1, dtype=np.int64)
     new[rows] = np.arange(len(rows))
     s = S["sub_seg"]
@@ -391,7 +397,7 @@ def load_kernel_data(seg_npz, sub_npz=None, check_sha=True, max_segments=None):
           f"{len(ent['seg'])} image entries ({len(ent['seg']) / max(1, len(rows)):.1f} per transit), "
           f"{spec.n_sub}x{spec.n_sub} bins{' + in-bin moments' if 'mom' in ent else ''}, L = {L * 1e4:.0f} um",
           flush=True)
-    return spec, R, ent
+    return (spec, R, ent, rows) if return_rows else (spec, R, ent)
 
 
 def to_device(R, device):
@@ -632,7 +638,8 @@ def transit_log_tensors(T, rows, device):
     absorbed = g("cls") == ABSORBED
     R = {"start": g("start"), "x0": g("x0"), "y0": g("y0"), "u0": g("u0"), "v0": g("v0"), "E0": g("E0"),
          "cls": g("cls"), "x1": g("x1"), "y1": g("y1"), "u1": g("u1"), "v1": g("v1"),
-         "E_out": np.where(absorbed, 0.0, g("E_out")), "dose": g("dose"), "n_rel": g("n_rel"), "flag": g("flag")}
+         "E_out": np.where(absorbed, 0.0, g("E_out")), "dose": g("dose_cond") if "dose_cond" in T else g("dose"),
+         "n_rel": g("n_rel"), "flag": g("flag")}
     return to_device(R, device)
 
 
@@ -788,7 +795,7 @@ def cmd_eval(args):
                                  points=(px, py)).cpu().numpy())
         nll = np.concatenate(nll)
         res["nll"][mode] = {"all": float(nll.mean()),
-                            **{BAND_NAMES[b]: float(nll[b_idx == b].mean()) for b in range(4)}}
+                            **{BAND_NAMES[b]: float(nll[b_idx == b].mean()) for b in range(NB)}}
     print(f"NLL (nats, dose-weighted, test points dequantized uniformly / moment-matched; uniform kernel = 0, "
           f"one-bin delta at {n_sub}x{n_sub} = -{math.log(n_sub * n_sub):.2f}):", json.dumps(res["nll"], indent=1))
 
@@ -800,8 +807,8 @@ def cmd_eval(args):
         images = lambda rr: kernel_images_sampled(model, spec, Rd, rr, n_sub, args.n_samples)  # noqa: E731
     else:
         images = lambda rr: kernel_images(model, spec, Rd, rr, n_sub, sub=args.quad_sub)  # noqa: E731
-    brier = {r: {"model": np.zeros(4), "uniform": np.zeros(4), "norm": np.zeros(4)} for r in resolutions}
-    n_groups = 4 * 2 * N_EXIT
+    brier = {r: {"model": np.zeros(NB), "uniform": np.zeros(NB), "norm": np.zeros(NB)} for r in resolutions}
+    n_groups = NB * 2 * N_EXIT
     agg_t = np.zeros((n_groups, n_sub, n_sub))
     agg_p = np.zeros_like(agg_t)
     agg_v = np.zeros_like(agg_t)
@@ -809,7 +816,7 @@ def cmd_eval(args):
     # entry-aligned aggregates of boundary transits: lateral axis shifted so the entry bin sits at column n - 1
     W = 2 * n_sub - 1
     by0_all = np.clip((R["y0"] * n_sub).astype(int), 0, n_sub - 1)
-    al_t = np.zeros(4 * N_EXIT * n_sub * W)
+    al_t = np.zeros(NB * N_EXIT * n_sub * W)
     al_p, al_v = np.zeros_like(al_t), np.zeros_like(al_t)
     mass_all = []
     t0 = time.time()
@@ -824,7 +831,7 @@ def cmd_eval(args):
             f = n_sub // r
             co = lambda a: a.reshape(len(rows), r, f, r, f).sum((2, 4))  # noqa: E731
             tc, pc, uc = co(t), co(p), co(u)
-            for b in range(4):
+            for b in range(NB):
                 m = band[rows] == b
                 brier[r]["model"][b] += ((tc[m] - pc[m]) ** 2).sum()
                 brier[r]["uniform"][b] += ((tc[m] - uc[m]) ** 2).sum()
@@ -851,7 +858,7 @@ def cmd_eval(args):
                                                               max(brier[r]["norm"][b], 1e-300)),
                                              "skill": float(1 - brier[r]["model"][b] /
                                                             max(brier[r]["uniform"][b], 1e-300))}
-                             for b in range(4)} for r in resolutions}
+                             for b in range(NB)} for r in resolutions}
     how = (f"{args.n_samples} flow samples" if args.image_mode == "sample" else
            f"{args.quad_sub}^2 points per bin; quadrature mass {res['quadrature_mass']}")
     print(f"Images: {len(pick)} transits, {res['image_time_per_transit_ms']:.2f} ms each ({n_sub}x{n_sub}, {how})")
@@ -860,7 +867,7 @@ def cmd_eval(args):
         print(f"  {r}x{r}: " + "  ".join(f"{BAND_NAMES[b]} {res['brier'][str(r)][BAND_NAMES[b]]['model']:.3f}/"
                                          f"{res['brier'][str(r)][BAND_NAMES[b]]['uniform']:.3f} "
                                          f"(skill {res['brier'][str(r)][BAND_NAMES[b]]['skill']:.3f})"
-                                         for b in range(4)))
+                                         for b in range(NB)))
 
     # group aggregates: bias of the expected image vs the noise floor of the true sum
     groups = []
@@ -889,11 +896,11 @@ def cmd_eval(args):
               "  ".join(f"{g[f'relL2_{r}']:.3f}/{g[f'noise_{r}']:.3f}" for r in resolutions))
 
     # entry-aligned: relL2 of the aligned (n x 2n-1) sums and of their depth / lateral profiles, with noise floors
-    al_t, al_p, al_v = (a.reshape(4, N_EXIT, n_sub, W) for a in (al_t, al_p, al_v))
+    al_t, al_p, al_v = (a.reshape(NB, N_EXIT, n_sub, W) for a in (al_t, al_p, al_v))
     aligned = []
     print("Entry-aligned boundary aggregates: relL2/noise of image, depth profile, lateral profile "
           "(bias = sqrt(relL2^2 - noise^2))")
-    for b in range(4):
+    for b in range(NB):
         for cl in list(range(N_EXIT)) + [-1]:
             T, P, V = (a[b].sum(0) if cl < 0 else a[b, cl] for a in (al_t, al_p, al_v))
             if T.sum() <= 0:
@@ -969,11 +976,13 @@ def plot_eval(out_dir, spec, model, Rd, R, ent, starts, band, start, agg_t, agg_
     plt.close(fig)
 
     # (b) aggregate depth (x) and lateral (y) profiles per band, boundary transits, all exits pooled
-    fig, ax = plt.subplots(2, 4, figsize=(15, 6))
+    fig, ax = plt.subplots(2, NB, figsize=(3.75 * NB, 6))
     xc = (np.arange(n) + 0.5) / n * L_um
-    for b in range(4):
+    for b in range(NB):
         gs = [(b * 2 + 0) * N_EXIT + cl for cl in range(N_EXIT)]
         T, P, V = agg_t[gs].sum(0), agg_p[gs].sum(0), agg_v[gs].sum(0)
+        if T.sum() <= 0:
+            continue
         for k, (axis, lab) in enumerate(((1, "depth x (um)"), (0, "lateral y (um)"))):
             tt, pp, sd = T.sum(axis), P.sum(axis), np.sqrt(V.sum(axis))
             a = ax[k, b]
@@ -992,10 +1001,12 @@ def plot_eval(out_dir, spec, model, Rd, R, ent, starts, band, start, agg_t, agg_
     plt.close(fig)
 
     # (c) aggregate images per band: MC, kernel, (kernel - MC) / sd
-    fig, ax = plt.subplots(3, 4, figsize=(14, 10))
-    for b in range(4):
+    fig, ax = plt.subplots(3, NB, figsize=(3.5 * NB, 10))
+    for b in range(NB):
         gs = [(b * 2 + 0) * N_EXIT + cl for cl in range(N_EXIT)]
         T, P, V = agg_t[gs].sum(0), agg_p[gs].sum(0), agg_v[gs].sum(0)
+        if T.sum() <= 0:
+            continue
         vmax = T.max()
         norm = LogNorm(vmin=vmax * 1e-4, vmax=vmax)
         ax[0, b].imshow(np.maximum(T.T, 1e-30), origin="lower", extent=ext, norm=norm, cmap="magma")
@@ -1021,9 +1032,11 @@ def plot_aligned(out_dir, spec, al_t, al_p, al_v, n):
     L_um = spec.L * 1e4
     xc = (np.arange(n) + 0.5) / n * L_um
     yc = (np.arange(W) - (n - 1)) / n * L_um
-    fig, ax = plt.subplots(4, 4, figsize=(16, 14))
-    for b in range(4):
+    fig, ax = plt.subplots(4, NB, figsize=(4 * NB, 14))
+    for b in range(NB):
         T, P, V = al_t[b].sum(0), al_p[b].sum(0), al_v[b].sum(0)
+        if T.sum() <= 0:
+            continue
         for k, (axis, xs, lab) in enumerate(((1, xc, "depth x (um)"), (0, yc, "y - y_entry (um)"))):
             tt, pp, sd = T.sum(axis), P.sum(axis), np.sqrt(V.sum(axis))
             a = ax[k, b]

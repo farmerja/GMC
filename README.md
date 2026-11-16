@@ -207,6 +207,13 @@ example, a 1 mm water block breaks even with MC at about 1–2 µm voxels. See s
 
 - Chain with `chain_secondaries(..., transit_log=True)`, then tally with `subcell_kernel.scr_tally`. The defaults are
   Sobol sampling with an automatic samples-per-transit setting.
+- **Charge** (electrons stopped − created) on the same fine mesh: `drumm_cylinder.chain_charge_fine` places the
+  chain's own events (relevant-daughter births; stops of absorbed transits from the GMC's optional "stop" flow,
+  `secondary_gmc.py train --only stop`), and `ml/charge_kernel.py` adds the electrons the relevant-only GMC never
+  simulates (born and stopped inside one cell): a Poisson rate plus a birth/stop pair flow, trained on the
+  generator's `q_pairs`. Without that term the charge has a saw-tooth with the cell period.
+- Benchmark: 20 MeV beam on a water cylinder vs ITS (Drumm et al. 2007), with energy and charge, analog MC, GMC and
+  SCR-GMC: [validation/results/drumm_water_cylinder.md](validation/results/drumm_water_cylinder.md).
 - Validate:
   - `validation/scr_mc_ref.py`: fine-voxel MC reference (ElectronTransport venv).
   - `validation/scr_chain_compare.py`: chained GMC + SCR vs the fine MC; noise/bias split over seeds; several

@@ -246,18 +246,171 @@ One machine: 16 CPU threads, RTX 5080. The MC and GMC runs overlapped and shared
   analog transport to 1 keV costs ~100–300× more per history than condensed history with a 0.1 MeV cutoff: each
   20 MeV primary makes ~170 knock-ons above 1 keV in 2 cm.
 
+## Phase A: physics fixes and the analog MC rerun (2026-11-15)
+
+Two changes to the analog physics (ElectronTransport; both are now the default of `material_data.build_library`, and
+`elastic="eedl", ionization_deflection="binary"` reproduces the previous code bit for bit):
+
+1. **Elastic scattering from ELSEPA** (Dirac partial waves; Salvat, Jablonski, Powell, CPC 165 (2005) 157), built in
+   `~/opt/elsepa`. `ELSEPA_convert.py` → `elsepa_elastic.h5` (H, O, Al, Cu; 1 keV–1 GeV, 20 energies per decade).
+   Cross sections, large-angle tables and small-angle tables (in t = 1 − μ) all come from it. Above 1 GeV the 1 GeV
+   table is rescaled at fixed momentum transfer; below 1 keV EEDL stays. EEDL also has a second gap (~70 MeV → 100
+   GeV): the 80–100 GeV Cu data sets scatter ≥ 44 % too much in σ₁.
+2. **Ionization deflection: close/distant split.** Binary (free-electron) kinematics for *every* ionization made the
+   atomic-electron share of multiple scattering ~2.5× too strong in variance. Now a collision is close with probability
+   Møller/EEDL at that energy transfer (binary kinematics), otherwise distant (Bethe dipole region, PENELOPE GOS
+   style: recoil energy ~ 1/[Q(1+Q/2mc²)] from Q₋ to ΔE, or transverse with no deflection). Energy losses below
+   κ × binding (κ = 3, the shell resonance energy) are always distant. Energies and secondaries are unchanged.
+
+**Validation** (`ElectronTransport/elastic_validation.py`; results in `ElectronTransport/validation_elastic/`):
+
+- σ₁ as the stepper samples it / ELSEPA σ₁: **1.000–1.003** at 1 keV–1 GeV for H, O, Al, Cu (EEDL: 0.97–1.12 at keV,
+  1.7–6.0 at 0.5–7 MeV, 1.24–1.44 at 1 GeV).
+- Thin slabs (x/X0 = 10⁻³), projected θ0 from a Gaussian fit to the central 98 %:
+
+  | | water 2 / 5 / 10 / 20 MeV | Cu 2 / 5 / 10 / 20 MeV |
+  |---|---|---|
+  | elastic-only MC / exact Goudsmit–Saunderson (ELSEPA) | 1.005 / 1.001 / 0.999 / 0.995 | 1.002 / 1.002 / 1.003 / 0.995 |
+  | elastic GS / Lynch–Dahl (Z² only) | 0.991 / 0.989 / 0.989 / 0.988 | 1.000 / 0.990 / 0.986 / 0.983 |
+  | full MC / Lynch–Dahl, old binary deflection | 1.106 / 1.096 / 1.093 / 1.097 | 1.027 / 1.023 / 1.016 / 1.014 |
+  | full MC / Lynch–Dahl, split κ = 3 | 1.027 / 1.024 / – / 1.009 | 1.006 / 0.992 / – / 0.991 |
+
+  In the 0.3–9 MeV gap the EEDL elastic data alone gave θ0/LD = 2.3–2.6 (water and Cu, 2–5 MeV).
+- Cost: 4.1 ms/primary on this problem (old physics 3.06): +35 %. A 2.2× slowdown from numba call overhead (tables
+  passed to non-inlined helpers) was found after the run below and fixed with `inline="always"`.
+
+**This benchmark, analog MC on the true circle, 500k, old vs new physics** (`validation/drumm_physics_compare.py`,
+[figure](drumm_water_cylinder/physics_compare.png), `physics_compare.json`; run `mc_circle_n8_500k_s123_elsepa_split3`):
+
+| vs ITS | old (EEDL, binary) | new (ELSEPA, split) |
+|---|---|---|
+| along-axis energy, mean / entry (−0.9…−0.6) / exit (0.6…0.9) | −1.4 % / +6.7 % / −6.8 % | +0.5 % / +4.5 % / −2.0 % |
+| rms width across the beam (baseline-subtracted, \|y\| < 0.4) at x = −0.5 / 0 / 0.5 | +2.7 / +5.3 / +7.7 % | +1.8 / +3.7 / +4.7 % |
+| lateral integral, brems local (ITS 2.35 / 2.35 / 2.34 MeV/cm) | 2.41 / 2.43 / 2.43 | 2.40 / 2.40 / 2.41 |
+| along-axis charge, mean (MC − ITS) / rms, 1 mm strip, −0.8 < x < 0.9 | +0.076 / 0.082 | +0.034 / 0.051 |
+| on-axis charge trough at x = +0.5, 1 mm strip (ITS averaged the same: −0.209) | −0.132 | −0.197 |
+
+- **The depth trend is mostly gone.** The axis slope (+7 % → −7 %) is now +4.5 % → −2 %, and the beam's excess width
+  at 1.5 cm depth fell from +7.7 % to +4.7 %. The x = +0.5 charge gap is closed.
+- Note on widths: the digitized ITS curves sit on a ~0.05–0.07 baseline that inflated ITS's plain rms width; the
+  numbers above subtract it (the diagnosis section's +1/+5/+7 % used the plain rms).
+- **Bremsstrahlung convention settled.** Lateral integrals: ours, photons local, +1.7 to +3.1 % over ITS; photons
+  escaping −11 to −15 %. Our free-atom collision stopping power is ~1.6 % above ESTAR (no density effect); with that
+  removed the local convention lands within ~1 % of ITS. So ITS's "no photon transport" deposits the bremsstrahlung
+  energy locally. Keep the local convention for this comparison.
+- **What is left:**
+  - Width still +2–5 %, growing with depth. Our water θ0 is still +1–3 % over Lynch–Dahl, and ITS's own
+    multiple-scattering model is a few % uncertain too.
+  - Entry +4.5 % on the axis. Hypothesis to check in the paper: ITS's tally zone width averaging the triangle's apex
+    near the entry, where the profile is still sharp.
+  - Charge at x = −0.5 and 0: our trough is deeper than ITS's across-beam curve averaged over our strips (−0.46 vs
+    −0.35 at 1 mm, x = −0.5). It does match ITS's own along-axis curve there (≈ −0.45), so ITS's two curves disagree
+    at this resolution. This is single-run noise (±0.015 at 1 mm, ±0.03–0.04 at 0.25–0.5 mm) plus unknown ITS zoning.
+    More histories are needed before reading more into it.
+- Not yet included: the density-effect correction to the collision stopping power, which would remove most of the
+  +2 % level offset.
+
+## Phase B: new-physics water data and models (2026-11-15)
+
+- **Data:** `analog_water_1mm_1keV-30MeV_log_{10M_42,2M_7}_elsepa{.npz,_subcell.npz}` (ELSEPA + split κ = 3). This
+  time the 10M sub-cell file was written too.
+- **GMC:** `ml/models/secondary_gmc_water_1mm_30MeV_elsepa`, 14.5 min. Boundary rows now get the y-mirror copy
+  (D4 element k = 6: y → 1 − y, v → −v; `BOUNDARY_SYM` in `ml/secondary_gmc.py`).
+- **SCR kernel:** `ml/models/subcell_kernel_water_1mm_30MeV_elsepa`, 29 min, trained on the 10M set.
+
+**Drift check (Drumm circle, 200k primaries, no `MirrorY`).** Beam centroid at x = −0.75 / −0.35 / 0.05 / 0.45 / 0.75:
+
+| run | centroid (µm) |
+|---|---|
+| new GMC | −1.6 / −4.4 / +3.7 / +10.4 / +14.6 |
+| old GMC without the wrapper | ≈ −90 µm at exit |
+| old GMC + `MirrorY` | −0.9 … +3.7 |
+| MC | +1.5 … +5.1 |
+
+The training fix removes the drift; +15 µm at exit is about 2σ at 200k. Other numbers from this run:
+- net charge −0.0882 per primary (new analog MC: −0.0878);
+- deposited fraction 0.2027 (new analog MC: 0.2003);
+- 0.72 ms/primary.
+
+**Cell-level check (`validation/results/secondary_cell_water_1mm_30MeV_elsepa`).** All on the held-out 2M set.
+- Boundary transits:
+  - total dose 1.006, every energy bin within 1.2 %;
+  - exit-class \|z\| ≤ 1.9;
+  - exit-angle W1 at 30 keV–1 MeV / 1–10 MeV is 0.10° / 0.09°, half the old model's 0.24° / 0.18°.
+- Interior transits (54k): total dose 0.981; worst class \|z\| is 2.4 (absorbed); daughter energy 0.71 of MC, which
+  was 0.82 for the old model. These are sparse rows; watch them in the chain.
+
+**Kernel evaluation (`.../eval_analog_water_1mm_1keV-30MeV_log_2M_7_elsepa`).** `subcell_kernel.py eval` now has a
+10–100 MeV band; before, 30 MeV data crashed it.
+- Brier skill at 4 × 4 per band:
+  | 1–10 keV | 10–100 keV | 0.1–1 MeV | 1–10 MeV | 10–30 MeV |
+  |---|---|---|---|---|
+  | 0.998 | 0.969 | 0.60 | 0.77 | 0.81 |
+- Entry-aligned boundary aggregates are at the noise floor for depth profiles in every band.
+- Lateral profiles have small biases:
+  - 1–10 keV: ≈ 4 % in L2, from sub-bin placement at the entry; this is negligible for dose.
+  - 0.1–1 MeV transmitted and absorbed: ≈ 3–5 %.
+  - 10–30 MeV pooled: ≈ 2 %.
+
+## Phase C: SCR charge (2026-11-15/16)
+
+Charge deposition = electrons stopped − electrons created. The chain now places it on the sub-cell grid:
+- **Stops.** A "stop" flow in the GMC checkpoint gives where absorbed electrons stop (`secondary_gmc.py --only stop`).
+  On held-out data, depth and lateral spread match the MC within 0.5 % per band, and within 0.002–0.01 cell for
+  stop-depth quartiles at every entry energy × direction bin.
+- **Births.** −1 at every relevant daughter's birth point. The chain carries each electron's birth energy (`Eb`) so
+  the 0.1 MeV threshold tally of the paper can be reproduced.
+- **Irrelevant secondaries.** These are born and stopped inside a cell, so the GMC never simulates them. Dropped,
+  they leave a ±0.05 e/primary saw-tooth with a 1 mm period: upstream bins lose births and downstream bins lose stops.
+  - Data: the generator stores their birth/stop pairs (`q_pairs`, born above 0.05 MeV).
+  - Exactness: stops + relevant births + pairs reproduce the analog MC's 32 × 32 charge tally exactly (0 bins differ).
+  - Model: `ml/charge_kernel.py` = Poisson rate + flow over (birth, stop), on the SCR kernel's transit features.
+  - Held out: pair counts within 1.5 % per band; depth-profile χ²/bin 0.8–1.2.
+- **Bug found on the way.** `LocalPhotons` put dose + photon energy into the kernels' conditioning, which inflated
+  the charge rate 1.75×. The kernels now condition on `dose_cond`, the model's own dose. This also affected the SCR
+  dose kernel in all earlier photons-local runs.
+
+## Phase D: benchmark rerun with the new physics and models (2026-11-16)
+
+Folder `drumm_water_cylinder/phaseD/`:
+- `gmc_vs_mc.png`: like for like, both on the 1 mm staircase, photons escape, threshold charge. The MC line is the
+  mean of 2 staircase seeds, with a ±2 sd band.
+- `fig8a_energy.png` and `fig8b_charge.png`: vs ITS, photons local.
+- `metrics.json`.
+
+All runs are 500k primaries; the GMC uses 2 seeds.
+
+**GMC + SCR vs analog MC (like for like):**
+
+| quantity | result |
+|---|---|
+| cell energy (1 mm) | bias 0.8 % (MC noise 0.2 %); deposited fraction 0.2028 vs 0.2014 |
+| fine energy (125 µm), whole map | bias 2.8 % vs MC noise 0.9 %; flat cells would give 15.8 % |
+| energy profiles | relL2 3.0 % along the axis, 2.3–4.6 % across; 3 % low on the axis at x = −0.75 … 0 |
+| charge profiles (0.5 mm bins) | rms z 1.0–1.7, i.e. within noise |
+| charge map (0.5 mm bins) | bias 0.14 vs single-run MC noise 0.15 |
+| net charge per primary | −0.0878 (MC) vs −0.0878 / −0.0883 (GMC); threshold tally −0.0809 vs −0.0805 |
+
+The remaining energy error is the SCR kernel's lateral placement. The kernel evaluation shows 2–5 % lateral bias,
+and here the beam profile inside a 1 mm cell is sharply peaked. Transport is not the cause: cell averages agree.
+
+**vs ITS:**
+- New-physics analog MC (circle) on the axis: mean +0.5 %, |rel| 2.5 % over the core.
+- Across the beam the MC is still +3–4 % on average. The 0.25 mm strips also make the MC peak sharper than ITS.
+- GMC + SCR follows ITS in all across-beam energy panels and in all four charge panels. The saw-tooth of the first
+  runs is gone.
+
 ## Next session
 
-1. **Fix the elastic angular data across the EEDL table gap (0.256–10 MeV)**, preferably with ELSEPA tables (see
-   "Fix options").
-   Re-check the transport-cross-section ratio table (should be ~1.0 everywhere). Then regenerate data, retrain, and
-   rerun this benchmark to measure how much of the lateral-spread and charge differences it explains. Every analog data
-   set and GMC model with electrons in 0.3–9 MeV needs regenerating.
-2. **The remaining θ0 excess at 20 MeV** (4–5 % over Lynch–Dahl while λ₁ agrees with Molière): compare our slab
-   angular distribution with a Goudsmit–Saunderson / Molière calculation from our own cross sections, and check the
-   angular-shape mixing between the 10 and 21.25 MeV tables. Lower priority: Lynch–Dahl itself is only good to a few %.
-3. **More histories for charge** (~5M): profiles on narrower strips (≤ 0.5 mm) to compare with ITS's resolved
-   trough.
+1. Retrain the 100 µm Cu / Al / water GMCs (and kernels) on the regenerated `_elsepa` sets. Re-check the Cu/Al
+   chains for drift.
+2. SCR lateral bias at high energy (2–5 %, the dominant fine-energy error here). Candidates: more kernel capacity or
+   training, and conditioning on the entry/exit chord.
+3. More histories for the fine charge comparison vs ITS (≥ 2M).
+4. Optional physics:
+   - density-effect correction (Sternheimer) for condensed-phase stopping power;
+   - MeV backscatter vs Tabata, once the Ito/Andreo/Tabata 1993 constants are obtainable (the Osaka repository
+     returned 503 on 2026-11-15).
 
 ## Mirror symmetry bug found here (fixed at inference, needs a training fix)
 
@@ -271,8 +424,8 @@ approximately y-symmetric.
 Fix used here: `MirrorY` in `drumm_cylinder.py` (`--mirror`) calls the model on the y-mirrored state (y → 1 − y,
 v → −v) for a random half of the transits and mirrors the outputs, daughters and exit class back. Exact in
 expectation, no cost. Centroid drift → within ±6 µm, cell bias 2.6 % → 0.6 %. All numbers above use it.
-**To do:** add y-mirror augmentation of boundary rows in `ml/secondary_gmc.py` (and/or put `MirrorY` into
-`SecondaryGMC`). The 100 µm Cu/Al chains used broad 2-cell beams and may hide the same drift; worth re-checking.
+**Done 2026-11-15:** boundary rows are now y-mirror augmented in `ml/secondary_gmc.py` (see Phase B); the new
+model needs no `MirrorY`. The 100 µm Cu/Al chains used broad 2-cell beams and may hide the same drift; worth re-checking.
 
 ## Caveats
 
@@ -286,30 +439,50 @@ expectation, no cost. Centroid drift → within ±6 µm, cell bias 2.6 % → 0.6
 
 ## Reproduce
 
+Current pipeline (Phases B–D, new physics). The Nov 12 figures at the top of this page used the pre-2026-11-15 data
+(`--elastic eedl`), models without the `_elsepa` suffix, and `--mirror`.
+
+Run the 10M generations **one at a time**: they peak at 19 GB (water 1 mm, 32 bins) and 25.5 GB (Al 100 µm, 64 bins).
+
 ```bash
-# ElectronTransport venv: training / test data (1 keV - 30 MeV, 1 mm water, 32 x 32 sub-cell images)
+# ElectronTransport venv: training / test data (1 keV - 30 MeV, 1 mm water, 32 x 32 sub-cell images + charge pairs)
 for s in "10000000 42 10M" "2000000 7 2M"; do set -- $s
   (cd ../ElectronTransport && .venv/bin/python generate_analog_batches.py --N $1 --seed $2 \
-      --out analog_water_1mm_1keV-30MeV_log_$3_$2 --E_low 1e-3 --E_high 30 --box 1e-1 --log_energy \
-      --photons_irrelevant --simulated_only --batch_size 500000 --material Water --subcell_bins 32)
+      --out analog_water_1mm_1keV-30MeV_log_$3_$2_elsepa_q --E_low 1e-3 --E_high 30 --box 1e-1 --log_energy \
+      --photons_irrelevant --simulated_only --batch_size 250000 --material Water --subcell_bins 32)
 done
-# GMC venv: models (GMC ~10 min, kernel ~27 min on the RTX 5080)
-python ml/secondary_gmc.py train --train_npz ../ElectronTransport/analog_water_1mm_1keV-30MeV_log_10M_42.npz \
-    --out ml/models/secondary_gmc_water_1mm_30MeV
-python ml/subcell_kernel.py train --train_npz ../ElectronTransport/analog_water_1mm_1keV-30MeV_log_2M_7.npz \
-    --out ml/models/subcell_kernel_water_1mm_30MeV --batch 32768
-python validation/secondary_cell_compare.py --test_npz ../ElectronTransport/analog_water_1mm_1keV-30MeV_log_2M_7.npz \
-    --model ml/models/secondary_gmc_water_1mm_30MeV/secondary_gmc.pth --out_dir validation/results/secondary_cell_water_1mm_30MeV
-# analog MC references (ElectronTransport venv, ~26 min each)
+# (on disk the GMC and SCR kernel were trained on the identical *_elsepa files, made before the charge pairs were
+#  added; same seeds give the same segments, checked by segments_sha1)
+ET=../ElectronTransport; TR=$ET/analog_water_1mm_1keV-30MeV_log_10M_42_elsepa_q.npz
+TE=$ET/analog_water_1mm_1keV-30MeV_log_2M_7_elsepa_q.npz
+# GMC venv: models (GMC 14.5 min, stop flow 3 min, SCR kernel 29 min, charge kernel 1.5 min on the RTX 5080)
+python ml/secondary_gmc.py train --train_npz $TR --out ml/models/secondary_gmc_water_1mm_30MeV_elsepa
+python ml/secondary_gmc.py train --train_npz $TR --out ml/models/secondary_gmc_water_1mm_30MeV_elsepa --only stop
+python ml/subcell_kernel.py train --train_npz $TR --out ml/models/subcell_kernel_water_1mm_30MeV_elsepa --batch 32768
+python ml/charge_kernel.py train --train_npz $TR --out ml/models/charge_kernel_water_1mm_30MeV_elsepa
+# held-out checks
+python validation/secondary_cell_compare.py --test_npz $TE \
+    --model ml/models/secondary_gmc_water_1mm_30MeV_elsepa/secondary_gmc.pth \
+    --out_dir validation/results/secondary_cell_water_1mm_30MeV_elsepa
+python ml/subcell_kernel.py eval --model ml/models/subcell_kernel_water_1mm_30MeV_elsepa --test_npz $TE
+python ml/charge_kernel.py eval --model ml/models/charge_kernel_water_1mm_30MeV_elsepa --test_npz $TE
+# analog MC references (ElectronTransport venv, 35-65 min each, 0.5 GB); `mc` chdirs: give absolute --out paths
+D=$PWD/validation/results/drumm_water_cylinder
 for r in "stair 123" "stair 1123" "circle 123"; do set -- $r
-  ../ElectronTransport/.venv/bin/python validation/drumm_cylinder.py mc --geom $1 --seed $2 --N 500000
+  ../ElectronTransport/.venv/bin/python validation/drumm_cylinder.py mc --geom $1 --seed $2 --N 500000 \
+      --out $D/mc_$1_n8_500k_s$2_elsepa_split3.npz
 done
-# GMC + SCR (~18 min per convention, 2 seeds)
-M=ml/models/secondary_gmc_water_1mm_30MeV/secondary_gmc.pth; K=ml/models/subcell_kernel_water_1mm_30MeV
-D=validation/results/drumm_water_cylinder
-python validation/drumm_cylinder.py gmc --model $M --kernel $K --N 500000 --n_seeds 2 --mirror --local_photons \
-    --out $D/gmc_n8_500k_mirror_localph.npz
-python validation/drumm_cylinder.py gmc --model $M --kernel $K --N 500000 --n_seeds 2 --mirror --out $D/gmc_n8_500k_mirror.npz
-python validation/drumm_cylinder.py plot --circle $D/mc_circle_n8_500k_s123.npz --stair $D/mc_stair_n8_500k_s123.npz \
-    --stair_noise $D/mc_stair_n8_500k_s1123.npz --gmc $D/gmc_n8_500k_mirror.npz --gmc_lp $D/gmc_n8_500k_mirror_localph.npz
+# GMC + SCR + SCR charge (~27 min per convention, 2 seeds, 3 GB RAM / 9.5 GB GPU)
+M=ml/models/secondary_gmc_water_1mm_30MeV_elsepa/secondary_gmc.pth; K=ml/models/subcell_kernel_water_1mm_30MeV_elsepa
+CK=ml/models/charge_kernel_water_1mm_30MeV_elsepa
+python validation/drumm_cylinder.py gmc --model $M --kernel $K --charge_kernel $CK --N 500000 --n_seeds 2 \
+    --local_photons --out $D/gmc_n8_500k_elsepa_localph.npz
+python validation/drumm_cylinder.py gmc --model $M --kernel $K --charge_kernel $CK --N 500000 --n_seeds 2 \
+    --out $D/gmc_n8_500k_elsepa.npz
+python validation/drumm_cylinder.py plot --circle $D/mc_circle_n8_500k_s123_elsepa_split3.npz \
+    --stair $D/mc_stair_n8_500k_s123_elsepa_split3.npz --stair_noise $D/mc_stair_n8_500k_s1123_elsepa_split3.npz \
+    --gmc $D/gmc_n8_500k_elsepa.npz --gmc_lp $D/gmc_n8_500k_elsepa_localph.npz --out_dir $D/phaseD
+# Phase A physics comparison (analog MC only)
+python validation/drumm_physics_compare.py --runs $D/mc_circle_n8_500k_s123.npz:"EEDL, binary" \
+    $D/mc_circle_n8_500k_s123_elsepa_split3.npz:"ELSEPA, split"
 ```
