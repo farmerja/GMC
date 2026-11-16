@@ -95,9 +95,68 @@ def dir_feats(u, v):
     return np.cos(phi), np.sin(phi), 2.0 * np.clip(r, 0.0, 1.0) - 1.0
 
 
+EDGE_DELTA = 1e-4      # edge features: log10 distance to the bottom / top face, floored at 1e-4 cell
+
+
+def edge_feats(y):
+    """Log distance of the entry point to the two lateral faces, (log10(d + 1e-4) + 2) / 2 in [-1, 1]. The linear 2y - 1
+    gives a network no resolution at a face. Physical edge effects are sharp there: a forward 20 MeV electron entering
+    within 0.06 cell of the bottom face and still leaving through the right face was scattered upward (mean dv
+    +0.004, ~0 by y0 = 0.2). With the linear feature only, the GMC smeared that selection effect into the interior, as
+    a ~1e-3 focusing kick toward the cell middle. In a forward beam it accumulated over ~8 cells into a +-5 %
+    within-cell density modulation (Drumm benchmark, 2026-11-16; validation/flat_beam_chain.py)."""
+    return np.stack([(np.log10(y + EDGE_DELTA) + 2.0) / 2.0, (np.log10(1.0 - y + EDGE_DELTA) + 2.0) / 2.0], 1)
+
+
+def scatter_width_table(T, n_bins=40, min_count=200):
+    """Per-transit angular spread sigma(E) of boundary electrons crossing the cell: rms of v1 - v0 over right-face
+    exits entering in the middle half (y0 in [0.25, 0.75], away from the selection at the faces), in n_bins log-E
+    bins. Bins with too few such transits (low E: electrons rarely cross) take the value of the next higher-energy
+    bin; the table is made non-increasing in E and clipped to [1e-3, 1]. Returns (log10 E centres, sigma)."""
+    spec = T["spec"]
+    m = T["boundary"] & (T["cls"] == 1) & (np.abs(T["y0"] - 0.5) < 0.25)
+    lg = np.log10(np.maximum(T["E0"][m], 1e-300))
+    dv = T["v1"][m] - T["v0"][m]
+    edges = np.linspace(spec.logE_lo, spec.logE_hi, n_bins + 1)
+    b = np.clip(np.digitize(lg, edges) - 1, 0, n_bins - 1)
+    cnt = np.bincount(b, minlength=n_bins)
+    sig = np.sqrt(np.bincount(b, weights=dv * dv, minlength=n_bins) / np.maximum(cnt, 1))
+    sig = np.where(cnt >= min_count, sig, np.nan)
+    if np.all(np.isnan(sig)):
+        sig[:] = 1.0
+    last = np.nanmax(sig)
+    for k in range(n_bins - 1, -1, -1):              # fill gaps from the high-energy side, then make non-increasing
+        if np.isnan(sig[k]):
+            sig[k] = sig[k + 1] if k + 1 < n_bins else last
+    sig = np.maximum.accumulate(sig[::-1])[::-1]
+    return 0.5 * (edges[1:] + edges[:-1]), np.clip(sig, 1e-3, 1.0)
+
+
+def scatter_width(spec, E):
+    return np.interp(np.log10(np.maximum(E, 1e-300)), spec.sig_logE, spec.sig_val)
+
+
+def scale_feats(spec, y, E):
+    """Distance of the entry point to the bottom / top face in units of the transit's angular spread sigma(E) (cells
+    per radian, i.e. how many 'one-cell scattering widths' away the face is): clip(log10(d / sigma + 0.01) / 2, -1, 1).
+    The face-selection effect on the exit (an electron entering near the bottom face that still leaves through the
+    right face was scattered upward) is a near-universal function of d / sigma. With y0 and E as separate inputs the
+    network leaked the strong low-energy profile (E[dv | y0 = 0.3] ~ +0.03 at 1-3 MeV) into the 20 MeV exits as a
+    ~1e-3 focusing kick, which a forward beam accumulates over ~8 cells (Drumm benchmark, 2026-11-16)."""
+    sg = scatter_width(spec, E)
+    f = lambda d: np.clip(np.log10(d / sg + 0.01) / 2.0, -1.0, 1.0)  # noqa: E731
+    return np.stack([f(y), f(1.0 - y)], 1)
+
+
 def boundary_cond(spec, y, u, v, E):
     c, s, r = dir_feats(u, v)
-    return np.stack([2.0 * y - 1.0, c, s, r, spec.e_feat(E)], 1).astype(np.float32)
+    base = np.stack([2.0 * y - 1.0, c, s, r, spec.e_feat(E)], 1)
+    yc = np.clip(y, 0.0, 1.0)
+    if getattr(spec, "edge_feats", False):
+        base = np.concatenate([base, edge_feats(yc)], 1)
+    if getattr(spec, "scale_feats", False):
+        base = np.concatenate([base, scale_feats(spec, yc, E)], 1)
+    return base.astype(np.float32)
 
 
 def interior_cond(spec, x, y, u, v, E):
@@ -111,21 +170,93 @@ def parent_feats(spec, start, x, y, u, v, E):
                            interior_cond(spec, x, y, u, v, E)], 1)
 
 
-def exit_targets(cls, x1, y1, u1, v1, E0, E1, E_cut):
-    """(s, psi, r, lambda) encoded for the exit flow (exits only)."""
+REF_S_CLIP = 0.01      # ray-relative exit encoding: reference face coordinate kept in [0.01, 0.99]
+REF_PSI_CLIP = 0.95    # and reference angle in +-0.95 * pi/2
+
+
+def exit_reference(cls, x0, y0, u0, v0):
+    """Straight-line continuation of the entry state, in the exit flow's coordinates (ray-relative encoding).
+
+    s_ref: face coordinate on exit face `cls` where the ray (x0, y0) + t (u0, v0), t > 0, meets that face's line, or,
+    if the ray never meets it going forward, of the perpendicular projection of the entry point onto it; clipped to
+    [REF_S_CLIP, 1 - REF_S_CLIP]. psi_ref: the entry direction's angle from that face's outward normal, clipped to
+    +-REF_PSI_CLIP * pi/2. Both are deterministic in the condition, so the encoding is invertible.
+    Motivation (2026-11-16, Drumm benchmark): with absolute targets the flow must place a narrow exit distribution
+    (forward 20 MeV electron in 1 mm water: sd 0.075 cell) at a location that moves with y0. The residual y0-dependent
+    mean error of ~1e-3 cell in position and direction accumulated coherently over ~8 cells of a forward beam (an
+    electron keeps its within-cell coordinate) into a +-5 % within-cell dose modulation. Relative to the ray the
+    target is almost independent of y0, so what error is left is nearly uniform (a drift, cancelled by symmetry)."""
+    n = len(cls)
+    vf = UNIT_SQUARE_VERTS[np.asarray(cls) % NF]
+    ef = UNIT_SQUARE_VERTS[(np.asarray(cls) + 1) % NF] - vf
+    nrm = np.stack([ef[:, 1], -ef[:, 0]], 1)                 # outward normal (counter-clockwise vertices)
+    p0 = np.stack([x0, y0], 1)
+    rr = np.maximum(np.sqrt(u0 * u0 + v0 * v0), 1e-12)
+    d = np.stack([u0, v0], 1) / rr[:, None]
+    dn = (d * nrm).sum(1)
+    gap = ((vf - p0) * nrm).sum(1)                           # distance from the entry point to the face line (>= 0)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        t = np.where(dn > 1e-9, gap / dn, 0.0)
+    q = p0 + t[:, None] * d
+    s_ref = np.clip(((q - vf) * ef).sum(1), REF_S_CLIP, 1 - REF_S_CLIP)
+    mu_n, mu_t = direction_to_face_frame_2d(UNIT_SQUARE_VERTS, np.asarray(cls), d[:, 0], d[:, 1])
+    psi_ref = np.clip(np.arctan2(mu_t, mu_n) / (0.5 * np.pi), -REF_PSI_CLIP, REF_PSI_CLIP) * 0.5 * np.pi
+    assert len(s_ref) == n
+    return s_ref, psi_ref
+
+
+SCALED_CLASS = 1      # scaled encoding: only exits through the face opposite the canonical entry (through-going)
+
+
+def _scaled_map(cls, ref, scale):
+    """(mask of scaled rows, s_ref, psi_ref, position factor, angle factor) of the scaled-relative encoding."""
+    s_ref, psi_ref = exit_reference(cls, *ref)
+    m = np.asarray(cls) == SCALED_CLASS
+    fs = s_ref * (1.0 - s_ref) / scale          # logit difference x s_ref (1 - s_ref) ~ face-coordinate difference
+    fp = 0.5 * np.pi / scale                    # atanh difference x pi/2 ~ angle difference
+    return m, s_ref, psi_ref, fs, fp
+
+
+def exit_targets(cls, x1, y1, u1, v1, E0, E1, E_cut, ref=None, scale=None):
+    """(s, psi, r, lambda) encoded for the exit flow (exits only). ref = (x0, y0, u0, v0) of the entry: encode s and
+    psi relative to the straight-line continuation (exit_reference) instead of absolutely.
+    scale (per-row scattering width sigma(E), needs ref): through-going exits (cls == SCALED_CLASS) are encoded
+    relative to the ray AND divided by sigma(E), so every energy's exit distribution is O(1) wide in the flow's
+    standardized space; the other exit faces keep the absolute encoding (scaled, they would be far-out outliers).
+    Why: with global standardization a 20 MeV through-going exit is ~0.1 wide in the flow's units, so the network's
+    absolute error floor (~1e-3) was 1-2 % of its width, with a y0-dependent part a forward beam accumulates
+    (Drumm benchmark, 2026-11-16)."""
     pts = np.stack([x1, y1], 1)
     s = polygon_face_coordinate(UNIT_SQUARE_VERTS, cls, pts)
     mu_n, mu_t = direction_to_face_frame_2d(UNIT_SQUARE_VERTS, cls, u1, v1)
     r = np.sqrt(u1 * u1 + v1 * v1)
     psi = np.arctan2(mu_t, np.maximum(mu_n, 1e-12))      # (-pi/2, pi/2): always outgoing
     lam = (E0 - E1) / np.maximum(E0 - E_cut, 1e-300)
-    return np.stack([logit(s), np.arctanh(np.clip(psi / (0.5 * np.pi), -1 + EPS, 1 - EPS)), logit(r),
-                     logit(lam, 1e-12)], 1)
+    zs = logit(s)
+    zp = np.arctanh(np.clip(psi / (0.5 * np.pi), -1 + EPS, 1 - EPS))
+    if scale is not None:
+        m, s_ref, psi_ref, fs, fp = _scaled_map(cls, ref, scale)
+        zs = np.where(m, (zs - logit(s_ref)) * fs, zs)
+        zp = np.where(m, (zp - np.arctanh(psi_ref / (0.5 * np.pi))) * fp, zp)
+    elif ref is not None:
+        s_ref, psi_ref = exit_reference(cls, *ref)
+        zs = zs - logit(s_ref)
+        zp = zp - np.arctanh(psi_ref / (0.5 * np.pi))
+    return np.stack([zs, zp, logit(r), logit(lam, 1e-12)], 1)
 
 
-def decode_exit(z, cls, E0, E_cut):
-    s = sigmoid(z[:, 0])
-    psi = 0.5 * np.pi * np.tanh(z[:, 1])
+def decode_exit(z, cls, E0, E_cut, ref=None, scale=None):
+    zs, zp = z[:, 0], z[:, 1]
+    if scale is not None:
+        m, s_ref, psi_ref, fs, fp = _scaled_map(cls, ref, scale)
+        zs = np.where(m, zs / fs + logit(s_ref), zs)
+        zp = np.where(m, zp / fp + np.arctanh(psi_ref / (0.5 * np.pi)), zp)
+    elif ref is not None:
+        s_ref, psi_ref = exit_reference(cls, *ref)
+        zs = zs + logit(s_ref)
+        zp = zp + np.arctanh(psi_ref / (0.5 * np.pi))
+    s = sigmoid(zs)
+    psi = 0.5 * np.pi * np.tanh(zp)
     r = sigmoid(z[:, 2])
     lam = sigmoid(z[:, 3])
     p = polygon_face_point(UNIT_SQUARE_VERTS, cls, s)
@@ -262,7 +393,9 @@ def classifier_data(T, kind, augment=True):
     return np.concatenate(conds), np.concatenate(labs)
 
 
-def exit_flow_data(T, kind, augment=True):
+def exit_flow_data(T, kind, augment=True, rel=False, scaled=False):
+    """rel: ray-relative position / angle targets (exit_reference); scaled: through-going exits ray-relative and
+    divided by the scattering width sigma(E) (exit_targets)."""
     spec = T["spec"]
     rows = np.flatnonzero(T[kind] & (T["cls"] < NF))
     conds, tgts = [], []
@@ -274,7 +407,9 @@ def exit_flow_data(T, kind, augment=True):
                                 (np.minimum(T["n_rel"][rows], spec.NR) / spec.NR).reshape(-1, 1),
                                 T["flag"][rows].reshape(-1, 1)], 1).astype(np.float32)
         conds.append(np.concatenate([base, extra], 1))
-        tgts.append(exit_targets(cls, x1, y1, u1, v1, T["E0"][rows], T["E_out"][rows], spec.E_cut))
+        tgts.append(exit_targets(cls, x1, y1, u1, v1, T["E0"][rows], T["E_out"][rows], spec.E_cut,
+                                 ref=(x0, y0, u0, v0) if (rel or scaled) else None,
+                                 scale=scatter_width(spec, T["E0"][rows]) if scaled else None))
     return np.concatenate(conds), np.concatenate(tgts).astype(np.float32)
 
 
@@ -456,7 +591,8 @@ def save_models(out_dir, spec, models):
         else:
             blob[name] = {"kind": "flow", "state": m["model"].state_dict(), "mu": m["mu"], "sd": m["sd"],
                           "cond_dim": m["cond_dim"], "target_dim": m["target_dim"], "arch": m["arch"],
-                          "history": m.get("history", [])}
+                          "history": m.get("history", []), "rel": bool(m.get("rel", False)),
+                          "scaled": bool(m.get("scaled", False))}
     torch.save(blob, os.path.join(out_dir, "secondary_gmc.pth"))
 
 
@@ -478,7 +614,8 @@ def load_models(path, device):
             m.load_state_dict(b["state"])
             models[name] = {"kind": "flow", "model": m.to(device).eval(), "mu": b["mu"], "sd": b["sd"],
                             "cond_dim": b["cond_dim"], "target_dim": b["target_dim"], "arch": a,
-                            "history": b.get("history", [])}
+                            "history": b.get("history", []), "rel": bool(b.get("rel", False)),
+                            "scaled": bool(b.get("scaled", False))}
     return spec, models
 
 
@@ -534,7 +671,10 @@ class SecondaryGMC:
             extra = np.concatenate([np.eye(NF, dtype=np.float32)[cls[ex]], (nr[ex] / spec.NR).reshape(-1, 1),
                                     flag[ex].reshape(-1, 1)], 1).astype(np.float32)
             z = self._flow("exit_" + which, np.concatenate([cond[ex], extra], 1))
-            x1, y1, u1, v1, r1, E1 = decode_exit(z, cls[ex], E0[ex], spec.E_cut)
+            fm = self.m["exit_" + which]
+            ref = (x0[ex], y0[ex], u0[ex], v0[ex]) if (fm.get("rel") or fm.get("scaled")) else None
+            scale = scatter_width(spec, E0[ex]) if fm.get("scaled") else None
+            x1, y1, u1, v1, r1, E1 = decode_exit(z, cls[ex], E0[ex], spec.E_cut, ref=ref, scale=scale)
             out["x"][ex], out["y"][ex], out["u"][ex], out["v"][ex], out["E_out"][ex] = x1, y1, u1, v1, E1
             out["w"][ex] = self.rng.choice([-1.0, 1.0], ex.size) * np.sqrt(np.clip(1 - r1 * r1, 0, 1))
         budget = E0 - out["E_out"]
@@ -596,11 +736,22 @@ def cmd_train(args):
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     T = load_tables(args.train_npz, NR=args.NR, max_rows=args.max_rows)
     spec = T["spec"]
+    spec.edge_feats = bool(args.edge_feats)
+    spec.scale_feats = bool(args.scale_feats)
+    if spec.scale_feats or args.exit_scaled:
+        lg, sg = scatter_width_table(T)
+        spec.sig_logE, spec.sig_val = lg.tolist(), sg.tolist()
+        print("scatter width sigma(E) (rms v1 - v0 per transit): " + ", ".join(
+            f"{10 ** a:.3g} MeV {b:.3f}" for a, b in list(zip(lg, sg))[::5]))
     models, info = {}, {}
     only = set(args.only.split(",")) if args.only else None
     prev = None
     if only is not None and os.path.exists(os.path.join(args.out, "secondary_gmc.pth")):
-        _, prev = load_models(os.path.join(args.out, "secondary_gmc.pth"), dev)
+        prev_spec, prev = load_models(os.path.join(args.out, "secondary_gmc.pth"), dev)
+        for flag in ("edge_feats", "scale_feats"):
+            if bool(getattr(prev_spec, flag, False)) != getattr(spec, flag) and not {"clf_B", "exit_B"} <= only:
+                raise ValueError(f"--{flag} changes the boundary condition vector: retrain clf_B and exit_B together "
+                                 "(--only clf_B,exit_B,...) or match the existing checkpoint's setting")
 
     def want(name):
         return only is None or name in only
@@ -619,10 +770,14 @@ def cmd_train(args):
             info[name] = {"rows": int(len(lab)), "val_nll": hist["val"][-1]}
         name = "exit_" + which
         if want(name):
-            cond, tgt = exit_flow_data(T, kind)
-            print(f"\n== {name}: {len(tgt)} rows, cond {cond.shape[1]}, target {tgt.shape[1]}")
+            scaled = args.exit_scaled and kind == "boundary"
+            cond, tgt = exit_flow_data(T, kind, rel=args.exit_rel, scaled=scaled)
+            print(f"\n== {name}: {len(tgt)} rows, cond {cond.shape[1]}, target {tgt.shape[1]}"
+                  f"{' (ray-relative s, psi)' if args.exit_rel else ''}"
+                  f"{' (through-going exits ray-relative / sigma(E))' if scaled else ''}")
             models[name] = {"kind": "flow", **train_flow(cond, tgt, dev, epochs=args.flow_epochs, label=name,
-                                                         max_steps=args.max_steps)}
+                                                         max_steps=args.max_steps), "rel": args.exit_rel,
+                            "scaled": scaled}
             info[name] = {"rows": int(len(tgt))}
     if want("daughter"):
         cond, tgt = daughter_flow_data(T)
@@ -716,6 +871,18 @@ def main():
     t.add_argument("--max_rows", type=int, default=None, help="use only the first rows (smoke tests)")
     t.add_argument("--only", default=None, help="comma list of models to (re)train; others kept from --out")
     t.add_argument("--stop", action="store_true", help="also train the stop-point flow (charge tally) in a full run")
+    t.add_argument("--exit_rel", action="store_true",
+                   help="exit flows learn position / angle relative to the entry ray's straight-line continuation "
+                        "(exit_reference); stored per model, so old checkpoints keep the absolute encoding")
+    t.add_argument("--edge_feats", action="store_true",
+                   help="boundary models also see the log distance of the entry point to the lateral faces "
+                        "(edge_feats; stored in the spec, affects clf_B and exit_B)")
+    t.add_argument("--scale_feats", action="store_true",
+                   help="boundary models also see the distance to the lateral faces in units of the per-transit "
+                        "scattering width sigma(E) measured from the training data (scale_feats; affects clf_B, exit_B)")
+    t.add_argument("--exit_scaled", action="store_true",
+                   help="boundary exit flow: through-going exits encoded relative to the entry ray and divided by "
+                        "sigma(E) (exit_targets); stored per model")
     args = ap.parse_args()
     if args.cmd == "train":
         cmd_train(args)

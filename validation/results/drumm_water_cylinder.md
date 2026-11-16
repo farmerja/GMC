@@ -400,12 +400,107 @@ and here the beam profile inside a 1 mm cell is sharply peaked. Transport is not
 - GMC + SCR follows ITS in all across-beam energy panels and in all four charge panels. The saw-tooth of the first
   runs is gone.
 
+## Phase E: the on-axis GMC + SCR dip is a GMC chaining artifact, not the SCR kernel (2026-11-16)
+
+**Symptom.** Like for like (photons escape), GMC + SCR reads 3–5 % low on the y = 0 strip at x = −0.75 … 0.
+Cell energies agree to 0.8 %.
+
+**Diagnosis, in order:**
+1. **The SCR kernel is fine.** `validation/scr_edge_diag.py` (held-out 2M set, 300k transits above 1 MeV, K = 1024)
+   compares the dose the kernel puts in 31 µm and 125 µm strips along every face with the truth. All ratios are within
+   about 1 %, including entries right at a face and beam-like transits.
+2. **The error is a fixed pattern in cell coordinates.** In the Drumm maps, GMC + SCR / MC by 125 µm sub-row is the same
+   in every cell around the axis: [0.95, 0.98, 1.02, 1.02, 1.04, 1.05, 1.01, 0.99]. It is the same whether the dose
+   rises, falls or peaks across the cell. The y = 0 strip is the edge row of both axis cells, so it reads low.
+3. **It comes from the GMC chain.** `validation/flat_beam_chain.py` sends a uniform 20 MeV beam into a 10 × 12-cell water
+   slab. The truth is exactly flat inside every cell; the analog chain (`MCCellKernel`) is flat within noise. The GMC
+   chain builds the same pattern in the entry positions, growing over cells 2–7 to 4.6 % rms, then decaying as the beam
+   spreads in angle. It is absent in cell 1, which has exact source entries.
+4. **Cause.** Re-sampled on the analog chain's own 2.7M left-entry states, the GMC's mean exit position and direction
+   depend slightly on the entry point y0. The exit direction is pulled toward y ≈ 0.65 by about ±1e-3 (up to 11σ).
+   Lateral exits near the bottom face are 2.8 % too frequent.
+   - These errors are about 1 % of the 0.075-cell spread of a single transit.
+   - A 20 MeV electron keeps its position within the cell for many cells, so they add up coherently.
+   - A pull of 1e-3 against a diffusion of 0.075² per cell gives a ±5 % modulation, as observed.
+5. **What did not help:**
+   - ray-relative exit targets alone (`--exit_rel`);
+   - log-distance-to-face inputs (`--edge_feats`): fixes the classifier's lateral-exit excess, not the exit flow;
+   - face distance in units of σ(E) (`--scale_feats`);
+   - 200 instead of 50 ODE steps.
+
+   The flow's error changes shape from one training run to the next. So it is a precision floor of the network, not a
+   missing input.
+6. **What helped: per-energy target scaling (`--exit_scaled`).** The exit flow used to standardize targets over
+   1 keV–30 MeV. A 20 MeV through-going exit was then only about 0.07 (angle) of the global sd wide, and the network's
+   error floor was 1–2 % of that width. Through-going exits are now encoded relative to the entry ray and divided by
+   the scattering width σ(E), measured from the training data. This gives about 20× more resolution at 20 MeV; the other
+   exit faces keep the absolute encoding. Longer training (60 epochs) and inference symmetrization (`--mirror`) add to it.
+
+![](drumm_water_cylinder/flat_beam/flat_beam_pattern.png)
+
+Flat-beam within-cell rms (truth: analog chain 0.4–0.9 %, counting noise):
+
+| model (`ml/models/secondary_gmc_water_1mm_30MeV_elsepa*`) | cell 6 | cell 8 | cell 10 | one-transit dv χ²/bin |
+|---|---|---|---|---|
+| current (absolute, 20 epochs) | 4.6 % | 4.2 % | 2.9 % | 35 |
+| `_ep60` (absolute, 60 epochs) | 2.7 % | 2.6 % | 2.3 % | 17 |
+| `_xs` (scaled, 20 epochs) | 2.3 % | 2.5 % | 1.7 % | 32 |
+| `_xs60` (scaled, 60 epochs) | 1.5 % | 1.6 % | 0.9 % | 6.2 |
+| `_xs60` + MirrorY | 1.6 % | 1.0 % | 0.4 % | — |
+
+The `_rel`, `_edge` and `_scale` variants were 5.6, 6.0 and 6.1 % at cell 6, all worse than the current model.
+
+What remains in `_xs60` sits in the two face rows (about 2–3 % low). The likely source is the classifier's lateral-exit
+excess near the faces, which `--edge_feats` fixed. The combined model (`--edge_feats --exit_scaled --flow_epochs 60`)
+was started but stopped unfinished.
+
+**Drumm rerun with `_xs60` + MirrorY** (GMC + SCR only, against the existing MC staircase references): see
+`drumm_water_cylinder/phaseE/dip_compare.png` and `.json` (`validation/drumm_dip_compare.py`).
+
+![](drumm_water_cylinder/phaseE/dip_compare.png)
+
+Like-for-like comparison, photons escape, against the 2-seed MC staircase mean:
+
+| | current model (500k × 2) | `_xs60` + MirrorY (200k × 1) | MC seed vs seed |
+|---|---|---|---|
+| within-cell row pattern rms | 3.2 % | 0.9 % | 0.3 % |
+| axis strip mean / min (x = −0.95 … 0.95) | 0.977 / 0.948 | 0.993 / 0.974 | 0.998 / 0.989 |
+| axis strip rms deviation | 2.8 % | 1.1 % | 0.5 % |
+| fine-map relL2 (125 µm) | 3.0 % | 1.9 % (includes the noise of one 200k run) | 1.3 % |
+| cell relL2 (1 mm) | 0.9 % | 0.9 % | 0.3 % |
+
+The dip is cut by about 3×. The remaining row pattern, [0.99, 1.02, 1.02, 1.01, 1.02, 1.01, 1.01, 0.99], is the
+face-row deficit the edge-feature classifier should remove. The 200k single-seed run was a time-limited check: the
+full 500k × 2-seed rerun, both photon conventions, and the `plot` figures vs ITS are still to do. The MC references
+were not rerun.
+
+Commands:
+```bash
+R=validation/results/drumm_water_cylinder/flat_beam; TR=../ElectronTransport/analog_water_1mm_1keV-30MeV_log_10M_42_elsepa.npz
+(cd ../ElectronTransport && .venv/bin/python ../GMC/validation/flat_beam_chain.py mc --out ../GMC/$R/flat_mc_300k.npz)  # 10 min
+# model: copy the current checkpoint, retrain only the boundary exit flow (20 min)
+python ml/secondary_gmc.py train --train_npz $TR --out ml/models/secondary_gmc_water_1mm_30MeV_elsepa_xs60 \
+    --only exit_B --exit_scaled --flow_epochs 60
+python validation/flat_beam_chain.py gmc --model ml/models/secondary_gmc_water_1mm_30MeV_elsepa_xs60/secondary_gmc.pth \
+    --mirror --out $R/flat_gmc_xs60_mirror_300k.npz                                                                  # 2 min
+python validation/flat_beam_chain.py compare --runs $R/flat_mc_300k.npz $R/flat_gmc_xs60_mirror_300k.npz \
+    --transit_model ml/models/secondary_gmc_water_1mm_30MeV_elsepa_xs60/secondary_gmc.pth
+python validation/scr_edge_diag.py --model ml/models/subcell_kernel_water_1mm_30MeV_elsepa \
+    --test_npz ../ElectronTransport/analog_water_1mm_1keV-30MeV_log_2M_7_elsepa.npz
+```
+
 ## Next session
+
+0. Finish the dip fix:
+   - train the combined boundary model (`--only clf_B,exit_B --edge_feats --exit_scaled --flow_epochs 60`);
+   - flat-beam check, then the full 500k × 2-seed Drumm rerun (both photon conventions) and `plot`;
+   - check `validation/secondary_cell_compare.py` on the new model, so low energies are not worse;
+   - if it holds, make it the default for Cu / Al / water (step 1 below).
 
 1. Retrain the 100 µm Cu / Al / water GMCs (and kernels) on the regenerated `_elsepa` sets. Re-check the Cu/Al
    chains for drift.
-2. SCR lateral bias at high energy (2–5 %, the dominant fine-energy error here). Candidates: more kernel capacity or
-   training, and conditioning on the entry/exit chord.
+2. ~~SCR lateral bias at high energy~~: not the kernel. It was the GMC chaining artifact of Phase E. The kernel's own
+   2–5 % entry-aligned lateral bias is still worth a look, but it is not the cause of the dip.
 3. More histories for the fine charge comparison vs ITS (≥ 2M).
 4. Optional physics:
    - density-effect correction (Sternheimer) for condensed-phase stopping power;
