@@ -227,6 +227,7 @@ atoms have no density effect), and our radiative stopping power is 0–7 % below
 ## Timing
 
 One machine: 16 CPU threads, RTX 5080. The MC and GMC runs overlapped and shared the CPU, so treat them as ±30 %.
+Clean timings and batch memory with the Phase F models: see "Phase F" (sweep and "Batch size and memory").
 
 | step | wall time | notes |
 |---|---|---|
@@ -716,6 +717,31 @@ GMC and 83 min for the SCR kernel (training alone would be shorter).
   460k primaries (30 min of MC). GMC + SCR needs about 11.5 min at 50 ODE steps, or 5.3 min at 20: near its bias
   floor it needs more primaries than the MC.
 - Below about 0.8 % the GMC's bias floor makes the analog MC the better choice for this problem.
+
+### Batch size and memory (2026-11-17)
+
+`validation/drumm_batch_memory.py`: one Drumm batch (x2 GMC, 20 ODE steps, MirrorY) plus the SCR tally (K = 32),
+one batch size per process, nothing else running.
+
+| batch (primaries) | chain ms / primary | SCR tally ms / primary | peak RAM | transit log | peak GPU allocated, chain / tally |
+|---|---|---|---|---|---|
+| 25k | 0.36 | 0.28 | 1.8 GB | 0.12 GB (0.64M rows) | 0.47 / 1.69 GB |
+| 100k | 0.29 | 0.28 | 2.5 GB | 0.49 GB (2.56M rows) | 1.55 / 1.69 GB |
+| 400k | 0.27 | 0.27 | 5.3 GB | 1.97 GB (10.3M rows) | 3.55 / 1.69 GB |
+
+About **2M primaries** fit in one batch on this machine (29 GB RAM, 16 GB GPU). Keep it at or below about 1M for
+headroom.
+- **RAM:** about 1.5 GB fixed (models, CUDA context) plus about 9.5 KB per primary. About half of that is the
+  transit log (about 25 rows of 190 bytes per primary), the rest the particle bank and step temporaries. With about
+  20 GB usable, that allows about 1.9M primaries.
+- **GPU:** the chain grows about 6.7 KB per primary. `sample_flow` works in fixed chunks of 262k rows, but the
+  classifier and the condition tensors take every particle of a step at once. On 16 GB that allows about 2M.
+  The SCR tally is chunked (2^19 points) and stays at 1.7 GB.
+- The 2M figure is extrapolated from three points.
+- Memory scales with transits, not primaries: about 370 bytes of RAM per transit. Problems with more transits per
+  primary (bigger grids, smaller cells, higher energy) fit proportionally fewer primaries per batch.
+- Bigger batches are not worth it. From 100k to 400k the chain gets only 7 % faster per primary, and batches are
+  summed, so accuracy does not depend on batch size. The default stays at 100k.
 
 **Single-cell held-out check** of `_x2` on the 2M test set (`validation/results/secondary_cell_water_1mm_30MeV_elsepa_x2/`):
 
