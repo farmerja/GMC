@@ -596,6 +596,11 @@ references as Phase D.
 ![](drumm_water_cylinder/phaseF/fig8b_charge.png)
 ![](drumm_water_cylinder/phaseF/gmc_vs_mc.png)
 
+Dose maps (photons local, log scale): analog MC on the true circle and on the staircase, GMC + SCR (one seed,
+125 µm) and the GMC cell averages. The Nov 12 version is linked under "Results" above.
+
+![](drumm_water_cylinder/phaseF/dose_maps.png)
+
 Like for like (1 mm staircase), GMC + SCR vs analog MC; `metrics.json` in each folder:
 
 | | Phase D | **Phase F** | analog MC noise (one run) |
