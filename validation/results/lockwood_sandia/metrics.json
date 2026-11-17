@@ -1,0 +1,610 @@
+{
+ "al_1.0_0": {
+  "E_exp": 1.033,
+  "E_nom": 1.0,
+  "angle": 0,
+  "material": "Al",
+  "csda_range_paper_exp": 0.569,
+  "csda_range_lib_exp": 0.5868612972519037,
+  "backscatter_energy_fraction": 0.04162552119451937,
+  "backscatter_number_primaries": 0.091605,
+  "mc_ms_per_primary": 1.1172232127189636,
+  "gmc_ms_per_primary_chain": 0.4990234279632568,
+  "gmc_ms_per_primary_with_scr": 1.1300142341852188,
+  "gmc_backscatter_energy_fraction": 0.04229549275129754,
+  "gmc_total": [
+   0.9795448870745385,
+   3.1444716781126036e-05
+  ],
+  "scr_total": [
+   0.9795448870745385,
+   3.144471678157012e-05
+  ],
+  "csda_range_tiger_inferred": 0.5501730103806227,
+  "tiger_compared_at": "nominal",
+  "csda_range_lib_nom": 0.5640929588651283,
+  "total_escape": [
+   0.9800907804811745,
+   0.0003804800470119589
+  ],
+  "exp_rms_rel_escape": 0.02893212812770973,
+  "exp_mean_rel_escape": 0.02212052848809817,
+  "total_fluor_local": [
+   0.9815218444324746,
+   0.0003803151544680942
+  ],
+  "exp_rms_rel_fluor_local": 0.030102501461959724,
+  "exp_mean_rel_fluor_local": 0.02364169961606415,
+  "total_all_local": [
+   0.9900008366060018,
+   0.00038828072582361976
+  ],
+  "exp_rms_rel_all_local": 0.0375763283527176,
+  "exp_mean_rel_all_local": 0.0336758189414311,
+  "tiger_rms_rel_escape": 0.03543168450714819,
+  "tiger_mean_rel_escape": -0.010156619104313492,
+  "tiger_vs_exp_rms_rel": 0.05217209854640643,
+  "tiger_vs_exp_mean_rel": 0.02860438700810462,
+  "total_exp": 0.97,
+  "total_tiger": 0.954,
+  "total_escape_nominal": [
+   0.948248080427318,
+   0.0002434556712947525
+  ],
+  "gmc_cell_vs_mc_rms_rel": 0.010431451832298036,
+  "gmc_cell_vs_mc_mean_rel": 0.0015390742660072662,
+  "cells_in_range": 21.08188217858466,
+  "scr_bin_fmr": 0.007115114235500878,
+  "scr_vs_mc_rms_rel": 0.012307735657016825,
+  "scr_vs_mc_mean_rel": 0.0018680210877185521,
+  "scr_vs_mc_surface_bin_rel": -0.007492702806320972,
+  "mc_noise_rms_rel": 0.005719726901516927,
+  "scr_noise_rms_rel": 0.0037212851392468493,
+  "scr_exp_rms_rel": 0.03138358817418516,
+  "scr_exp_mean_rel": 0.023153524557731665
+ },
+ "al_1.0_60": {
+  "E_exp": 1.033,
+  "E_nom": 1.0,
+  "angle": 60,
+  "material": "Al",
+  "csda_range_paper_exp": 0.569,
+  "csda_range_lib_exp": 0.5868612972519037,
+  "backscatter_energy_fraction": 0.2114007926573421,
+  "backscatter_number_primaries": 0.33495,
+  "mc_ms_per_primary": 0.9288929414749145,
+  "gmc_ms_per_primary_chain": 0.190707848072052,
+  "gmc_ms_per_primary_with_scr": 0.5635153728723526,
+  "gmc_backscatter_energy_fraction": 0.21149198625813226,
+  "gmc_total": [
+   0.8062628313855719,
+   0.0009674854825324486
+  ],
+  "scr_total": [
+   0.8062628313855725,
+   0.0009674854825328927
+  ],
+  "csda_range_tiger_inferred": 0.5503750964032814,
+  "tiger_compared_at": "nominal",
+  "csda_range_lib_nom": 0.5640929588651283,
+  "total_escape": [
+   0.8062634960268659,
+   0.0007103316732579311
+  ],
+  "exp_rms_rel_escape": 0.04747126277703809,
+  "exp_mean_rel_escape": 0.04529833690439762,
+  "total_fluor_local": [
+   0.8074492674579659,
+   0.0007121092808377361
+  ],
+  "exp_rms_rel_fluor_local": 0.04899166867237733,
+  "exp_mean_rel_fluor_local": 0.046872327762229334,
+  "total_all_local": [
+   0.8146229811849407,
+   0.0006602399802464377
+  ],
+  "exp_rms_rel_all_local": 0.06054277666900115,
+  "exp_mean_rel_all_local": 0.05838786872805891,
+  "tiger_rms_rel_escape": 0.032488473955381805,
+  "tiger_mean_rel_escape": -0.006672234341232339,
+  "tiger_vs_exp_rms_rel": 0.0682329142360007,
+  "tiger_vs_exp_mean_rel": 0.033544528142106636,
+  "total_exp": 0.759,
+  "total_tiger": 0.785,
+  "total_escape_nominal": [
+   0.7788431247141021,
+   0.0007270424560750018
+  ],
+  "gmc_cell_vs_mc_rms_rel": 0.006248044288196517,
+  "gmc_cell_vs_mc_mean_rel": -0.0025890046617267517,
+  "cells_in_range": 21.08188217858466,
+  "scr_bin_fmr": 0.007115114235500878,
+  "scr_vs_mc_rms_rel": 0.008294100440573644,
+  "scr_vs_mc_mean_rel": -0.0029325075133563314,
+  "scr_vs_mc_surface_bin_rel": 0.005416806627214887,
+  "mc_noise_rms_rel": 0.0057926282347462756,
+  "scr_noise_rms_rel": 0.005107549039324113,
+  "scr_exp_rms_rel": 0.052247190830111805,
+  "scr_exp_mean_rel": 0.048925277250915715
+ },
+ "al_0.5_0": {
+  "E_exp": 0.521,
+  "E_nom": 0.5,
+  "angle": 0,
+  "material": "Al",
+  "csda_range_paper_exp": 0.234,
+  "csda_range_lib_exp": 0.24597162066645514,
+  "backscatter_energy_fraction": 0.06007341705736236,
+  "backscatter_number_primaries": 0.118085,
+  "mc_ms_per_primary": 0.5673742783069611,
+  "gmc_ms_per_primary_chain": 0.10155941724777222,
+  "gmc_ms_per_primary_with_scr": 0.31080184161663055,
+  "gmc_backscatter_energy_fraction": 0.05875055358529504,
+  "gmc_total": [
+   0.4873065479648667,
+   3.695163877023844e-05
+  ],
+  "scr_total": [
+   0.48730654796486594,
+   3.695163877034946e-05
+  ],
+  "csda_range_tiger_inferred": 0.22434981423263786,
+  "tiger_compared_at": "nominal",
+  "csda_range_lib_nom": 0.2327729180016622,
+  "total_escape": [
+   0.4865964422728378,
+   0.00023004998601385828
+  ],
+  "exp_rms_rel_escape": 0.04131824618380891,
+  "exp_mean_rel_escape": 0.015857502964697963,
+  "total_fluor_local": [
+   0.4872722233876378,
+   0.0002308684128645611
+  ],
+  "exp_rms_rel_fluor_local": 0.041856724422272625,
+  "exp_mean_rel_fluor_local": 0.017261995738816704,
+  "total_all_local": [
+   0.4897017497131575,
+   0.00024438039948611925
+  ],
+  "exp_rms_rel_all_local": 0.043635251904335294,
+  "exp_mean_rel_all_local": 0.022535547635536016,
+  "tiger_rms_rel_escape": 0.041146243031718925,
+  "tiger_mean_rel_escape": -0.0010057606467086774,
+  "tiger_vs_exp_rms_rel": 0.03497851602498864,
+  "tiger_vs_exp_mean_rel": 0.024974128244489316,
+  "total_exp": 0.479,
+  "total_tiger": 0.471,
+  "total_escape_nominal": [
+   0.4666484781066361,
+   0.0002435805447724285
+  ],
+  "gmc_cell_vs_mc_rms_rel": 0.012915633284589598,
+  "gmc_cell_vs_mc_mean_rel": 0.0055455382381139895,
+  "cells_in_range": 8.669877732493516,
+  "scr_bin_fmr": 0.005767094017094017,
+  "scr_vs_mc_rms_rel": 0.015156288359380527,
+  "scr_vs_mc_mean_rel": 0.00431549520213071,
+  "scr_vs_mc_surface_bin_rel": -0.012219130300793135,
+  "mc_noise_rms_rel": 0.006334021264082663,
+  "scr_noise_rms_rel": 0.004031524437071726,
+  "scr_exp_rms_rel": 0.045449712575043676,
+  "scr_exp_mean_rel": 0.015627694257090707
+ },
+ "al_0.5_60": {
+  "E_exp": 0.521,
+  "E_nom": 0.5,
+  "angle": 60,
+  "material": "Al",
+  "csda_range_paper_exp": 0.234,
+  "csda_range_lib_exp": 0.24597162066645514,
+  "backscatter_energy_fraction": 0.24480665469939297,
+  "backscatter_number_primaries": 0.363455,
+  "mc_ms_per_primary": 0.45696837186813355,
+  "gmc_ms_per_primary_chain": 0.07679218173027039,
+  "gmc_ms_per_primary_with_scr": 0.2298852598667145,
+  "gmc_backscatter_energy_fraction": 0.24164147805621902,
+  "gmc_total": [
+   0.3925896445782344,
+   2.9278172109320485e-05
+  ],
+  "scr_total": [
+   0.3925896445782352,
+   2.927817210959804e-05
+  ],
+  "csda_range_tiger_inferred": 0.2238368686276808,
+  "tiger_compared_at": "nominal",
+  "csda_range_lib_nom": 0.2327729180016622,
+  "total_escape": [
+   0.39085464851154483,
+   0.00030663350301554074
+  ],
+  "exp_rms_rel_escape": 0.0170523612024062,
+  "exp_mean_rel_escape": 0.002163594437702683,
+  "total_fluor_local": [
+   0.3914044500752948,
+   0.00030741828266429844
+  ],
+  "exp_rms_rel_fluor_local": 0.017333374258079775,
+  "exp_mean_rel_fluor_local": 0.003607603714265424,
+  "total_all_local": [
+   0.3934557329016394,
+   0.0003134209379203142
+  ],
+  "exp_rms_rel_all_local": 0.020451989719607443,
+  "exp_mean_rel_all_local": 0.01002389982542898,
+  "tiger_rms_rel_escape": 0.04635382747109544,
+  "tiger_mean_rel_escape": -0.02093213666694937,
+  "tiger_vs_exp_rms_rel": 0.04771608375928652,
+  "tiger_vs_exp_mean_rel": 0.03838180155825435,
+  "total_exp": 0.391,
+  "total_tiger": 0.382,
+  "total_escape_nominal": [
+   0.3749689622407671,
+   0.0004906250202876135
+  ],
+  "gmc_cell_vs_mc_rms_rel": 0.01677455661503658,
+  "gmc_cell_vs_mc_mean_rel": 0.008750549937252262,
+  "cells_in_range": 8.669877732493516,
+  "scr_bin_fmr": 0.005767094017094017,
+  "scr_vs_mc_rms_rel": 0.021188482547179432,
+  "scr_vs_mc_mean_rel": 0.010962537686770649,
+  "scr_vs_mc_surface_bin_rel": -0.005324135469723323,
+  "mc_noise_rms_rel": 0.006236966397879369,
+  "scr_noise_rms_rel": 0.002567303096027635,
+  "scr_exp_rms_rel": 0.01813871344681714,
+  "scr_exp_mean_rel": -0.003694148108441466
+ },
+ "al_0.3_0": {
+  "E_exp": 0.314,
+  "E_nom": 0.3,
+  "angle": 0,
+  "material": "Al",
+  "csda_range_paper_exp": 0.113,
+  "csda_range_lib_exp": 0.1211323798303474,
+  "backscatter_energy_fraction": 0.07073474566132981,
+  "backscatter_number_primaries": 0.129785,
+  "mc_ms_per_primary": 0.347901269197464,
+  "gmc_ms_per_primary_chain": 0.04744935870170593,
+  "gmc_ms_per_primary_with_scr": 0.14989440083503724,
+  "gmc_backscatter_energy_fraction": 0.07165646448892535,
+  "gmc_total": [
+   0.29010650712294983,
+   0.0003109673546984604
+  ],
+  "scr_total": [
+   0.29010650712294983,
+   0.00031096735469876563
+  ],
+  "csda_range_tiger_inferred": 0.10747735298633504,
+  "tiger_compared_at": "nominal",
+  "csda_range_lib_nom": 0.11326523974532934,
+  "total_escape": [
+   0.2904323387018,
+   8.147448885817516e-05
+  ],
+  "exp_rms_rel_escape": 0.07788647503570749,
+  "exp_mean_rel_escape": 0.030599739081638953,
+  "total_fluor_local": [
+   0.29081829495549993,
+   8.115422377071042e-05
+  ],
+  "exp_rms_rel_fluor_local": 0.07846174160163472,
+  "exp_mean_rel_fluor_local": 0.0319531443066797,
+  "total_all_local": [
+   0.29178928986239183,
+   7.437170324253343e-05
+  ],
+  "exp_rms_rel_all_local": 0.07928947421068804,
+  "exp_mean_rel_all_local": 0.035169292358245445,
+  "tiger_rms_rel_escape": 0.1053169822170228,
+  "tiger_mean_rel_escape": 0.01937970732608887,
+  "tiger_vs_exp_rms_rel": 0.08467208963025646,
+  "tiger_vs_exp_mean_rel": 0.005230413639268037,
+  "total_exp": 0.285,
+  "total_tiger": 0.28,
+  "total_escape_nominal": [
+   0.27720784426308537,
+   0.0001567256570000818
+  ],
+  "gmc_cell_vs_mc_rms_rel": 0.009613684125674564,
+  "gmc_cell_vs_mc_mean_rel": -0.0029737605762537958,
+  "cells_in_range": 4.186735828084476,
+  "scr_bin_fmr": 0.011942477876106194,
+  "scr_vs_mc_rms_rel": 0.013772514760780289,
+  "scr_vs_mc_mean_rel": -0.0026755076972293495,
+  "scr_vs_mc_surface_bin_rel": 0.014102330867159285,
+  "mc_noise_rms_rel": 0.006203760924531301,
+  "scr_noise_rms_rel": 0.0029014289998510272,
+  "scr_exp_rms_rel": 0.07113077948829913,
+  "scr_exp_mean_rel": 0.028046857972815645
+ },
+ "al_0.3_60": {
+  "E_exp": 0.314,
+  "E_nom": 0.3,
+  "angle": 60,
+  "material": "Al",
+  "csda_range_paper_exp": 0.113,
+  "csda_range_lib_exp": 0.1211323798303474,
+  "backscatter_energy_fraction": 0.2592405069948651,
+  "backscatter_number_primaries": 0.37201,
+  "mc_ms_per_primary": 0.27662984251976014,
+  "gmc_ms_per_primary_chain": 0.03685195803642273,
+  "gmc_ms_per_primary_with_scr": 0.11323618173599242,
+  "gmc_backscatter_energy_fraction": 0.2581574038052963,
+  "gmc_total": [
+   0.23178839957454125,
+   7.459257409436759e-05
+  ],
+  "scr_total": [
+   0.23178839957454114,
+   7.459257409400677e-05
+  ],
+  "csda_range_tiger_inferred": 0.10765889130229485,
+  "tiger_compared_at": "nominal",
+  "csda_range_lib_nom": 0.11326523974532934,
+  "total_escape": [
+   0.23146125755646202,
+   0.00017795392820089674
+  ],
+  "exp_rms_rel_escape": 0.04030709869429737,
+  "exp_mean_rel_escape": -0.02871776611066963,
+  "total_fluor_local": [
+   0.23177127327636207,
+   0.0001775830007178924
+  ],
+  "exp_rms_rel_fluor_local": 0.0393696155898955,
+  "exp_mean_rel_fluor_local": -0.027383457317260586,
+  "total_all_local": [
+   0.23259848080364431,
+   0.00017694131183291034
+  ],
+  "exp_rms_rel_all_local": 0.03649189823609662,
+  "exp_mean_rel_all_local": -0.0236203755467037,
+  "tiger_rms_rel_escape": 0.052866246426919686,
+  "tiger_mean_rel_escape": -0.03530066365577812,
+  "tiger_vs_exp_rms_rel": 0.039731559991417656,
+  "tiger_vs_exp_mean_rel": 0.012643755138398027,
+  "total_exp": 0.23,
+  "total_tiger": 0.228,
+  "total_escape_nominal": [
+   0.22063758904608685,
+   0.00019129039101695836
+  ],
+  "gmc_cell_vs_mc_rms_rel": 0.0064364915759840945,
+  "gmc_cell_vs_mc_mean_rel": 0.004232565338862441,
+  "cells_in_range": 4.186735828084476,
+  "scr_bin_fmr": 0.011942477876106194,
+  "scr_vs_mc_rms_rel": 0.013806310312689385,
+  "scr_vs_mc_mean_rel": 0.005327565453752993,
+  "scr_vs_mc_surface_bin_rel": -0.013433182513674868,
+  "mc_noise_rms_rel": 0.006249546685576564,
+  "scr_noise_rms_rel": 0.005718232389697549,
+  "scr_exp_rms_rel": 0.04733480232784926,
+  "scr_exp_mean_rel": -0.03246984645742142
+ },
+ "al_0.1_0": {
+  "E_exp": 0.109,
+  "E_nom": 0.1,
+  "angle": 0,
+  "material": "Al",
+  "csda_range_paper_exp": 0.0203,
+  "csda_range_lib_exp": 0.022760168964487383,
+  "backscatter_energy_fraction": 0.08574496485909705,
+  "backscatter_number_primaries": 0.145435,
+  "mc_ms_per_primary": 0.12933733105659484,
+  "gmc_ms_per_primary_chain": 0.004679082036018372,
+  "gmc_ms_per_primary_with_scr": 0.026917617321014404,
+  "gmc_backscatter_energy_fraction": 0.08429401827740299,
+  "gmc_total": [
+   0.09954708146502575,
+   4.162919287811068e-05
+  ],
+  "scr_total": [
+   0.09954708146492001,
+   4.162919287822863e-05
+  ],
+  "surface_J_escape": [
+   7.331014582140173,
+   0.010431666121600507
+  ],
+  "surface_J_fluor_local": [
+   7.339970142288597,
+   0.010478263090238147
+  ],
+  "surface_J_all_local": [
+   7.355860667663668,
+   0.010494464192355793
+  ],
+  "surface_J_exp": 7.78,
+  "MC_over_exp": 0.9422897920488654,
+  "surface_J_nominal": [
+   7.950964683157592,
+   0.011249182153789642
+  ],
+  "MC_over_TIGER": 0.9720005725131531,
+  "TIGER_over_exp": 1.0514138817480718,
+  "surface_J_scr": [
+   7.247432687553762,
+   2.6015630325559864e-06
+  ],
+  "SCR_over_exp": 0.9315466179375016,
+  "SCR_over_MC": 0.988598863956698
+ },
+ "al_0.05_0": {
+  "E_exp": 0.058,
+  "E_nom": 0.05,
+  "angle": 0,
+  "material": "Al",
+  "csda_range_paper_exp": 0.00663,
+  "csda_range_lib_exp": 0.007739147521471404,
+  "backscatter_energy_fraction": 0.09108566575549377,
+  "backscatter_number_primaries": 0.15049,
+  "mc_ms_per_primary": 0.0735272467136383,
+  "gmc_ms_per_primary_chain": 0.0022367924451828004,
+  "gmc_ms_per_primary_with_scr": 0.023539371490478515,
+  "gmc_backscatter_energy_fraction": 0.09555510185761391,
+  "gmc_total": [
+   0.052357364392769876,
+   2.7758903215113064e-05
+  ],
+  "scr_total": [
+   0.052357364393066,
+   2.7758903213985497e-05
+  ],
+  "surface_J_escape": [
+   9.993682272040475,
+   0.005810264209948292
+  ],
+  "surface_J_fluor_local": [
+   10.003957079200637,
+   0.005805626170597872
+  ],
+  "surface_J_all_local": [
+   10.013562420124535,
+   0.005913798280739616
+  ],
+  "surface_J_exp": 9.65,
+  "MC_over_exp": 1.0356147432166296,
+  "surface_J_nominal": [
+   8.944102662109968,
+   0.003903123227448141
+  ],
+  "MC_over_TIGER": 0.9807130111962685,
+  "TIGER_over_exp": 0.9450777202072538,
+  "surface_J_scr": [
+   9.816029215344601,
+   0.004824368804017709
+  ],
+  "SCR_over_exp": 1.0172051000357099,
+  "SCR_over_MC": 0.9822234635983077
+ },
+ "cu_0.5_0": {
+  "E_exp": 0.5,
+  "E_nom": 0.5,
+  "angle": 0,
+  "material": "Cu",
+  "csda_range_paper_exp": 0.258,
+  "csda_range_lib_exp": 0.2627911806604092,
+  "backscatter_energy_fraction": 0.16616350444793193,
+  "backscatter_number_primaries": 0.26693,
+  "mc_ms_per_primary": 0.5256823074817657,
+  "gmc_ms_per_primary_chain": 0.10018306970596313,
+  "gmc_ms_per_primary_with_scr": 0.1954919320344925,
+  "gmc_backscatter_energy_fraction": 0.16693276986771857,
+  "gmc_total": [
+   0.40960706516563905,
+   1.1105935888350293e-05
+  ],
+  "scr_total": [
+   0.40960706516563883,
+   1.1105935886462914e-05
+  ],
+  "csda_range_tiger_inferred": 0.2578211945097069,
+  "tiger_compared_at": "nominal",
+  "csda_range_lib_nom": 0.2627911806604092,
+  "total_escape": [
+   0.4097865066172937,
+   0.0003149864033571914
+  ],
+  "exp_rms_rel_escape": 0.06892955961297872,
+  "exp_mean_rel_escape": -0.011533671152506354,
+  "total_fluor_local": [
+   0.4115759459104436,
+   0.000319382524604545
+  ],
+  "exp_rms_rel_fluor_local": 0.06886999400558186,
+  "exp_mean_rel_fluor_local": -0.0072916738491409375,
+  "total_all_local": [
+   0.41691824777605185,
+   0.00035882819792072744
+  ],
+  "exp_rms_rel_all_local": 0.07129709725355267,
+  "exp_mean_rel_all_local": 0.004933373118948794,
+  "tiger_rms_rel_escape": 0.05461668538490719,
+  "tiger_mean_rel_escape": -0.02660393507731115,
+  "tiger_vs_exp_rms_rel": 0.05453957185949508,
+  "tiger_vs_exp_mean_rel": 0.015517463643881372,
+  "total_exp": 0.412,
+  "total_tiger": 0.417,
+  "total_escape_nominal": [
+   0.4097865066172937,
+   0.0003149864033571914
+  ],
+  "gmc_cell_vs_mc_rms_rel": 0.005057972526540677,
+  "gmc_cell_vs_mc_mean_rel": 0.0023849769000902077,
+  "cells_in_range": 2.8794642857142856,
+  "scr_bin_fmr": 0.01736434108527132,
+  "scr_vs_mc_rms_rel": 0.017356745256049917,
+  "scr_vs_mc_mean_rel": 0.003977098570957582,
+  "scr_vs_mc_surface_bin_rel": 0.017228185317308853,
+  "mc_noise_rms_rel": 0.0059677644221067215,
+  "scr_noise_rms_rel": 0.0013836061819320357,
+  "scr_exp_rms_rel": 0.0625783146822921,
+  "scr_exp_mean_rel": -0.010653994321299947
+ },
+ "cu_0.3_0": {
+  "E_exp": 0.3,
+  "E_nom": 0.3,
+  "angle": 0,
+  "material": "Cu",
+  "csda_range_paper_exp": 0.125,
+  "csda_range_lib_exp": 0.12889230760908477,
+  "backscatter_energy_fraction": 0.18744389722871582,
+  "backscatter_number_primaries": 0.286965,
+  "mc_ms_per_primary": 0.31605149745941163,
+  "gmc_ms_per_primary_chain": 0.07727966666221618,
+  "gmc_ms_per_primary_with_scr": 0.13071220099925995,
+  "gmc_backscatter_energy_fraction": 0.18451813672783896,
+  "gmc_total": [
+   0.24151543552869112,
+   0.00020693219726020115
+  ],
+  "scr_total": [
+   0.24151543552886173,
+   0.00020693219726097833
+  ],
+  "csda_range_tiger_inferred": 0.12484897301651228,
+  "tiger_compared_at": "nominal",
+  "csda_range_lib_nom": 0.12889230760908477,
+  "total_escape": [
+   0.24070786959955015,
+   0.00020468487971806923
+  ],
+  "exp_rms_rel_escape": 0.04428930181236824,
+  "exp_mean_rel_escape": -0.021041041046212888,
+  "total_fluor_local": [
+   0.24163327847135013,
+   0.00020560070645632813
+  ],
+  "exp_rms_rel_fluor_local": 0.04309693865557632,
+  "exp_mean_rel_fluor_local": -0.0174463415441643,
+  "total_all_local": [
+   0.24376683083135867,
+   0.00020979586031282262
+  ],
+  "exp_rms_rel_all_local": 0.04234810831714897,
+  "exp_mean_rel_all_local": -0.009724447504904754,
+  "tiger_rms_rel_escape": 0.04046740791908729,
+  "tiger_mean_rel_escape": -0.025513076937574857,
+  "tiger_vs_exp_rms_rel": 0.04320629811377058,
+  "tiger_vs_exp_mean_rel": 0.013307390657103254,
+  "total_exp": 0.242,
+  "total_tiger": 0.248,
+  "total_escape_nominal": [
+   0.24070786959955015,
+   0.00020468487971806923
+  ],
+  "gmc_cell_vs_mc_rms_rel": 0.003421211855832329,
+  "gmc_cell_vs_mc_mean_rel": 0.003421211855832329,
+  "cells_in_range": 1.3950892857142856,
+  "scr_bin_fmr": 0.035840000000000004,
+  "scr_vs_mc_rms_rel": 0.013406557200734017,
+  "scr_vs_mc_mean_rel": 0.0029179480244752656,
+  "scr_vs_mc_surface_bin_rel": 0.017885062420607722,
+  "mc_noise_rms_rel": 0.00610450684151871,
+  "scr_noise_rms_rel": 0.0014635225831226017,
+  "scr_exp_rms_rel": 0.044781180496293885,
+  "scr_exp_mean_rel": -0.01896290539375452
+ }
+}
