@@ -88,7 +88,7 @@ def main():
                     help="comma list of sub-grid sizes to score (each divides the reference n; coarser ones are "
                          "sums of the fine tally and of the fine MC); default: the reference n")
     ap.add_argument("--quad_sub", type=int, default=4)
-    ap.add_argument("--ode_steps", type=int, default=50)
+    ap.add_argument("--ode_steps", type=int, default=20)
     ap.add_argument("--seed", type=int, default=11)
     ap.add_argument("--n_seeds", type=int, default=3)
     ap.add_argument("--tag", default="", help="suffix of the output names")

@@ -47,7 +47,7 @@ def main():
     ap.add_argument("--mc_ref", required=True)
     ap.add_argument("--model", required=True, nargs="+", help="one GMC checkpoint per material of the reference")
     ap.add_argument("--out_dir", default=None)
-    ap.add_argument("--ode_steps", type=int, default=50)
+    ap.add_argument("--ode_steps", type=int, default=20)
     ap.add_argument("--seed", type=int, default=11)
     ap.add_argument("--n_seeds", type=int, default=3,
                     help="independent GMC chain runs; errors are reported as mean and spread, plots use the first")

@@ -489,13 +489,246 @@ python validation/scr_edge_diag.py --model ml/models/subcell_kernel_water_1mm_30
     --test_npz ../ElectronTransport/analog_water_1mm_1keV-30MeV_log_2M_7_elsepa.npz
 ```
 
+## Phase F: doubled training, Drumm figures remade, accuracy / cost sweep (2026-11-16)
+
+**New models** (all with doubled training):
+- **GMC** `ml/models/secondary_gmc_water_1mm_30MeV_elsepa_x2`: full retrain with `--edge_feats --exit_scaled`. Every
+  epoch count is doubled relative to the 60-epoch `_xs60` exit flow and the defaults: classifiers 30, exit and stop
+  flows 120, daughter and photon flows 120. Training took 96 min (on a shared GPU).
+- **SCR kernel** `ml/models/subcell_kernel_water_1mm_30MeV_elsepa_x2`: 80k steps instead of 40k (83 min).
+  Validation NLL is −3.2818 vs −3.2743.
+- **Inference:** MirrorY is on.
+- **Loss convergence:** the exit_B validation loss is 0.5936 at 120 epochs vs 0.5941 at 60, so it has nearly
+  converged. The chained beam still improves clearly (below).
+
+### Model and label glossary (used in all Phase E / F figures and tables)
+
+**What a GMC checkpoint contains.** Each `secondary_gmc.pth` holds seven sub-models. "B" is a boundary transit, an
+electron entering through a cell face; "I" is an interior transit, a relevant secondary born inside the cell.
+
+| sub-model | role |
+|---|---|
+| `clf_B`, `clf_I` | **Exit classifier.** Samples the exit class: which face the electron leaves through, or absorbed. It also samples the number of relevant daughters and the photon flag. |
+| `exit_B`, `exit_I` | **Exit flow** (conditional flow matching, ODE-sampled). Given the class, samples the exit position, direction and energy, and the dose. |
+| `daughter` | Starting states of the relevant secondaries. |
+| `photon` | Bremsstrahlung energy that leaves the cell. |
+| `stop` | Stop point of absorbed electrons (charge tally). |
+
+`exit_B` carries the beam. The Phase E dip came from about 1e-3 errors in it adding up coherently over about 20
+cells, so most sweep variants retrain only `exit_B`.
+
+The two training fixes from Phase E:
+- **`--exit_scaled`** (affects `exit_B`): through-going exits are encoded relative to the straight-line continuation
+  of the entry ray and divided by the measured scattering width σ(E). That gives about 20× more target resolution at
+  20 MeV than standardizing over 1 keV–30 MeV.
+- **`--edge_feats`** (affects `clf_B` and `exit_B`): the boundary models also see the log distance of the entry point
+  to the two side faces. This removes the classifier's 2.8 % excess of side exits near the faces.
+
+**GMC model names** (`ml/models/secondary_gmc_water_1mm_30MeV_elsepa<suffix>`):
+
+| label in plots | suffix | contents |
+|---|---|---|
+| **Phase D** | *(none)* | Original new-physics model (Phase B). Classifiers 15 epochs, flows 20, daughter / photon 60. Absolute exit encoding, no edge features. |
+| **xs60** | `_xs60` | Phase D checkpoint with only `exit_B` retrained: e**x**it_**s**caled, **60** epochs. `clf_B` and all other sub-models are still Phase D's (no edge features). |
+| **x2** | `_x2` | Full retrain of all seven sub-models with both fixes (`--edge_feats --exit_scaled`) and every epoch count **doubled (×2)**: classifiers 30, `exit_B` / `exit_I` / `stop` 120, `daughter` / `photon` 120. |
+
+So **x2 vs xs60** differs in three ways:
+1. x2 has edge features in `clf_B` and `exit_B`;
+2. its `exit_B` trained 120 epochs instead of 60;
+3. every other sub-model was retrained at double length instead of reused from Phase D.
+
+**Sweep variants** (`_x2_<name>`). Each is the x2 checkpoint with only `exit_B` retrained, still with
+`--edge_feats --exit_scaled`; the data variants also retrain `clf_B`. All other sub-models are x2's.
+
+| label | change from x2 | compare with |
+|---|---|---|
+| `ep10`, `ep30`, `ep60` | `exit_B` trained 10 / 30 / 60 epochs | x2 (= 120 epochs) |
+| `h128d4`, `h512d6` | `exit_B` width × residual depth 128 × 4 / 512 × 6, 30 epochs | `ep30` (= 256 × 6, 30 epochs) |
+| `data1M`, `data3M` | `clf_B` + `exit_B` trained on the first 1M / 3M of the 10M training primaries, at the same number of optimizer steps as `ep30` (300 / 100 epochs) | `ep30` (= 10M) |
+
+**Inference-only labels** (the same x2 checkpoint, nothing retrained):
+
+| label | meaning |
+|---|---|
+| `x2`, `x2 + M` | x2 with MirrorY on (the default in every Phase F run) |
+| `x2_nomirror`, `x2 no M` | x2 without MirrorY |
+| `ode10`, `ode20`, `ode100` | x2 sampled with 10 / 20 / 100 midpoint ODE steps per flow sample (default 50) |
+
+**MirrorY ("+M")** is an inference wrapper, not a model. A random half of the transits is evaluated on the y-mirrored
+state (y → 1 − y, v → −v) and the outputs are mirrored back. Any odd (left/right) model bias cancels exactly, at no
+extra model calls. It was required before the boundary rows got y-mirror augmentation in training (Phase B); x2 no
+longer needs it.
+
+**SCR kernel names** (`ml/models/subcell_kernel_water_1mm_30MeV_elsepa<suffix>`). The kernel places each transit's
+dose inside its 1 mm cell to fill the 125 µm map. In the sweep every kernel is tallied on the same x2 chains, so
+differences between kernels are free of chain noise.
+
+| tally label | suffix | contents |
+|---|---|---|
+| `k80k` | `_x2` | 80k training steps (the doubled kernel), 8 coupling layers × 256 hidden (2.0M parameters), K = 32. Default in all Phase F figures. |
+| `k40k` | *(none)* | Phase B / D kernel: 40k steps, same architecture |
+| `k20k`, `k10k` | `_s20k`, `_s10k` | 20k / 10k steps |
+| `k20k_small` | `_s20k_small` | 20k steps, 4 coupling layers × 128 hidden (0.31M parameters) |
+| `k20k_data2M` | `_s20k_data2M` | 20k steps, trained on the first 2M of the 10M training primaries (`--max_segments 2000000`) |
+| `K8`, `K16`, `K64`, `K128` | `_x2` | The 80k kernel with 8 / 16 / 64 / 128 Sobol samples per transit (default K = 32) |
+
+Lowercase `k…` is the kernel's training steps; uppercase `K…` is samples per transit at run time.
+
+**Which map each figure scores:**
+- "**GMC**" (`panels_gmc_cell`, `error_vs_time_cell`) is the 1 mm cell map: transport alone.
+- "**GMC + SCR**" (`panels_gmc_fine`, `panels_scr`, `error_vs_time_fine`) is the 125 µm map: transport plus the kernel.
+- The **flat-beam** figure is the Phase E test (uniform 20 MeV beam in a slab, within-cell entry density; truth flat).
+
+**Earlier Phase E experiments**, not used in the Phase F figures (all in `ml/models/`):
+- `_ep60`: absolute encoding, 60 epochs.
+- `_xs`: scaled encoding, 20 epochs.
+- `_rel`: ray-relative exits.
+- `_edge`: edge features alone.
+- `_scale`: σ-scaled features.
+- `_exs60`: edge features + scaled, stopped after 11 epochs, unfinished.
+
+### Drumm Figs. 8a / 8b with the new models
+
+Folder `drumm_water_cylinder/phaseF/`. Runs are 500k × 2 seeds, both photon conventions, against the same MC
+references as Phase D.
+
+![](drumm_water_cylinder/phaseF/fig8a_energy.png)
+![](drumm_water_cylinder/phaseF/fig8b_charge.png)
+![](drumm_water_cylinder/phaseF/gmc_vs_mc.png)
+
+Like for like (1 mm staircase), GMC + SCR vs analog MC; `metrics.json` in each folder:
+
+| | Phase D | **Phase F** | analog MC noise (one run) |
+|---|---|---|---|
+| fine map 125 µm bias, photons escape | 2.8 % | **0.64 %** | 0.9 % |
+| fine map 125 µm bias, photons local | 2.9 % | **0.94 %** | 5.0 % |
+| cell map 1 mm bias, photons escape | 0.84 % | **0.29 %** | 0.22 % |
+| energy along the axis (relL2) | 3.0 % | **0.45 %** | 0.23 % |
+| energy across the beam at x = −0.5 / 0 / 0.5 (relL2) | 4.6 / 3.6 / 2.3 % | **1.0 / 1.2 / 1.2 %** | 0.6 / 0.5 / 0.7 % |
+| charge profiles, rms z | 1.0–1.7 | **0.7–1.6** | 1 = noise |
+| along-axis energy, GMC + SCR vs MC staircase, photons local (mean) | −2.9 % | **−0.14 %** | |
+| deposited fraction of E0, photons escape | 0.2028 | **0.2014** | 0.2014 |
+
+The on-axis dip is gone (`phaseF/dip_compare.png`, against the 2-seed MC staircase mean):
+
+| | within-cell row rms | axis strip mean / min | axis rms | fine relL2 | cell relL2 |
+|---|---|---|---|---|---|
+| Phase D model | 3.2 % | 0.977 / 0.948 | 2.8 % | 3.0 % | 0.9 % |
+| `_xs60` + MirrorY | 0.9 % | 0.993 / 0.974 | 1.1 % | 1.9 % | 0.9 % |
+| **`_x2` + MirrorY** | **0.23 %** | **1.001 / 0.995** | **0.47 %** | **1.08 %** | **0.39 %** |
+| MC seed vs seed | 0.26 % | 0.998 / 0.989 | 0.47 % | 1.28 % | 0.32 % |
+
+The GMC and MC runs here share the source sample (src_seed 2007), as do the two MC seeds. That source noise cancels in
+these differences, so the relL2 values are slightly flattered, and equally on both sides.
+
+vs ITS: GMC + SCR follows ITS as closely as the analog MC does, in every panel of both figures. The remaining
+differences from ITS are the analog MC's own differences (see Phase A).
+
+### Accuracy / cost sweep
+
+Script: `validation/drumm_sweep.py`. Folder: `drumm_water_cylinder/sweep/`, with `sweep_metrics.json`, the figures
+and `groups.json`.
+
+**Problem.** The Drumm problem: 1 mm staircase, photons escape.
+
+**Runs.** Each configuration is 200k primaries × 2 seeds, each seed with its own source sample. The SCR-side
+variables (kernel, K) are tallied on the same chains, so their differences are well resolved.
+
+**Reference.** 4 analog MC staircase runs of 500k each (2M total). Two new seeds use their own source samples
+(src_seed 2008, 2009); source sampling is 11 % of the per-run MC variance.
+
+**Error split.** For each map, rel. L2 = sqrt(bias² + noise² · N0/N):
+- noise comes from the seed spread;
+- bias is the quadrature remainder after both noise terms;
+- 1-sigma ranges come from scoring each seed separately. That measures the bias × noise cross term, which is large
+  because one 20 MeV track crosses the whole map.
+
+The cell-map biases below about 0.4 % are not resolved.
+
+**Timing.** Timing runs were made alone on the machine (16 threads, RTX 5080). Analog MC: **3.96 ms/primary**
+(clean 50k run).
+
+![](drumm_water_cylinder/sweep/error_vs_time_fine.png)
+
+![](drumm_water_cylinder/sweep/panels_gmc_fine.png)
+
+![](drumm_water_cylinder/sweep/panels_scr.png)
+
+![](drumm_water_cylinder/sweep/flat_beam_sweep.png)
+
+Also: `panels_gmc_cell.png` and `error_vs_time_cell.png` (the GMC alone on 1 mm cells).
+
+What the variants are:
+- **GMC variants** retrain only the boundary exit flow (exit_B) on top of `_x2`; all other sub-models are shared.
+  The data-size variants retrain clf_B too.
+- **Training data size** is a fixed optimizer-step budget (30 epochs at 10M): the first 1M or 3M primaries of the
+  10M set.
+- **SCR variants** use the `_x2` chain.
+
+Main numbers. Speed-up = analog MC time / GMC time to reach the same expected error on the 125 µm map:
+
+| variable | setting | GMC + SCR ms/primary | fine bias (1σ range) | flat-beam rms cell 6 / 8 | speed-up at 2 % / 3 % |
+|---|---|---|---|---|---|
+| reference | `_x2` + MirrorY, 50 ODE steps, SCR 80k, K = 32 | 1.02 | 0.72 % (0.44–0.91) | 0.83 / 0.96 % | 4.8 / 5.2 |
+| exit_B epochs | 10 / 30 / 60 / 120 | 0.95 / 0.94 / 0.94 / 1.02 | 1.48 / 1.12 / 1.25 / 0.72 % | 2.3 / 1.5 / 1.35 / 0.83 % | 2.1 / 3.8 / 3.5 / 4.8 at 2 % |
+| exit_B size (30 ep) | 128×4 / 256×6 / 512×6 | 0.54 / 0.94 / 2.05 | 1.61 / 1.12 / 1.16 % | 2.4 / 1.5 / 1.7 % | 3.0 / 3.8 / 1.7 at 2 % |
+| training data (fixed steps) | 1M / 3M / 10M | 0.94 / 0.95 / 0.94 | 2.57 / 1.77 / 1.12 % | 2.8 / 2.1 / 1.5 % | 0 / 1.0 / 3.8 at 2 % |
+| ODE steps (inference) | 10 / 20 / 50 / 100 | 0.43 / 0.55 / 1.02 / 1.57 | 1.02 / 0.59 / 0.72 / 0.82 % | 0.7 / 0.9 / 0.8 / 0.8 % | 8.7 / **8.0** / 4.8 / 3.1 at 2 % |
+| MirrorY | off / on | 0.97 / 1.02 | 0.86 / 0.72 % | 0.6 / 0.8 % | 4.5 / 4.8 at 2 % |
+| SCR training steps | 10k / 20k / 40k / 80k | 1.03 | 1.41 / 1.16 / 0.93 / 0.72 % | — | 2.7 / 3.5 / 4.2 / 4.8 at 2 % |
+| SCR size (20k steps) | 4×128 (0.31M) / 8×256 (2.0M) | 0.81 / 1.03 | 2.29 / 1.16 % | — | 0 / 3.5 at 2 % |
+| SCR data (20k steps) | 2M / 10M | 1.01 / 1.03 | 1.01 / 1.16 % | — | 4.0 / 3.5 at 2 % |
+| SCR samples K | 8 / 16 / 32 / 64 / 128 | 0.80 / 0.87 / 1.02 / 1.30 / 1.87 | 0.71–0.74 % (all) | — | 4.6 / **5.1** / 4.8 / 3.9 / 2.8 at 2 % |
+| model history | Phase D / `_xs60`+M / `_x2`+M | 0.94 / 0.94 / 1.02 | 2.77 / 1.26 / 0.72 % | 4.6 / 1.6 / 0.8 % | 0 / 3.2 / 4.8 at 2 % |
+
+What it shows:
+- **Training data is the strongest lever.** At equal steps, 1M and 3M primaries leave 2.6 % and 1.8 % fine bias and a
+  2–3 % flat-beam pattern. The validation loss does not show this: the 1M model has the lowest validation NLL
+  (0.583, on its own subset). Validation loss is not a usable proxy for chained accuracy.
+- **Epochs keep helping well past loss convergence.** The flat-beam pattern goes 2.3 → 1.5 → 1.35 → 0.8 % (noise
+  floor 0.76 %) from 10 to 120 epochs, while the validation loss moves only 0.5959 → 0.5936. The 120-epoch exit flow
+  is the first at the noise floor.
+- **Model size:** 256×6 is the sweet spot. 128×4 is 1.7× faster in the chain but measurably worse. 512×6 is no better
+  and 2.6× slower.
+- **ODE steps are the cheapest win.** 20 midpoint steps are as accurate as 50 or 100: fine bias 0.59 % (0.18–0.81),
+  flat beam at the floor. The chain gets 2.6× cheaper: 0.28 vs 0.72 ms/primary, and GMC + SCR 0.55 ms/primary =
+  7.2× faster than the MC per primary. 10 steps is probably slightly worse on cells (0.70 % vs ≤ 0.5 %).
+  **Recommended default: 20 steps.**
+- **MirrorY is now optional.** The boundary y-mirror augmentation in training does its job: without it, the flat beam
+  is at the floor and the fine bias is the same within errors. It costs only 5 %, so it stays on as insurance.
+- **SCR steps matter.** The bias drops monotonically from 1.41 % at 10k steps to 0.72 % at 80k on identical chains,
+  so this difference is well resolved. The kernel is limited by steps, not data: 2M segments at 20k steps match 10M.
+  The small 4×128 kernel (0.31M parameters) is clearly too small (2.3 %).
+- **SCR K only trades noise for time** (the bias is identical). K = 16 is the most efficient at 8 × 8 sub-cells.
+- **Charge.** Cell-level charge is too noisy at 400k primaries to resolve any bias (per-run noise about 20 % per cell
+  at 100k). It is assessed in the paper figures instead.
+
+**One-time cost.** Generating the 10M training data takes 17.5 min. On the shared GPU, training takes 96 min for the
+GMC and 83 min for the SCR kernel (training alone would be shorter).
+- Against the analog MC at 3.96 ms/primary, GMC + SCR saves about 3 ms per primary (about 3.5 ms at 20 ODE steps).
+  The one-time 3.3 h breaks even after about 4M primaries of this problem.
+- A 2 % (fine-map) MC answer needs about 115k primaries (7.6 min of MC; GMC + SCR about 1.5 min). A 1 % answer needs
+  460k primaries (30 min of MC). GMC + SCR needs about 11.5 min at 50 ODE steps, or 5.3 min at 20: near its bias
+  floor it needs more primaries than the MC.
+- Below about 0.8 % the GMC's bias floor makes the analog MC the better choice for this problem.
+
+**Single-cell held-out check** of `_x2` on the 2M test set (`validation/results/secondary_cell_water_1mm_30MeV_elsepa_x2/`):
+
+| transits | dose ratio GMC / MC | daughters GMC / MC | class max abs z | P(relevant) max abs z |
+|---|---|---|---|---|
+| boundary | 1.0024 (Phase D model: 1.006) | 13160 / 13259 | 1.76 | 2.19 |
+| interior | 0.986 (Phase D model: 0.98) | 484 / 486 | 2.53 | 1.27 |
+
+The longer training does not degrade low energies.
+
 ## Next session
 
-0. Finish the dip fix:
-   - train the combined boundary model (`--only clf_B,exit_B --edge_feats --exit_scaled --flow_epochs 60`);
-   - flat-beam check, then the full 500k × 2-seed Drumm rerun (both photon conventions) and `plot`;
-   - check `validation/secondary_cell_compare.py` on the new model, so low energies are not worse;
-   - if it holds, make it the default for Cu / Al / water (step 1 below).
+0. ~~Finish the dip fix~~: done in Phase F (edge features + scaled exits + 120-epoch exit flow).
+   - ~~Make 20 ODE steps the default~~: done 2026-11-17 in `SecondaryGMC` and the validation scripts (the charge
+     kernel keeps 50). Single-cell held-out check of `_x2` at 20 steps: boundary dose ratio 1.0004 (1.0024 at 50),
+     interior 0.983 (0.986), classifier outputs identical. Check it for the 100 µm models during their retrain.
+   - Use the Phase F recipe for the Cu / Al / water retrains: `--edge_feats --exit_scaled`, 120-epoch exit flows,
+     ≥ 10M primaries, SCR ≥ 80k steps. The SCR kernel may still improve past 80k.
 
 1. Retrain the 100 µm Cu / Al / water GMCs (and kernels) on the regenerated `_elsepa` sets. Re-check the Cu/Al
    chains for drift.
@@ -580,4 +813,39 @@ python validation/drumm_cylinder.py plot --circle $D/mc_circle_n8_500k_s123_else
 # Phase A physics comparison (analog MC only)
 python validation/drumm_physics_compare.py --runs $D/mc_circle_n8_500k_s123.npz:"EEDL, binary" \
     $D/mc_circle_n8_500k_s123_elsepa_split3.npz:"ELSEPA, split"
+```
+
+**ODE steps:** every result on this page was made with 50 ODE steps, the default at the time. Since 2026-11-17 the
+default is 20, so add `--ode_steps 50` to reproduce them exactly (the Phase F commands below include it).
+
+Phase F (doubled training, sweep, paper figures). The exact queues that ran are in
+`drumm_water_cylinder/sweep/scripts/` (`queue_gmc.sh` / `queue_scr.sh` sweep variants, `queue_eval.sh` runs). Run the
+evaluation alone: it measures timings.
+
+```bash
+ET=../ElectronTransport; TR=$ET/analog_water_1mm_1keV-30MeV_log_10M_42_elsepa.npz; D=$PWD/validation/results/drumm_water_cylinder
+M=ml/models/secondary_gmc_water_1mm_30MeV_elsepa; K=ml/models/subcell_kernel_water_1mm_30MeV_elsepa
+python ml/secondary_gmc.py train --train_npz $TR --out ${M}_x2 --edge_feats --exit_scaled \
+    --clf_epochs 30 --flow_epochs 120 --small_epochs 120 --stop                                  # 96 min (shared GPU)
+python ml/subcell_kernel.py train --train_npz $TR --out ${K}_x2 --batch 32768 --steps 80000          # 83 min
+# two more MC references with their own source samples (ElectronTransport venv, ~37 min each)
+for r in "2123 2008" "3123 2009"; do set -- $r
+  $ET/.venv/bin/python validation/drumm_cylinder.py mc --geom stair --seed $1 --src_seed $2 --N 500000 \
+      --out $D/mc_stair_n8_500k_s$1_src$2_elsepa_split3.npz; done
+# paper figures (both photon conventions, ~16 min each)
+for c in "" "--local_photons"; do
+  python validation/drumm_cylinder.py gmc --model ${M}_x2/secondary_gmc.pth --kernel ${K}_x2 \
+      --charge_kernel ml/models/charge_kernel_water_1mm_30MeV_elsepa --N 500000 --n_seeds 2 --mirror --ode_steps 50 $c \
+      --out $D/phaseF/gmc_n8_500k_x2_mirror${c:+_localph}.npz; done
+python validation/drumm_cylinder.py plot --circle $D/mc_circle_n8_500k_s123_elsepa_split3.npz \
+    --stair $D/mc_stair_n8_500k_s123_elsepa_split3.npz --stair_noise $D/mc_stair_n8_500k_s1123_elsepa_split3.npz \
+    --gmc $D/phaseF/gmc_n8_500k_x2_mirror.npz --gmc_lp $D/phaseF/gmc_n8_500k_x2_mirror_localph.npz --out_dir $D/phaseF
+python validation/drumm_dip_compare.py --gmc "Phase D=gmc_n8_500k_elsepa.npz" \
+    "xs60+M=gmc_n8_200k_elsepa_xs60_mirror.npz" "x2+M=phaseF/gmc_n8_500k_x2_mirror.npz" --out $D/phaseF/dip_compare.png
+# sweep: one run per GMC configuration (200k x 2 seeds), SCR variants tallied on the same chains, e.g.
+python validation/drumm_sweep.py run --label x2 --model ${M}_x2/secondary_gmc.pth --mirror --ode_steps 50 \
+    --tally k80k=${K}_x2:32 --tally K16=${K}_x2:16 --out $D/sweep/runs/x2.npz
+python validation/drumm_sweep.py analyze --runs "$D/sweep/runs/[!m]*.npz" --mc $D/mc_stair_n8_500k_s*_elsepa_split3.npz \
+    --mc_ms 3.96 --groups $D/sweep/groups.json --out_dir $D/sweep \
+    --flat mc=$D/flat_beam/flat_mc_300k.npz x2=$D/sweep/flat/x2.npz   # (+ the other flat-beam runs)
 ```

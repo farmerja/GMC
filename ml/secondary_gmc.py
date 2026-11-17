@@ -629,9 +629,12 @@ class SecondaryGMC:
     daughters = {"parent", "x", "y", "u", "v", "w", "E"} (relevant secondaries to follow as interior particles).
     secondaries=False gives the primary-only GMC from the same models: daughters are not emitted and their energy is
     deposited in the cell (the n_rel / photon structure is still sampled, so this isolates the secondary transport).
+    ode_steps: midpoint steps per flow sample. Default 20 since 2026-11-17 (Drumm sweep, water 1 mm _x2: 20 steps as
+    accurate as 50 / 100 on the chained 125 um map, flat-beam test and single-cell check, 2.6x cheaper chain); results
+    made before that used 50. Not yet re-checked for the 100 um Cu / Al / water models.
     """
 
-    def __init__(self, path, device="cpu", ode_steps=50, ode_method="midpoint", seed=0, secondaries=True):
+    def __init__(self, path, device="cpu", ode_steps=20, ode_method="midpoint", seed=0, secondaries=True):
         self.spec, self.m = load_models(path, device)
         self.device, self.steps, self.method = device, ode_steps, ode_method
         self.gen = torch.Generator().manual_seed(seed)                       # ODE noise (CPU)
@@ -776,7 +779,8 @@ def cmd_train(args):
                   f"{' (ray-relative s, psi)' if args.exit_rel else ''}"
                   f"{' (through-going exits ray-relative / sigma(E))' if scaled else ''}")
             models[name] = {"kind": "flow", **train_flow(cond, tgt, dev, epochs=args.flow_epochs, label=name,
-                                                         max_steps=args.max_steps), "rel": args.exit_rel,
+                                                         max_steps=args.max_steps, hidden=args.exit_hidden,
+                                                         depth=args.exit_depth), "rel": args.exit_rel,
                             "scaled": scaled}
             info[name] = {"rows": int(len(tgt))}
     if want("daughter"):
@@ -869,6 +873,8 @@ def main():
     t.add_argument("--small_epochs", type=int, default=60, help="epochs for the daughter / photon flows")
     t.add_argument("--max_steps", type=int, default=None, help="cap on optimizer steps per flow")
     t.add_argument("--max_rows", type=int, default=None, help="use only the first rows (smoke tests)")
+    t.add_argument("--exit_hidden", type=int, default=256, help="hidden width of the exit flows (exit_B, exit_I)")
+    t.add_argument("--exit_depth", type=int, default=6, help="residual blocks of the exit flows (exit_B, exit_I)")
     t.add_argument("--only", default=None, help="comma list of models to (re)train; others kept from --out")
     t.add_argument("--stop", action="store_true", help="also train the stop-point flow (charge tally) in a full run")
     t.add_argument("--exit_rel", action="store_true",

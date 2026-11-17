@@ -61,7 +61,7 @@ def cmd_run(a):
         K = [MCCellKernel(build_library([m], [h]), L, a.E_cutoff, seed=a.seed, secondaries=True)]
     else:
         from ml.secondary_gmc import SecondaryGMC
-        K = [SecondaryGMC(a.model, "cuda", seed=a.seed)]
+        K = [SecondaryGMC(a.model, "cuda", seed=a.seed, ode_steps=a.ode_steps)]
         if a.mirror:
             from drumm_cylinder import MirrorY
             K = [MirrorY(K[0], a.seed + 3)]
@@ -175,13 +175,14 @@ def main():
         if name == "gmc":
             s.add_argument("--model", required=True)
             s.add_argument("--mirror", action="store_true", help="MirrorY symmetrization at inference")
+            s.add_argument("--ode_steps", type=int, default=20, help="ODE steps of the GMC flows")
     c = sub.add_parser("compare")
     c.add_argument("--runs", nargs="+", required=True)
     c.add_argument("--cells", default="1,2,3,5,7,9")
     c.add_argument("--transit_model", default=None)
     c.add_argument("--bins", type=int, default=16)
     c.add_argument("--seed", type=int, default=31)
-    c.add_argument("--ode_steps", type=int, default=50, help="ODE steps of the exit flow in the one-transit check")
+    c.add_argument("--ode_steps", type=int, default=20, help="ODE steps of the exit flow in the one-transit check")
     q = sub.add_parser("plot")
     q.add_argument("--runs", nargs="+", required=True, help="label=path.npz ...")
     q.add_argument("--cell", type=int, default=6)

@@ -1,0 +1,527 @@
+{
+ "panels_gmc_cell": {
+  "exit-flow epochs (GMC alone)": {
+   "kind": "cell",
+   "xlabel": "exit_B training epochs",
+   "xlog": true,
+   "points": [
+    [
+     10,
+     "ep10",
+     null
+    ],
+    [
+     30,
+     "ep30",
+     null
+    ],
+    [
+     60,
+     "ep60",
+     null
+    ],
+    [
+     120,
+     "x2",
+     null
+    ]
+   ],
+   "train_min": [
+    5.2,
+    11.9,
+    23.1,
+    47.9
+   ],
+   "train_label": "exit_B training (min)"
+  },
+  "exit-flow size (30 epochs)": {
+   "kind": "cell",
+   "xlabel": "exit_B width (depth 4 / 6 / 6)",
+   "xlog": true,
+   "points": [
+    [
+     128,
+     "h128d4",
+     null
+    ],
+    [
+     256,
+     "ep30",
+     null
+    ],
+    [
+     512,
+     "h512d6",
+     null
+    ]
+   ],
+   "train_min": [
+    3.1,
+    11.9,
+    20.0
+   ],
+   "train_label": "exit_B training (min)"
+  },
+  "training data (fixed steps)": {
+   "kind": "cell",
+   "xlabel": "training primaries (M), clf_B + exit_B",
+   "xlog": true,
+   "points": [
+    [
+     1,
+     "data1M",
+     null
+    ],
+    [
+     3,
+     "data3M",
+     null
+    ],
+    [
+     10,
+     "ep30",
+     null
+    ]
+   ],
+   "train_min": [
+    10.65,
+    14.35,
+    35.9
+   ],
+   "train_label": "clf_B + exit_B training\n+ data generation (min)"
+  },
+  "ODE steps (inference)": {
+   "kind": "cell",
+   "xlabel": "flow ODE steps (midpoint)",
+   "xlog": true,
+   "points": [
+    [
+     10,
+     "ode10",
+     null
+    ],
+    [
+     20,
+     "ode20",
+     null
+    ],
+    [
+     50,
+     "x2",
+     null
+    ],
+    [
+     100,
+     "ode100",
+     null
+    ]
+   ]
+  },
+  "MirrorY / model history": {
+   "kind": "cell",
+   "xlabel": "",
+   "xticklabels": [
+    "Phase D\n(20 ep)",
+    "xs60\n+ M",
+    "x2\nno M",
+    "x2\n+ M"
+   ],
+   "points": [
+    [
+     1,
+     "phaseD",
+     null
+    ],
+    [
+     2,
+     "xs60",
+     null
+    ],
+    [
+     3,
+     "x2_nomirror",
+     null
+    ],
+    [
+     4,
+     "x2",
+     null
+    ]
+   ]
+  }
+ },
+ "panels_gmc_fine": {
+  "exit-flow epochs (GMC + SCR)": {
+   "kind": "fine",
+   "xlabel": "exit_B training epochs",
+   "xlog": true,
+   "points": [
+    [
+     10,
+     "ep10",
+     "k80k"
+    ],
+    [
+     30,
+     "ep30",
+     "k80k"
+    ],
+    [
+     60,
+     "ep60",
+     "k80k"
+    ],
+    [
+     120,
+     "x2",
+     "k80k"
+    ]
+   ],
+   "train_min": [
+    5.2,
+    11.9,
+    23.1,
+    47.9
+   ],
+   "train_label": "exit_B training (min)"
+  },
+  "exit-flow size (30 epochs)": {
+   "kind": "fine",
+   "xlabel": "exit_B width (depth 4 / 6 / 6)",
+   "xlog": true,
+   "points": [
+    [
+     128,
+     "h128d4",
+     "k80k"
+    ],
+    [
+     256,
+     "ep30",
+     "k80k"
+    ],
+    [
+     512,
+     "h512d6",
+     "k80k"
+    ]
+   ],
+   "train_min": [
+    3.1,
+    11.9,
+    20.0
+   ],
+   "train_label": "exit_B training (min)"
+  },
+  "training data (fixed steps)": {
+   "kind": "fine",
+   "xlabel": "training primaries (M), clf_B + exit_B",
+   "xlog": true,
+   "points": [
+    [
+     1,
+     "data1M",
+     "k80k"
+    ],
+    [
+     3,
+     "data3M",
+     "k80k"
+    ],
+    [
+     10,
+     "ep30",
+     "k80k"
+    ]
+   ],
+   "train_min": [
+    10.65,
+    14.35,
+    35.9
+   ],
+   "train_label": "clf_B + exit_B training\n+ data generation (min)"
+  },
+  "ODE steps (inference)": {
+   "kind": "fine",
+   "xlabel": "flow ODE steps (midpoint)",
+   "xlog": true,
+   "points": [
+    [
+     10,
+     "ode10",
+     "k80k"
+    ],
+    [
+     20,
+     "ode20",
+     "k80k"
+    ],
+    [
+     50,
+     "x2",
+     "k80k"
+    ],
+    [
+     100,
+     "ode100",
+     "k80k"
+    ]
+   ]
+  },
+  "MirrorY / model history": {
+   "kind": "fine",
+   "xlabel": "",
+   "xticklabels": [
+    "Phase D\n(20 ep)",
+    "xs60\n+ M",
+    "x2\nno M",
+    "x2\n+ M"
+   ],
+   "points": [
+    [
+     1,
+     "phaseD",
+     "k80k"
+    ],
+    [
+     2,
+     "xs60",
+     "k80k"
+    ],
+    [
+     3,
+     "x2_nomirror",
+     "k80k"
+    ],
+    [
+     4,
+     "x2",
+     "k80k"
+    ]
+   ]
+  }
+ },
+ "panels_scr": {
+  "SCR training steps": {
+   "kind": "fine",
+   "xlabel": "kernel training steps (k)",
+   "xlog": true,
+   "points": [
+    [
+     10,
+     "x2",
+     "k10k"
+    ],
+    [
+     20,
+     "x2",
+     "k20k"
+    ],
+    [
+     40,
+     "x2",
+     "k40k"
+    ],
+    [
+     80,
+     "x2",
+     "k80k"
+    ]
+   ],
+   "train_min": [
+    10.3,
+    21.1,
+    28.6,
+    83.0
+   ],
+   "train_label": "kernel training (min)"
+  },
+  "SCR kernel size (20k steps)": {
+   "kind": "fine",
+   "xlabel": "kernel",
+   "xticklabels": [
+    "4 x 128 (0.31M)",
+    "8 x 256 (2.0M)"
+   ],
+   "points": [
+    [
+     1,
+     "x2",
+     "k20k_small"
+    ],
+    [
+     2,
+     "x2",
+     "k20k"
+    ]
+   ],
+   "train_min": [
+    6.6,
+    21.1
+   ],
+   "train_label": "kernel training (min)"
+  },
+  "SCR training data (20k steps)": {
+   "kind": "fine",
+   "xlabel": "training primaries (M)",
+   "xlog": true,
+   "points": [
+    [
+     2,
+     "x2",
+     "k20k_data2M"
+    ],
+    [
+     10,
+     "x2",
+     "k20k"
+    ]
+   ],
+   "train_min": [
+    20.1,
+    21.1
+   ],
+   "train_label": "kernel training (min)"
+  },
+  "SCR samples per transit": {
+   "kind": "fine",
+   "xlabel": "K (Sobol samples per transit)",
+   "xlog": true,
+   "points": [
+    [
+     8,
+     "x2",
+     "K8"
+    ],
+    [
+     16,
+     "x2",
+     "K16"
+    ],
+    [
+     32,
+     "x2",
+     "k80k"
+    ],
+    [
+     64,
+     "x2",
+     "K64"
+    ],
+    [
+     128,
+     "x2",
+     "K128"
+    ]
+   ],
+   "train_label": "kernel training (min)"
+  }
+ },
+ "time": {
+  "cell": [
+   [
+    "phaseD",
+    null,
+    "Phase D model (20 ep)"
+   ],
+   [
+    "xs60",
+    null,
+    "xs60 + MirrorY"
+   ],
+   [
+    "x2",
+    null,
+    "x2 (120 ep) + MirrorY"
+   ],
+   [
+    "ep10",
+    null,
+    "x2, exit_B 10 ep"
+   ],
+   [
+    "h128d4",
+    null,
+    "x2, exit_B 128x4"
+   ],
+   [
+    "data1M",
+    null,
+    "x2, 1M training"
+   ],
+   [
+    "ode10",
+    null,
+    "x2, 10 ODE steps"
+   ],
+   [
+    "ode20",
+    null,
+    "x2, 20 ODE steps"
+   ]
+  ],
+  "fine": [
+   [
+    "phaseD",
+    "k80k",
+    "Phase D model"
+   ],
+   [
+    "xs60",
+    "k80k",
+    "xs60 + MirrorY"
+   ],
+   [
+    "x2",
+    "k80k",
+    "x2 + SCR 80k, K=32"
+   ],
+   [
+    "x2",
+    "k40k",
+    "x2 + SCR 40k"
+   ],
+   [
+    "x2",
+    "K8",
+    "x2 + SCR, K=8"
+   ],
+   [
+    "x2",
+    "K128",
+    "x2 + SCR, K=128"
+   ],
+   [
+    "ode20",
+    "k80k",
+    "x2, 20 ODE steps"
+   ],
+   [
+    "ep10",
+    "k80k",
+    "x2, exit_B 10 ep"
+   ],
+   [
+    "data1M",
+    "k80k",
+    "x2, 1M training"
+   ]
+  ]
+ },
+ "flat_order": [
+  "phaseD",
+  "xs60",
+  "x2_nomirror",
+  "x2",
+  "ep10",
+  "ep30",
+  "ep60",
+  "h128d4",
+  "h512d6",
+  "data1M",
+  "data3M",
+  "ode10",
+  "ode20",
+  "ode100"
+ ]
+}

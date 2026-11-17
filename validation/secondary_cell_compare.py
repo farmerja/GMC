@@ -234,7 +234,7 @@ def main():
     ap.add_argument("--model", required=True)
     ap.add_argument("--out_dir", required=True)
     ap.add_argument("--n_boundary", type=int, default=500000)
-    ap.add_argument("--ode_steps", type=int, default=50)
+    ap.add_argument("--ode_steps", type=int, default=20)
     ap.add_argument("--seed", type=int, default=7)
     a = ap.parse_args()
     S.apply()

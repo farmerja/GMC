@@ -697,7 +697,7 @@ def main():
     p.add_argument("--batch", type=int, default=100000)
     p.add_argument("--n_seeds", type=int, default=3)
     p.add_argument("--seed", type=int, default=11)
-    p.add_argument("--ode_steps", type=int, default=50)
+    p.add_argument("--ode_steps", type=int, default=20)
     p.add_argument("--E_cutoff", type=float, default=1e-3)
     p.add_argument("--local_photons", action="store_true", help="photon energy deposited in the emitting transit")
     p.add_argument("--mirror", action="store_true", help="y-mirror symmetrization of the GMC (MirrorY)")

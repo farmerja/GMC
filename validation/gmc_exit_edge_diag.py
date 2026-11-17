@@ -55,7 +55,7 @@ def main():
     p.add_argument("--n", type=int, default=1000000)
     p.add_argument("--bins_per_face", type=int, default=32)
     p.add_argument("--seed", type=int, default=0)
-    p.add_argument("--ode_steps", type=int, default=50)
+    p.add_argument("--ode_steps", type=int, default=20)
     p.add_argument("--out", default=None)
     a = p.parse_args()
 
