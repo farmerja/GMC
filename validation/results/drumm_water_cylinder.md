@@ -752,6 +752,94 @@ headroom.
 
 The longer training does not degrade low energies.
 
+## Phase G: ESTAR stopping power, retrained models (2026-11-18)
+
+**Physics change.** `build_library(stopping="estar")` is the default since 2026-11-17 (ElectronTransport 3c4699b): the
+inelastic cross sections are scaled to the ESTAR collision stopping power (k(E) = 1.057 at 10 keV, 0.998 at 1 MeV,
+0.981 at 20 MeV for water). New references: `mc_{circle_n8_500k_s123,stair_n8_500k_s123,stair_n8_500k_s1123}_estar.npz`.
+Models were retrained with the Phase F recipe on `analog_water_1mm_1keV-30MeV_log_10M_42_estar.npz`:
+- `secondary_gmc_water_1mm_30MeV_estar`;
+- `subcell_kernel_water_1mm_30MeV_estar` (80k steps);
+- `charge_kernel_water_1mm_30MeV_estar`.
+
+The GMC ran at the 20-step ODE default (Phase F used 50).
+
+### Analog MC vs ITS (circle geometry; `estar/physics_compare.png`)
+
+| vs ITS | ELSEPA + split (Phase D) | + ESTAR |
+|---|---|---|
+| Lateral energy integral, local photons, x = −0.5 / 0 / +0.5 cm | +1.7 / +2.1 / +3.1 % | **+0.5 / +1.4 / +2.4 %** |
+| Peak, x = −0.5 / 0 / +0.5 cm | 1.066 / 1.023 / 1.007 | 1.013 / 0.986 / 1.067 |
+| Along-axis mean, core | +0.5 % | −1.0 % |
+| Along-axis entry / exit region | +4.5 / −2.0 % | +3.9 / −4.4 % |
+| Charge, 1 mm strip, x = −0.5 / 0 / +0.5 (ITS −0.349 / −0.285 / −0.209) | −0.426 / −0.278 / −0.189 | −0.396 / −0.307 / −0.187 |
+| Beam widths | – | unchanged (scattering only) |
+
+The lateral integrals are the robust numbers, and they all moved about 1 % toward ITS. The single-strip peaks and the
+axis profile carry 4–6 % MC noise per point. The steeper axis (entry up, exit down) is within that noise; its cause is
+not established.
+
+### GMC + SCR vs the ESTAR analog MC (staircase, like for like; `estar/gmc_vs_mc.png`, `estar/metrics.json`)
+
+| | Phase F (x2, EEDL stopping) | ESTAR retrain |
+|---|---|---|
+| Cell energies, rel L2 (photons escape; MC noise 0.0022 / 0.0026) | 0.0029 | **0.0021** |
+| Total deposited, photons escape, GMC/MC | 1.000 | 0.999 |
+| Total deposited, local photons, GMC/MC | 0.993 | 0.986 |
+| Fine map bias, photons escape / local (rel; MC noise 0.009 / 0.050) | 0.0064 / 0.0094 | 0.0104 / 0.0208 |
+| Axis strip y = 0 vs MC (`dip_compare`) | +0.1 % mean, row rms 0.0023 | −1.2 % mean, row rms 0.0086 |
+| Across-beam profiles, rel L2 | 0.010–0.012 | 0.015–0.016 |
+| Charge, cells (bias / MC noise) | −0.037 / 0.083 | +0.058 / 0.076 |
+| Time per 500k-primary seed: chain + SCR + charge (MC stair 2025 s) | 338 + 136 s (50 ODE steps) | **143 + 134 s (7.3× vs MC)** |
+
+Cell level: the retrained GMC is at least as good as Phase F. Below cell level there are two regressions.
+
+1. **A weak return of the Phase E face-row pattern.**
+   - GMC + SCR / MC by 125 µm sub-row around the axis is [0.988, 1.003, 1.005, 1.006, 1.007, 1.008, 1.010, 0.986]:
+     the rows next to the cell faces are 1.2–1.4 % low. The y = 0 axis strip is a face row, so it reads −1.2 %.
+   - **Not the SCR kernel.** `scr_edge_diag.py` gives the ESTAR and the x2 kernels the same face-strip accuracy
+     (within ~1 %) on the held-out set.
+   - **Flat-beam chain** (`flat_beam/flat_gmc_{estar,elsepa_x2}_mirror_300k.npz` vs `flat_mc_300k_estar.npz`), row
+     rms by cell:
+
+     | Cell | 4 | 6 | 8 | 10 |
+     |---|---|---|---|---|
+     | ESTAR GMC | 0.011 | 0.015 | 0.012 | 0.010 |
+     | x2 GMC | 0.007 | 0.009 | 0.011 | 0.006 |
+     | MC noise | | | 0.006 | 0.009 |
+
+     The ESTAR edge rows are 0.97–0.98.
+   - **One-transit check.** The ESTAR exit flow pulls entries within 1/16 cell of a face inward: +0.9e-3 in exit
+     direction, z = +6.5 at the bottom face and −3.6 at the top. The x2 flow has its larger errors mid-cell (overall
+     dv chi²/bin 8.8 vs 4.9) but only +2σ at the faces.
+   - This is the Phase E mechanism at about a third of its Phase D size. The Phase F recipe reduces it but does not
+     remove it reliably from one training run to the next.
+2. **Photon energy is 8 % low.**
+   - The local-photon totals are low (0.986) while the photons-escape totals match (0.999).
+   - On 1M held-out boundary transits, the classifier's photon flag is calibrated (1.000 predicted/empirical), and
+     the sampled flag count is within 2 %. But the photon-energy flow's mean share is low: q per flagged transit is 6 %
+     low, and total photon energy is 0.92 of the MC (0.91 at 7–30 MeV).
+   - Phase F had the same bias, smaller in Drumm: −5 % photon energy vs −9 % here. The flow misses the heavy upper tail
+     of the bremsstrahlung share.
+   - This matters only for the local-photon (ITS) convention: about 15 % of the axis dose there is photon energy.
+
+```bash
+D=validation/results/drumm_water_cylinder; M=ml/models; R=$D/flat_beam
+# training + MC references + GMC runs: GMC/logs_estar/{regen3,train_queue,eval_queue}.sh
+python validation/drumm_cylinder.py plot --circle $D/mc_circle_n8_500k_s123_estar.npz \
+    --stair $D/mc_stair_n8_500k_s123_estar.npz --stair_noise $D/mc_stair_n8_500k_s1123_estar.npz \
+    --gmc $D/estar/gmc_n8_500k_estar_mirror.npz --gmc_lp $D/estar/gmc_n8_500k_estar_mirror_localph.npz --out_dir $D/estar
+python validation/drumm_dip_compare.py --mc mc_stair_n8_500k_s123_estar.npz mc_stair_n8_500k_s1123_estar.npz \
+    --gmc "estar=estar/gmc_n8_500k_estar_mirror.npz" --out $D/estar/dip_compare.png
+python validation/scr_edge_diag.py --model $M/subcell_kernel_water_1mm_30MeV_estar \
+    --test_npz ../ElectronTransport/analog_water_1mm_1keV-30MeV_log_2M_7_estar.npz
+(cd ../ElectronTransport && .venv/bin/python ../GMC/validation/flat_beam_chain.py mc --out ../GMC/$R/flat_mc_300k_estar.npz)
+python validation/flat_beam_chain.py gmc --model $M/secondary_gmc_water_1mm_30MeV_estar/secondary_gmc.pth --mirror \
+    --out $R/flat_gmc_estar_mirror_300k.npz
+python validation/flat_beam_chain.py compare --runs $R/flat_mc_300k_estar.npz $R/flat_gmc_estar_mirror_300k.npz \
+    --transit_model $M/secondary_gmc_water_1mm_30MeV_estar/secondary_gmc.pth
+```
+
 ## Next session
 
 0. ~~Finish the dip fix~~: done in Phase F (edge features + scaled exits + 120-epoch exit flow).
@@ -761,8 +849,13 @@ The longer training does not degrade low energies.
    - Use the Phase F recipe for the Cu / Al / water retrains: `--edge_feats --exit_scaled`, 120-epoch exit flows,
      ≥ 10M primaries, SCR ≥ 80k steps. The SCR kernel may still improve past 80k.
 
-1. Retrain the 100 µm Cu / Al / water GMCs (and kernels) on the regenerated `_elsepa` sets. Re-check the Cu/Al
-   chains for drift.
+1. ~~Retrain the 100 µm Cu / Al / water GMCs~~: done on the `_estar` sets (2026-11-18; Lockwood page).
+   - New: the water 1 mm ESTAR exit flow has a weak face-row pattern (Phase G). Options:
+     - retrain `exit_B` only, with acceptance on the flat-beam test (2 min per model);
+     - average two exit-flow runs;
+     - penalize the face pull directly in training.
+   - New: the photon-energy flow is 6–8 % low in mean (both models). Options: a heavier-tailed target (log g instead
+     of logit g), or training on importance-weighted rows of large g.
 2. ~~SCR lateral bias at high energy~~: not the kernel. It was the GMC chaining artifact of Phase E. The kernel's own
    2–5 % entry-aligned lateral bias is still worth a look, but it is not the cause of the dip.
 3. More histories for the fine charge comparison vs ITS (≥ 2M).

@@ -40,8 +40,10 @@ def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--gmc", nargs="+", required=True, help="label=file.npz (in the results folder)")
     p.add_argument("--out", required=True)
+    p.add_argument("--mc", nargs=2, default=MC, help="the two staircase MC references (in the results folder); "
+                   "default the ELSEPA-split ones (EEDL stopping). Use the *_estar pair for models trained on ESTAR data")
     a = p.parse_args()
-    mc = [np.load(os.path.join(D, f))["energy"] / float(np.load(os.path.join(D, f))["N"]) for f in MC]   # per primary
+    mc = [np.load(os.path.join(D, f))["energy"] / float(np.load(os.path.join(D, f))["N"]) for f in a.mc]  # per primary
     M = (mc[0] + mc[1]) / 2
     res = {"mc_seed_vs_seed": metrics(mc[0], mc[1])}
     for s in a.gmc:

@@ -135,8 +135,8 @@ def cmd_mc(a):
 
 
 # ----------------------------------------------------------------------------------------------------------- gmc
-def gmc_name(key, E, N, n):
-    return f"gmc_{key}_{E:g}MeV_{N // 1000}k_n{n}.npz"
+def gmc_name(key, E, N, n, tag=""):
+    return f"gmc_{key}_{E:g}MeV_{N // 1000}k_n{n}{tag}.npz"
 
 
 def cmd_gmc(a):
@@ -212,7 +212,7 @@ def cmd_gmc(a):
                       f"ms/primary, {n_tr / a.N:.1f} transits/primary), SCR {t_t:.0f} s (K {K}); deposited "
                       f"{d_c.sum() / (a.N * E):.4f} (SCR {d_f.sum() / (a.N * E):.4f}), e- out front "
                       f"{esc[-1].get('left', 0):.4f}", flush=True)
-            out = OUT / gmc_name(key, E, a.N, a.n)
+            out = OUT / gmc_name(key, E, a.N, a.n, a.tag)
             np.savez_compressed(out, cell=np.array(cell), scr=np.array(fine), L=L, rho=rho, n=a.n, N=a.N, E=E,
                                 meta=json.dumps({**vars(a), "case": key, "E": E, "grid": [nx, ny], "K": K,
                                                  "chain_s": tc, "tally_s": tt, "transits": ntr, "escaped": esc}))
@@ -279,8 +279,8 @@ def find_run(key, E, N, seed, stopping="eedl"):
     return Run(p) if p.exists() else None
 
 
-def find_gmc(key, E, N, n):
-    p = OUT / gmc_name(key, E, N, n)
+def find_gmc(key, E, N, n, tag=""):
+    p = OUT / gmc_name(key, E, N, n, tag)
     return GmcRun(p) if p.exists() else None
 
 
@@ -297,7 +297,8 @@ def cmd_plot(a):
     C_MC, C_T, C_G, C_S = sty.REF, "#eb6834", "#2a78d6", "#1baf7a"
     C_B = "#8a8a8a"  # the EEDL-stopping MC, overlaid when plotting another stopping model
     # --stopping estar: the MC is the ESTAR-scaled run; figures go to a subfolder and the EEDL-stopping run is overlaid.
-    # The GMC models were trained on EEDL-stopping data, so they are left out of that comparison.
+    # GMC runs are shown only from models trained on data of the same stopping model: with --stopping estar, pass
+    # --gmc_tag naming those runs (e.g. _estar); without it the GMC is left out.
     alt = a.stopping != "eedl"
     fig_dir = OUT / a.stopping if alt else OUT
     fig_dir.mkdir(exist_ok=True)
@@ -306,7 +307,8 @@ def cmd_plot(a):
             continue
         r_exp = find_run(key, c["E_exp"], a.N, a.seed, a.stopping)
         r_nom = find_run(key, c["E_nom"], a.N, a.seed, a.stopping)
-        g = None if alt else find_gmc(key, c["E_exp"], a.gmc_N, a.gmc_n)
+        g = (find_gmc(key, c["E_exp"], a.gmc_N, a.gmc_n, a.gmc_tag) if a.gmc_tag is not None else None) if alt else \
+            find_gmc(key, c["E_exp"], a.gmc_N, a.gmc_n)
         base = find_run(key, c["E_exp"], a.N, a.seed) if alt else None
         if r_exp is None:
             print(f"{key}: no run at {c['E_exp']} MeV, skipped")
@@ -518,7 +520,8 @@ def cmd_plot(a):
         for axx in list(axs.flat)[n:]:
             axx.axis("off")
         fig.suptitle("Lockwood et al. (SAND79-0414): experiment (o), TIGER (orange), " +
-                     (f"analog MC {a.stopping.upper()} stopping (black), EEDL stopping (grey dashed)" if alt else
+                     (f"analog MC {a.stopping.upper()} stopping (black), EEDL stopping (grey dashed)" +
+                      (", GMC + SCR (green dash-dot)" if a.gmc_tag is not None else "") if alt else
                       "analog MC (black), GMC + SCR (green dash-dot)"), fontsize=10)
         fig.tight_layout()
         fig.savefig(fig_dir / "overview.png", dpi=120)
@@ -548,7 +551,7 @@ def cmd_plot(a):
                   f"{100 * m['mc_noise_rms_rel']:.1f}%, SCR noise {100 * m['scr_noise_rms_rel']:.1f}%); SCR/exp rms "
                   f"{100 * m['scr_exp_rms_rel']:.1f}%; {m['gmc_ms_per_primary_with_scr']:.3f} vs MC "
                   f"{m['mc_ms_per_primary']:.3f} ms/primary")
-    print(f"saved figures + metrics.json in {OUT}")
+    print(f"saved figures + metrics.json in {fig_dir}")
 
 
 def main():
@@ -579,6 +582,7 @@ def main():
     p.add_argument("--seed", type=int, default=11)
     p.add_argument("--ode_steps", type=int, default=20)
     p.add_argument("--E_cutoff", type=float, default=1e-3)
+    p.add_argument("--tag", default="", help="suffix of the output file name (e.g. _estar for models on ESTAR data)")
     p = sp.add_parser("plot")
     p.add_argument("--N", type=int, default=200000)
     p.add_argument("--seed", type=int, default=79)
@@ -587,6 +591,7 @@ def main():
     p.add_argument("--min_frac", type=float, default=0.1, help="ratio metrics use points with J > this x max")
     p.add_argument("--stopping", choices=("eedl", "estar"), default="eedl",
                    help="which MC runs to plot; non-default: figures in a subfolder, EEDL-stopping MC overlaid")
+    p.add_argument("--gmc_tag", default=None, help="with --stopping estar: GMC runs made with `gmc --tag` this")
     a = ap.parse_args()
     {"mc": cmd_mc, "gmc": cmd_gmc, "plot": cmd_plot}[a.cmd](a)
 

@@ -329,12 +329,88 @@ elastic gap at 0.256–10 MeV would have put 1 MeV oblique backscatter 54 % too 
 albedo data as well as TIGER does, or better for the number albedo. The remaining energy-albedo excess (+5–8 % where the
 data look consistent) is shared with TIGER.
 
+## GMC + SCR retrained on ESTAR data (2026-11-18)
+
+`stopping="estar"` is now the default (ElectronTransport 3c4699b). The Cu / Al 100 µm training data were regenerated
+with it (`analog_{cu,al}_100um_1keV-10MeV_log_{10M_42,2M_7}_estar`) and the models retrained on the full Phase F
+schedule:
+- GMC (`secondary_gmc_{cu,al}_100um_estar`): `--edge_feats --exit_scaled --clf_epochs 30 --flow_epochs 120
+  --small_epochs 120 --stop`, about 96 min each.
+- SCR kernels (`subcell_kernel_{cu,al}_100um_estar`): 80k steps, about 83 min each.
+
+The earlier models were shortened (40-epoch flows, 20k-step kernels) and trained on EEDL-stopping data.
+- Each model set is compared with the MC of its own physics.
+- Figures: `lockwood_sandia/estar/`, with the ESTAR MC in black, the EEDL MC grey dashed and GMC + SCR green.
+
+| Case | GMC cells vs MC, rms (old → new) | GMC + SCR vs MC, rms (old → new) | GMC + SCR vs experiment, rms (old → new) |
+|---|---|---|---|
+| Al 1.033 MeV 0° | 1.0 → 0.6 % | 1.2 → 0.9 % | 3.1 → 2.9 % |
+| Al 1.033 MeV 60° | 0.6 → 0.6 % | 0.8 → 0.9 % | 5.2 → 6.4 % |
+| Al 0.521 MeV 0° | 1.3 → 0.5 % | 1.5 → 0.9 % | 4.5 → 2.9 % |
+| Al 0.521 MeV 60° | 1.7 → 1.2 % | 2.1 → 1.4 % | 1.8 → 2.6 % |
+| Al 0.314 MeV 0° | 1.0 → 0.4 % | 1.4 → 1.0 % | 7.1 → 4.0 % |
+| Al 0.314 MeV 60° | 0.6 → 0.8 % | 1.4 → 1.2 % | 4.7 → 2.5 % |
+| Cu 0.5 MeV 0° | 0.5 → 0.2 % | 1.7 → 0.7 % | 6.3 → 6.0 % |
+| Cu 0.3 MeV 0° | 0.3 → 0.4 % | 1.3 → 1.6 % | 4.5 → 5.8 % |
+
+The numbers are from the clean timing rerun (2026-11-18, same seeds, default batch). They differ from the first
+retrained run (shared GPU, `--batch 50000`) only within noise.
+
+The SCR rms against the MC includes 0.5–0.7 % of MC noise.
+
+- **GMC + SCR vs its MC:** mean 1.4 → 1.1 %, better in 6 of 8 cases. Cu 0.3 MeV is worst (1.6 %, surface bin
+  +2.7 %): its profile spans only 1.4 cells, so it rests almost entirely on the kernel.
+- **Totals:** within 0.5 % of the MC in every case.
+- **Surface cases:**
+  - Al 0.109 MeV: SCR/exp 0.984 (MC 0.982).
+  - Al 0.058 MeV: SCR/exp 1.036 (MC 1.053).
+- **Against experiment** the GMC + SCR now follows the ESTAR MC:
+  - the Al tails are fixed (0.314 MeV 0°: 7.1 → 4.0 %);
+  - the same cases got worse as for the MC: Al 1 MeV 60°, whose depth-dose profile integrates low (see SAND80-1968),
+    and Cu 0.3 MeV, whose tail is now low on the same side as TIGER.
+- **Held-out single-cell checks** (`secondary_cell_{cu,al}_100um_estar`): dose at noise level (boundary 1.002 / 0.995).
+  But relevant daughters are 3.1 % (Cu) and 2.6 % (Al) low, about 2σ each. The water 1 mm model shows the same
+  (−2.3 %); the old models were mixed. Not visible in these dose profiles; to watch.
+- **Timings** (clean rerun, GPU to itself; GMC + SCR at n = 20, K = 64, vs the CPU analog MC of the same case,
+  ms/primary):
+
+  | Case | MC | GMC chain | GMC + SCR | Speed-up |
+  |---|---|---|---|---|
+  | Al 1.033 MeV 0° | 0.98 | 0.26 | 0.75 | 1.3× |
+  | Al 1.033 MeV 60° | 0.80 | 0.20 | 0.56 | 1.4× |
+  | Al 0.521 MeV 0° | 0.50 | 0.11 | 0.31 | 1.6× |
+  | Al 0.521 MeV 60° | 0.40 | 0.08 | 0.23 | 1.7× |
+  | Al 0.314 MeV 0° | 0.30 | 0.055 | 0.15 | 1.9× |
+  | Al 0.314 MeV 60° | 0.24 | 0.043 | 0.12 | 2.1× |
+  | Cu 0.5 MeV 0° | 0.45 | 0.037 | 0.093 | 4.8× |
+  | Cu 0.3 MeV 0° | 0.27 | 0.019 | 0.045 | 6.0× |
+
+  - The SCR tally is about two thirds of the GMC cost: n = 20 sub-bins and K = 64 samples per transit are far more
+    than these 0.006–0.036-FMR profiles need.
+  - The MC timings are those recorded by the ESTAR MC runs (2026-11-17), with no guarantee of an idle CPU.
+  - Al at 100 µm cells is the expensive case: 21 cells per range at 1 MeV.
+
+![Al 0.314 MeV 0°, retrained models](lockwood_sandia/estar/al_0.3_0.png)
+
+```bash
+# data: GMC/logs_estar/regen*.sh; training: GMC/logs_estar/train_queue.sh
+cd validation; M=../ml/models
+python lockwood_slab.py gmc --cases cu_0.5_0 cu_0.3_0 cu_1.0_0 --model_cu $M/secondary_gmc_cu_100um_estar/secondary_gmc.pth \
+    --kernel_cu $M/subcell_kernel_cu_100um_estar --N 200000 --n_seeds 2 --tag _estar
+python lockwood_slab.py gmc --cases al_1.0_0 al_1.0_60 al_0.5_0 al_0.5_60 al_0.3_0 al_0.3_60 al_0.1_0 al_0.05_0 \
+    --model_al $M/secondary_gmc_al_100um_estar/secondary_gmc.pth --kernel_al $M/subcell_kernel_al_100um_estar \
+    --N 200000 --n_seeds 2 --tag _estar
+python lockwood_slab.py plot --stopping estar --gmc_tag _estar
+```
+
 ## Next
 
-- Full Phase F retrain of the Cu / Al 100 µm GMCs (120-epoch flows) and 80k-step SCR kernels, then rerun
-  `lockwood_slab.py gmc` (expect the 0.5 MeV 60° cell bias to drop).
-- Decide whether `stopping="estar"` becomes the default. If yes, regenerate the training data and retrain the Cu / Al
-  / water models with it (this combines with the Phase F retrain).
+- ~~Phase F retrain and the ESTAR default~~: done 2026-11-18 (section above).
+- ~~Clean timing rerun~~: done 2026-11-18 (timing table above).
+- Relevant-daughter deficit (single-cell checks: 2–4.5 % too few in every model): **not confirmed** on 1M held-out
+  water 1 mm boundary transits (2026-11-18). There the classifier is calibrated (P(n_rel ≥ 1) predicted/empirical
+  1.004, photon flag 1.000) and the sampled transits emit 25 664 relevant daughters vs 25 309 in the MC (energy 1.016).
+  Still to reconcile with the cell-check count.
 - ~~MeV oblique-incidence backscatter~~: resolved. The Lockwood depth-dose integral underestimates the total
   deposition; the direct albedos agree (see the SAND80-1968 section).
 - Find the Cu 1.0 MeV table (V.E.1); the MC and GMC runs for it already exist.

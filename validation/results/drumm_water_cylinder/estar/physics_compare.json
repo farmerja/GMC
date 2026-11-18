@@ -1,0 +1,252 @@
+{
+ "runs": {
+  "EEDL, binary": {
+   "physics": {
+    "elastic": "eedl",
+    "ionization_deflection": "binary"
+   },
+   "E_along": {
+    "mean_rel": -0.01398968319468756,
+    "entry_rel(-0.9..-0.6)": 0.06691851115067834,
+    "exit_rel(0.6..0.9)": -0.06795157876139646
+   },
+   "E_xm05": {
+    "rms_width_its": 0.1146340258852745,
+    "rms_width_mc": 0.11297018214445666,
+    "width_ratio": 0.9854856031796091,
+    "scattering_width_ratio": 0.92824328238756,
+    "peak_its": 8.4983,
+    "peak_mc": 8.860003221879781,
+    "lateral_integral_its": 2.3540876600000002,
+    "lateral_integral_mc_local": 2.410289583597381,
+    "lateral_integral_mc_escape": 2.040763127772357
+   },
+   "E_x0": {
+    "rms_width_its": 0.12756703615120135,
+    "rms_width_mc": 0.1306622631729315,
+    "width_ratio": 1.0242635332380183,
+    "scattering_width_ratio": 1.0659166777679168,
+    "peak_its": 7.5394,
+    "peak_mc": 7.643324320758806,
+    "lateral_integral_its": 2.345413505,
+    "lateral_integral_mc_local": 2.4285941306623453,
+    "lateral_integral_mc_escape": 2.0858712414122844
+   },
+   "E_xp05": {
+    "rms_width_its": 0.15449807842105345,
+    "rms_width_mc": 0.16397126058572103,
+    "width_ratio": 1.0613158575270454,
+    "scattering_width_ratio": 1.1063658434498376,
+    "peak_its": 6.1472,
+    "peak_mc": 6.030918511854915,
+    "lateral_integral_its": 2.3365482550000003,
+    "lateral_integral_mc_local": 2.433664243278751,
+    "lateral_integral_mc_escape": 2.1031060291515535
+   },
+   "charge_trough": {
+    "Q_xm05_1mm": {
+     "mc": -0.29359999999999997,
+     "its": -0.35305837667735424
+    },
+    "Q_xm05_0.5mm": {
+     "mc": -0.3288,
+     "its": -0.37243602556109723
+    },
+    "Q_xm05_0.25mm": {
+     "mc": -0.34719999999999995,
+     "its": -0.36870543237579684
+    },
+    "Q_x0_1mm": {
+     "mc": -0.26680000000000004,
+     "its": -0.2849697538310022
+    },
+    "Q_x0_0.5mm": {
+     "mc": -0.2336,
+     "its": -0.3050519003668365
+    },
+    "Q_x0_0.25mm": {
+     "mc": -0.272,
+     "its": -0.30832118334146513
+    },
+    "Q_xp05_1mm": {
+     "mc": -0.132,
+     "its": -0.20890619522622014
+    },
+    "Q_xp05_0.5mm": {
+     "mc": -0.07680000000000001,
+     "its": -0.2143469605747536
+    },
+    "Q_xp05_0.25mm": {
+     "mc": -0.05120000000000001,
+     "its": -0.21715501744151525
+    }
+   }
+  },
+  "ELSEPA, split": {
+   "physics": {
+    "elastic": "elsepa",
+    "ionization_deflection": "split",
+    "close_min_factor": 3.0
+   },
+   "E_along": {
+    "mean_rel": 0.004685602396747285,
+    "entry_rel(-0.9..-0.6)": 0.04499452296111782,
+    "exit_rel(0.6..0.9)": -0.019741558259838525
+   },
+   "E_xm05": {
+    "rms_width_its": 0.1146340258852745,
+    "rms_width_mc": 0.11075702408816515,
+    "width_ratio": 0.9661793104868407,
+    "scattering_width_ratio": 0.8250609056941351,
+    "peak_its": 8.4983,
+    "peak_mc": 9.058229341718427,
+    "lateral_integral_its": 2.3540876600000002,
+    "lateral_integral_mc_local": 2.3953375321996457,
+    "lateral_integral_mc_escape": 2.0076937343355232
+   },
+   "E_x0": {
+    "rms_width_its": 0.12756703615120135,
+    "rms_width_mc": 0.12766362693193467,
+    "width_ratio": 1.0007571766472558,
+    "scattering_width_ratio": 1.0020979411108906,
+    "peak_its": 7.5394,
+    "peak_mc": 7.7099446829549585,
+    "lateral_integral_its": 2.345413505,
+    "lateral_integral_mc_local": 2.395421167525661,
+    "lateral_integral_mc_escape": 2.05615841453122
+   },
+   "E_xp05": {
+    "rms_width_its": 0.15449807842105345,
+    "rms_width_mc": 0.158332266859805,
+    "width_ratio": 1.024817062308712,
+    "scattering_width_ratio": 1.0435874613022988,
+    "peak_its": 6.1472,
+    "peak_mc": 6.189510693746069,
+    "lateral_integral_its": 2.3365482550000003,
+    "lateral_integral_mc_local": 2.408595840773904,
+    "lateral_integral_mc_escape": 2.0833589326984794
+   },
+   "charge_trough": {
+    "Q_xm05_1mm": {
+     "mc": -0.46199999999999997,
+     "its": -0.35305837667735424
+    },
+    "Q_xm05_0.5mm": {
+     "mc": -0.5256,
+     "its": -0.37243602556109723
+    },
+    "Q_xm05_0.25mm": {
+     "mc": -0.5504,
+     "its": -0.36870543237579684
+    },
+    "Q_x0_1mm": {
+     "mc": -0.2808,
+     "its": -0.2849697538310022
+    },
+    "Q_x0_0.5mm": {
+     "mc": -0.3648,
+     "its": -0.3050519003668365
+    },
+    "Q_x0_0.25mm": {
+     "mc": -0.376,
+     "its": -0.30832118334146513
+    },
+    "Q_xp05_1mm": {
+     "mc": -0.1968,
+     "its": -0.20890619522622014
+    },
+    "Q_xp05_0.5mm": {
+     "mc": -0.1704,
+     "its": -0.2143469605747536
+    },
+    "Q_xp05_0.25mm": {
+     "mc": -0.2464,
+     "its": -0.21715501744151525
+    }
+   }
+  },
+  "ELSEPA, split, ESTAR": {
+   "physics": {
+    "elastic": "elsepa",
+    "ionization_deflection": "split",
+    "close_min_factor": 3.0
+   },
+   "E_along": {
+    "mean_rel": -0.011163712375333156,
+    "entry_rel(-0.9..-0.6)": 0.03942844309487155,
+    "exit_rel(0.6..0.9)": -0.043968429554255964
+   },
+   "E_xm05": {
+    "rms_width_its": 0.1146340258852745,
+    "rms_width_mc": 0.11032738016280584,
+    "width_ratio": 0.9624313489017761,
+    "scattering_width_ratio": 0.8037536902104468,
+    "peak_its": 8.4983,
+    "peak_mc": 8.608662242674104,
+    "lateral_integral_its": 2.3540876600000002,
+    "lateral_integral_mc_local": 2.36517218050918,
+    "lateral_integral_mc_escape": 1.9724037904127691
+   },
+   "E_x0": {
+    "rms_width_its": 0.12756703615120135,
+    "rms_width_mc": 0.1277124492684871,
+    "width_ratio": 1.0011398957103101,
+    "scattering_width_ratio": 1.0031572904479984,
+    "peak_its": 7.5394,
+    "peak_mc": 7.432098887211772,
+    "lateral_integral_its": 2.345413505,
+    "lateral_integral_mc_local": 2.377491158011857,
+    "lateral_integral_mc_escape": 2.024194612740705
+   },
+   "E_xp05": {
+    "rms_width_its": 0.15449807842105345,
+    "rms_width_mc": 0.1580833832743528,
+    "width_ratio": 1.0232061452798678,
+    "scattering_width_ratio": 1.0407816914138797,
+    "peak_its": 6.1472,
+    "peak_mc": 6.556498939398743,
+    "lateral_integral_its": 2.3365482550000003,
+    "lateral_integral_mc_local": 2.3934455862109028,
+    "lateral_integral_mc_escape": 2.05500228299022
+   },
+   "charge_trough": {
+    "Q_xm05_1mm": {
+     "mc": -0.3964,
+     "its": -0.35305837667735424
+    },
+    "Q_xm05_0.5mm": {
+     "mc": -0.3856,
+     "its": -0.37243602556109723
+    },
+    "Q_xm05_0.25mm": {
+     "mc": -0.5264,
+     "its": -0.36870543237579684
+    },
+    "Q_x0_1mm": {
+     "mc": -0.34159999999999996,
+     "its": -0.2849697538310022
+    },
+    "Q_x0_0.5mm": {
+     "mc": -0.35279999999999995,
+     "its": -0.3050519003668365
+    },
+    "Q_x0_0.25mm": {
+     "mc": -0.4192,
+     "its": -0.30832118334146513
+    },
+    "Q_xp05_1mm": {
+     "mc": -0.1904,
+     "its": -0.20890619522622014
+    },
+    "Q_xp05_0.5mm": {
+     "mc": -0.15439999999999998,
+     "its": -0.2143469605747536
+    },
+    "Q_xp05_0.25mm": {
+     "mc": -0.1792,
+     "its": -0.21715501744151525
+    }
+   }
+  }
+ }
+}
