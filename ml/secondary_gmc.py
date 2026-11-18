@@ -52,6 +52,7 @@ from ml.utils import run_uniform_ode_inference  # noqa: E402
 
 NF = 4                  # faces of the square
 ABSORBED = 4
+EDGE_BAND = 1.0 / 16    # exit-flow oversampling: boundary entries this close (cell units) to a lateral face
 N_EXIT = 5              # 4 faces + absorbed
 EPS = 1e-6
 START_BOUNDARY, START_INTERIOR = 0.0, 1.0
@@ -393,12 +394,16 @@ def classifier_data(T, kind, augment=True):
     return np.concatenate(conds), np.concatenate(labs)
 
 
-def exit_flow_data(T, kind, augment=True, rel=False, scaled=False):
+def exit_flow_data(T, kind, augment=True, rel=False, scaled=False, oversample=None):
     """rel: ray-relative position / angle targets (exit_reference); scaled: through-going exits ray-relative and
-    divided by the scattering width sigma(E) (exit_targets)."""
+    divided by the scattering width sigma(E) (exit_targets).
+
+    oversample = (k_flag, k_dau, k_edge): training multiplicity of rows with the photon flag, with >= 1 relevant
+    daughter, and (boundary only) entering within EDGE_BAND of a lateral face; a row takes the largest that applies.
+    All three are conditioning inputs, so the learned conditional is unchanged. Returns (cond, target, rep or None)."""
     spec = T["spec"]
     rows = np.flatnonzero(T[kind] & (T["cls"] < NF))
-    conds, tgts = [], []
+    conds, tgts, reps = [], [], []
     for k in sym_set(kind, augment):
         x0, y0, u0, v0, x1, y1, u1, v1, cls = _aug_interior(T, rows, k)
         base = (boundary_cond(spec, y0, u0, v0, T["E0"][rows]) if kind == "boundary"
@@ -407,10 +412,19 @@ def exit_flow_data(T, kind, augment=True, rel=False, scaled=False):
                                 (np.minimum(T["n_rel"][rows], spec.NR) / spec.NR).reshape(-1, 1),
                                 T["flag"][rows].reshape(-1, 1)], 1).astype(np.float32)
         conds.append(np.concatenate([base, extra], 1))
+        if oversample is not None:
+            kf, kd, ke = oversample
+            r_ = np.ones(len(rows), np.int64)
+            r_ = np.where(T["flag"][rows] == 1, np.maximum(r_, kf), r_)
+            r_ = np.where(T["n_rel"][rows] >= 1, np.maximum(r_, kd), r_)
+            if kind == "boundary":
+                r_ = np.where(np.minimum(y0, 1 - y0) < EDGE_BAND, np.maximum(r_, ke), r_)
+            reps.append(r_)
         tgts.append(exit_targets(cls, x1, y1, u1, v1, T["E0"][rows], T["E_out"][rows], spec.E_cut,
                                  ref=(x0, y0, u0, v0) if (rel or scaled) else None,
                                  scale=scatter_width(spec, T["E0"][rows]) if scaled else None))
-    return np.concatenate(conds), np.concatenate(tgts).astype(np.float32)
+    return (np.concatenate(conds), np.concatenate(tgts).astype(np.float32),
+            np.concatenate(reps) if oversample is not None else None)
 
 
 def _parent_block(T, prow, k):
@@ -505,8 +519,12 @@ def stop_cond(spec, start, x0, y0, u0, v0, E0, n_rel, flag):
 # Flow training / sampling
 # ====================================================================================================================
 def train_flow(cond, target, device, hidden=256, depth=6, expansion=2, epochs=20, batch=8192, lr=1e-3,
-               val_frac=0.05, seed=0, label="flow", max_steps=None):
-    """Conditional flow matching (condOT path, ml/model.py network) on standardized targets."""
+               val_frac=0.05, seed=0, label="flow", max_steps=None, rep=None):
+    """Conditional flow matching (condOT path, ml/model.py network) on standardized targets.
+
+    rep: optional per-row integer multiplicity of the TRAINING rows (validation rows keep weight 1). Use it only with
+    a function of the conditioning vector: it then reweights where the network spends capacity without changing the
+    learned conditional distribution p(target | cond)."""
     g = torch.Generator().manual_seed(seed)
     n = len(cond)
     perm = torch.randperm(n, generator=g)
@@ -514,6 +532,9 @@ def train_flow(cond, target, device, hidden=256, depth=6, expansion=2, epochs=20
     mu, sd = target.mean(0), target.std(0) + 1e-6
     X = torch.as_tensor(np.concatenate([cond, (target - mu) / sd], 1), dtype=torch.float32)
     tr, va = perm[n_val:], perm[:n_val]
+    if rep is not None:
+        tr = tr.repeat_interleave(torch.as_tensor(rep, dtype=torch.long)[tr])
+        print(f"  [{label}] oversampled training rows: {n - n_val} -> {len(tr)}", flush=True)
     X = X.to(device)
     cd, td = cond.shape[1], target.shape[1]
     model = get_model(cd + td, cd, hidden_dim=hidden, depth=depth, expansion_factor=expansion).to(device)
@@ -737,6 +758,8 @@ class SecondaryGMC:
 # ====================================================================================================================
 def cmd_train(args):
     dev = "cuda" if torch.cuda.is_available() else "cpu"
+    if args.seed:
+        torch.manual_seed(args.seed)       # flow-matching noise / times (seed 0 keeps the old unseeded behaviour)
     T = load_tables(args.train_npz, NR=args.NR, max_rows=args.max_rows)
     spec = T["spec"]
     spec.edge_feats = bool(args.edge_feats)
@@ -774,15 +797,16 @@ def cmd_train(args):
         name = "exit_" + which
         if want(name):
             scaled = args.exit_scaled and kind == "boundary"
-            cond, tgt = exit_flow_data(T, kind, rel=args.exit_rel, scaled=scaled)
+            os_ = None if args.exit_oversample is None else tuple(int(v) for v in args.exit_oversample.split(","))
+            cond, tgt, rep_ = exit_flow_data(T, kind, rel=args.exit_rel, scaled=scaled, oversample=os_)
             print(f"\n== {name}: {len(tgt)} rows, cond {cond.shape[1]}, target {tgt.shape[1]}"
                   f"{' (ray-relative s, psi)' if args.exit_rel else ''}"
                   f"{' (through-going exits ray-relative / sigma(E))' if scaled else ''}")
             models[name] = {"kind": "flow", **train_flow(cond, tgt, dev, epochs=args.flow_epochs, label=name,
                                                          max_steps=args.max_steps, hidden=args.exit_hidden,
-                                                         depth=args.exit_depth), "rel": args.exit_rel,
-                            "scaled": scaled}
-            info[name] = {"rows": int(len(tgt))}
+                                                         depth=args.exit_depth, rep=rep_, seed=args.seed),
+                            "rel": args.exit_rel, "scaled": scaled}
+            info[name] = {"rows": int(len(tgt)), "oversample": args.exit_oversample, "seed": args.seed}
     if want("daughter"):
         cond, tgt = daughter_flow_data(T)
         print(f"\n== daughter: {len(tgt)} rows (D4 copies of interior parents, y-mirror of boundary parents), cond {cond.shape[1]}")
@@ -877,6 +901,14 @@ def main():
     t.add_argument("--exit_depth", type=int, default=6, help="residual blocks of the exit flows (exit_B, exit_I)")
     t.add_argument("--only", default=None, help="comma list of models to (re)train; others kept from --out")
     t.add_argument("--stop", action="store_true", help="also train the stop-point flow (charge tally) in a full run")
+    t.add_argument("--seed", type=int, default=0,
+                   help="exit flows: split / shuffle seed, and torch.manual_seed when nonzero (candidate runs)")
+    t.add_argument("--exit_oversample", default=None, metavar="KF,KD,KE",
+                   help="exit flows: training multiplicity of photon-flagged rows, rows with >= 1 relevant daughter, "
+                        "and boundary entries within EDGE_BAND = 1/16 cell of a lateral face (e.g. 4,2,2). These are "
+                        "conditioning inputs, so this shifts capacity without biasing the conditional. Added "
+                        "2026-11-18: the ESTAR water exit flow under-sampled large losses on flagged transits "
+                        "(photon energy -8 %) and pulled near-face entries inward")
     t.add_argument("--exit_rel", action="store_true",
                    help="exit flows learn position / angle relative to the entry ray's straight-line continuation "
                         "(exit_reference); stored per model, so old checkpoints keep the absolute encoding")

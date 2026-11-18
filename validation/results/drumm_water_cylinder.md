@@ -850,12 +850,23 @@ python validation/flat_beam_chain.py compare --runs $R/flat_mc_300k_estar.npz $R
      ≥ 10M primaries, SCR ≥ 80k steps. The SCR kernel may still improve past 80k.
 
 1. ~~Retrain the 100 µm Cu / Al / water GMCs~~: done on the `_estar` sets (2026-11-18; Lockwood page).
-   - New: the water 1 mm ESTAR exit flow has a weak face-row pattern (Phase G). Options:
-     - retrain `exit_B` only, with acceptance on the flat-beam test (2 min per model);
-     - average two exit-flow runs;
-     - penalize the face pull directly in training.
-   - New: the photon-energy flow is 6–8 % low in mean (both models). Options: a heavier-tailed target (log g instead
-     of logit g), or training on importance-weighted rows of large g.
+   - New: the water 1 mm ESTAR exit flow has a weak face-row pattern (Phase G). It is systematic: face rows are low
+     in every ESTAR run, so retraining with another seed does not fix it. Edge oversampling did not help (below).
+   - New: photon energy is low in the chain. Drumm GMC/MC photon energy is 0.910 ± 0.003 (ESTAR) and 0.952 (x2).
+   - **Tried 2026-11-18, failed:** `--exit_oversample 4,2,2` (training weight on photon-flagged, daughter and
+     near-face rows), two seeds (`secondary_gmc_water_1mm_30MeV_estar_os_s{1,2}`, `logs_estar/exitfix_queue.sh`).
+     - Face rows: s1 worse (flat-beam rms up to 0.024), s2 about the same as before.
+     - Photon energy: unchanged.
+   - Diagnostics (`logs_estar/diag/`):
+     - The photon flow is accurate given true conditions (0.994).
+     - The flag count is exact (1.002 ± 0.006).
+     - ODE steps do not matter.
+     - Single-transit photon energy is 0.937 ± 0.026: the MC tail makes single-transit tests too noisy to locate the
+       cause. Suspect: the exit flow under-samples large losses on flagged transits (1–2σ per test).
+   - Next options:
+     - more data (a second 10M ESTAR set, train on 20M);
+     - sample the photon energy from the entry state before the exit flow, so the exit flow models only the
+       non-radiative loss.
 2. ~~SCR lateral bias at high energy~~: not the kernel. It was the GMC chaining artifact of Phase E. The kernel's own
    2–5 % entry-aligned lateral bias is still worth a look, but it is not the cause of the dip.
 3. More histories for the fine charge comparison vs ITS (≥ 2M).
