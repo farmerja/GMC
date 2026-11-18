@@ -1,0 +1,466 @@
+{
+ "al_1.0_0": {
+  "E_exp": 1.033,
+  "E_nom": 1.0,
+  "angle": 0,
+  "material": "Al",
+  "csda_range_paper_exp": 0.569,
+  "csda_range_lib_exp": 0.5756601742979414,
+  "backscatter_energy_fraction": 0.04001776453642781,
+  "backscatter_number_primaries": 0.088105,
+  "mc_ms_per_primary": 0.9796598029136657,
+  "csda_range_tiger_inferred": 0.5501730103806227,
+  "tiger_compared_at": "nominal",
+  "csda_range_lib_nom": 0.5535067592493258,
+  "total_escape": [
+   0.9819144733593885,
+   0.00033878544140661187
+  ],
+  "exp_rms_rel_escape": 0.030041888917343055,
+  "exp_mean_rel_escape": 0.027727678118694973,
+  "total_fluor_local": [
+   0.9833464155104888,
+   0.0003404570853342624
+  ],
+  "exp_rms_rel_fluor_local": 0.03145782711217835,
+  "exp_mean_rel_fluor_local": 0.02924159796783854,
+  "total_all_local": [
+   0.9916616492338098,
+   0.00034232485090950976
+  ],
+  "exp_rms_rel_all_local": 0.040717728672130006,
+  "exp_mean_rel_all_local": 0.0387637674506214,
+  "eedl_exp_rms_rel_escape": 0.02893212812770973,
+  "eedl_exp_mean_rel_escape": 0.02212052848809817,
+  "eedl_total_escape": [
+   0.9800907804811745,
+   0.0003804800470119589
+  ],
+  "csda_range_lib_exp_eedl": 0.5868612972519037,
+  "backscatter_energy_fraction_eedl": 0.04162552119451937,
+  "tiger_rms_rel_escape": 0.045242169574095145,
+  "tiger_mean_rel_escape": -0.012766873020737132,
+  "tiger_vs_exp_rms_rel": 0.05217209854640643,
+  "tiger_vs_exp_mean_rel": 0.02860438700810462,
+  "total_exp": 0.97,
+  "total_tiger": 0.954,
+  "total_escape_nominal": [
+   0.9488656937998886,
+   0.00023697389775127905
+  ]
+ },
+ "al_1.0_60": {
+  "E_exp": 1.033,
+  "E_nom": 1.0,
+  "angle": 60,
+  "material": "Al",
+  "csda_range_paper_exp": 0.569,
+  "csda_range_lib_exp": 0.5756601742979414,
+  "backscatter_energy_fraction": 0.20948537521500482,
+  "backscatter_number_primaries": 0.332795,
+  "mc_ms_per_primary": 0.7987692093849182,
+  "csda_range_tiger_inferred": 0.5503750964032814,
+  "tiger_compared_at": "nominal",
+  "csda_range_lib_nom": 0.5535067592493258,
+  "total_escape": [
+   0.8084657413034136,
+   0.0004045398291884521
+  ],
+  "exp_rms_rel_escape": 0.06508523320486091,
+  "exp_mean_rel_escape": 0.061058640102121156,
+  "total_fluor_local": [
+   0.8096531857653636,
+   0.0004050072351931467
+  ],
+  "exp_rms_rel_fluor_local": 0.066629842064429,
+  "exp_mean_rel_fluor_local": 0.06267396122688838,
+  "total_all_local": [
+   0.816601607402875,
+   0.0004519301313705659
+  ],
+  "exp_rms_rel_all_local": 0.07862550628800907,
+  "exp_mean_rel_all_local": 0.07454483828354495,
+  "eedl_exp_rms_rel_escape": 0.04747126277703809,
+  "eedl_exp_mean_rel_escape": 0.04529833690439762,
+  "eedl_total_escape": [
+   0.8062634960268659,
+   0.0007103316732579311
+  ],
+  "csda_range_lib_exp_eedl": 0.5868612972519037,
+  "backscatter_energy_fraction_eedl": 0.2114007926573421,
+  "tiger_rms_rel_escape": 0.03357069375898962,
+  "tiger_mean_rel_escape": -0.0047936861025188295,
+  "tiger_vs_exp_rms_rel": 0.0682329142360007,
+  "tiger_vs_exp_mean_rel": 0.033544528142106636,
+  "total_exp": 0.759,
+  "total_tiger": 0.785,
+  "total_escape_nominal": [
+   0.7815799698547493,
+   0.0007071954466947302
+  ]
+ },
+ "al_0.5_0": {
+  "E_exp": 0.521,
+  "E_nom": 0.5,
+  "angle": 0,
+  "material": "Al",
+  "csda_range_paper_exp": 0.234,
+  "csda_range_lib_exp": 0.23906913147463782,
+  "backscatter_energy_fraction": 0.058045669140485014,
+  "backscatter_number_primaries": 0.113915,
+  "mc_ms_per_primary": 0.496944864988327,
+  "csda_range_tiger_inferred": 0.22434981423263786,
+  "tiger_compared_at": "nominal",
+  "csda_range_lib_nom": 0.22595494096558696,
+  "total_escape": [
+   0.4877665287236527,
+   0.00016733000835784056
+  ],
+  "exp_rms_rel_escape": 0.026434299677044956,
+  "exp_mean_rel_escape": 0.01810120592832396,
+  "total_fluor_local": [
+   0.4884438524088027,
+   0.00016596894805942635
+  ],
+  "exp_rms_rel_fluor_local": 0.02741599720267594,
+  "exp_mean_rel_fluor_local": 0.019519809973842818,
+  "total_all_local": [
+   0.4907582063778538,
+   0.00018442923830910328
+  ],
+  "exp_rms_rel_all_local": 0.030763065521989163,
+  "exp_mean_rel_all_local": 0.024533593643220053,
+  "eedl_exp_rms_rel_escape": 0.04131824618380891,
+  "eedl_exp_mean_rel_escape": 0.015857502964697963,
+  "eedl_total_escape": [
+   0.4865964422728378,
+   0.00023004998601385828
+  ],
+  "csda_range_lib_exp_eedl": 0.24597162066645514,
+  "backscatter_energy_fraction_eedl": 0.06007341705736236,
+  "tiger_rms_rel_escape": 0.031224974074955336,
+  "tiger_mean_rel_escape": -0.006162688830367833,
+  "tiger_vs_exp_rms_rel": 0.03497851602498864,
+  "tiger_vs_exp_mean_rel": 0.024974128244489316,
+  "total_exp": 0.479,
+  "total_tiger": 0.471,
+  "total_escape_nominal": [
+   0.46804730829506447,
+   0.00019436992318266327
+  ]
+ },
+ "al_0.5_60": {
+  "E_exp": 0.521,
+  "E_nom": 0.5,
+  "angle": 60,
+  "material": "Al",
+  "csda_range_paper_exp": 0.234,
+  "csda_range_lib_exp": 0.23906913147463782,
+  "backscatter_energy_fraction": 0.23955322583260732,
+  "backscatter_number_primaries": 0.35566,
+  "mc_ms_per_primary": 0.3986662137508392,
+  "csda_range_tiger_inferred": 0.2238368686276808,
+  "tiger_compared_at": "nominal",
+  "csda_range_lib_nom": 0.22595494096558696,
+  "total_escape": [
+   0.3937046825449075,
+   0.00034792869497696254
+  ],
+  "exp_rms_rel_escape": 0.02245613464261013,
+  "exp_mean_rel_escape": 0.013469710412872937,
+  "total_fluor_local": [
+   0.39425381655600744,
+   0.00034906592392341365
+  ],
+  "exp_rms_rel_fluor_local": 0.023383631378486026,
+  "exp_mean_rel_fluor_local": 0.014907423186876888,
+  "total_all_local": [
+   0.396192769341236,
+   0.00035281812635342866
+  ],
+  "exp_rms_rel_all_local": 0.028123484127619017,
+  "exp_mean_rel_all_local": 0.020946524890847886,
+  "eedl_exp_rms_rel_escape": 0.0170523612024062,
+  "eedl_exp_mean_rel_escape": 0.002163594437702683,
+  "eedl_total_escape": [
+   0.39085464851154483,
+   0.00030663350301554074
+  ],
+  "csda_range_lib_exp_eedl": 0.24597162066645514,
+  "backscatter_energy_fraction_eedl": 0.24480665469939297,
+  "tiger_rms_rel_escape": 0.038588216133084066,
+  "tiger_mean_rel_escape": -0.01843467198537261,
+  "tiger_vs_exp_rms_rel": 0.04771608375928652,
+  "tiger_vs_exp_mean_rel": 0.03838180155825435,
+  "total_exp": 0.391,
+  "total_tiger": 0.382,
+  "total_escape_nominal": [
+   0.3765917394263239,
+   0.00029632259645110765
+  ]
+ },
+ "al_0.3_0": {
+  "E_exp": 0.314,
+  "E_nom": 0.3,
+  "angle": 0,
+  "material": "Al",
+  "csda_range_paper_exp": 0.113,
+  "csda_range_lib_exp": 0.11600581133532406,
+  "backscatter_energy_fraction": 0.06689905235973877,
+  "backscatter_number_primaries": 0.1238,
+  "mc_ms_per_primary": 0.30006630182266236,
+  "csda_range_tiger_inferred": 0.10747735298633504,
+  "tiger_compared_at": "nominal",
+  "csda_range_lib_nom": 0.10837202533267515,
+  "total_escape": [
+   0.29162943912030054,
+   0.00016761086854384042
+  ],
+  "exp_rms_rel_escape": 0.03705537504058137,
+  "exp_mean_rel_escape": 0.021291035183457804,
+  "total_fluor_local": [
+   0.2920152857844505,
+   0.00016812063217662204
+  ],
+  "exp_rms_rel_fluor_local": 0.037850465199409114,
+  "exp_mean_rel_fluor_local": 0.02262733862381464,
+  "total_all_local": [
+   0.29299369755909066,
+   0.00016913851883783944
+  ],
+  "exp_rms_rel_all_local": 0.03979919689016027,
+  "exp_mean_rel_all_local": 0.02592085146693907,
+  "eedl_exp_rms_rel_escape": 0.07788647503570749,
+  "eedl_exp_mean_rel_escape": 0.030599739081638953,
+  "eedl_total_escape": [
+   0.2904323387018,
+   8.147448885817516e-05
+  ],
+  "csda_range_lib_exp_eedl": 0.1211323798303474,
+  "backscatter_energy_fraction_eedl": 0.07073474566132981,
+  "tiger_rms_rel_escape": 0.056625054993960665,
+  "tiger_mean_rel_escape": 0.012613985628512354,
+  "tiger_vs_exp_rms_rel": 0.08467208963025646,
+  "tiger_vs_exp_mean_rel": 0.005230413639268037,
+  "total_exp": 0.285,
+  "total_tiger": 0.28,
+  "total_escape_nominal": [
+   0.27853200340547535,
+   0.00014521269035098065
+  ]
+ },
+ "al_0.3_60": {
+  "E_exp": 0.314,
+  "E_nom": 0.3,
+  "angle": 60,
+  "material": "Al",
+  "csda_range_paper_exp": 0.113,
+  "csda_range_lib_exp": 0.11600581133532406,
+  "backscatter_energy_fraction": 0.25307034644304244,
+  "backscatter_number_primaries": 0.364355,
+  "mc_ms_per_primary": 0.23994962453842164,
+  "csda_range_tiger_inferred": 0.10765889130229485,
+  "tiger_compared_at": "nominal",
+  "csda_range_lib_nom": 0.10837202533267515,
+  "total_escape": [
+   0.23343439559179094,
+   0.00024713837062502486
+  ],
+  "exp_rms_rel_escape": 0.029481987004489736,
+  "exp_mean_rel_escape": -0.015322684110005813,
+  "total_fluor_local": [
+   0.23374761480379092,
+   0.0002468011150989408
+  ],
+  "exp_rms_rel_fluor_local": 0.02885507445482323,
+  "exp_mean_rel_fluor_local": -0.013977450522266266,
+  "total_all_local": [
+   0.23453591121691714,
+   0.00024264602024848746
+  ],
+  "exp_rms_rel_all_local": 0.027698908362982597,
+  "exp_mean_rel_all_local": -0.010261574824998876,
+  "eedl_exp_rms_rel_escape": 0.04030709869429737,
+  "eedl_exp_mean_rel_escape": -0.02871776611066963,
+  "eedl_total_escape": [
+   0.23146125755646202,
+   0.00017795392820089674
+  ],
+  "csda_range_lib_exp_eedl": 0.1211323798303474,
+  "backscatter_energy_fraction_eedl": 0.2592405069948651,
+  "tiger_rms_rel_escape": 0.03946974256737345,
+  "tiger_mean_rel_escape": -0.023168461952031344,
+  "tiger_vs_exp_rms_rel": 0.039731559991417656,
+  "tiger_vs_exp_mean_rel": 0.012643755138398027,
+  "total_exp": 0.23,
+  "total_tiger": 0.228,
+  "total_escape_nominal": [
+   0.22257018560824507,
+   0.00023774516295479897
+  ]
+ },
+ "al_0.1_0": {
+  "E_exp": 0.109,
+  "E_nom": 0.1,
+  "angle": 0,
+  "material": "Al",
+  "csda_range_paper_exp": 0.0203,
+  "csda_range_lib_exp": 0.021626689786813688,
+  "backscatter_energy_fraction": 0.07988921494648318,
+  "backscatter_number_primaries": 0.13716,
+  "mc_ms_per_primary": 0.10807410836219787,
+  "surface_J_escape": [
+   7.641010802645097,
+   0.008343188275161818
+  ],
+  "surface_J_fluor_local": [
+   7.6503469776713215,
+   0.008370711529622609
+  ],
+  "surface_J_all_local": [
+   7.665803990973366,
+   0.008104452907406901
+  ],
+  "surface_J_exp": 7.78,
+  "MC_over_exp": 0.9821350646073389,
+  "MC_eedl_over_exp": 0.9422897920488654,
+  "surface_J_nominal": [
+   8.267054617185726,
+   0.01471750743362784
+  ],
+  "MC_over_TIGER": 1.0106423737390864,
+  "TIGER_over_exp": 1.0514138817480718
+ },
+ "al_0.05_0": {
+  "E_exp": 0.058,
+  "E_nom": 0.05,
+  "angle": 0,
+  "material": "Al",
+  "csda_range_paper_exp": 0.00663,
+  "csda_range_lib_exp": 0.0074105023290734805,
+  "backscatter_energy_fraction": 0.08519565614651198,
+  "backscatter_number_primaries": 0.14196,
+  "mc_ms_per_primary": 0.059718000888824466,
+  "surface_J_escape": [
+   10.15802327034931,
+   0.004964284602205695
+  ],
+  "surface_J_fluor_local": [
+   10.168659196386704,
+   0.0050345528522760885
+  ],
+  "surface_J_all_local": [
+   10.178011742631838,
+   0.004945832420876284
+  ],
+  "surface_J_exp": 9.65,
+  "MC_over_exp": 1.0526448984817938,
+  "MC_eedl_over_exp": 1.0356147432166296,
+  "surface_J_nominal": [
+   8.995164233643402,
+   0.004879487066602363
+  ],
+  "MC_over_TIGER": 0.9863118677240573,
+  "TIGER_over_exp": 0.9450777202072538
+ },
+ "cu_0.5_0": {
+  "E_exp": 0.5,
+  "E_nom": 0.5,
+  "angle": 0,
+  "material": "Cu",
+  "csda_range_paper_exp": 0.258,
+  "csda_range_lib_exp": 0.26167434472333234,
+  "backscatter_energy_fraction": 0.167192588806222,
+  "backscatter_number_primaries": 0.266595,
+  "mc_ms_per_primary": 0.45107430338859555,
+  "csda_range_tiger_inferred": 0.2578211945097069,
+  "tiger_compared_at": "nominal",
+  "csda_range_lib_nom": 0.26167434472333234,
+  "total_escape": [
+   0.40935599339042616,
+   0.0003821457216703745
+  ],
+  "exp_rms_rel_escape": 0.060803524448780455,
+  "exp_mean_rel_escape": -0.010395999373900032,
+  "total_fluor_local": [
+   0.41113860138462605,
+   0.000388281315565162
+  ],
+  "exp_rms_rel_fluor_local": 0.06069149454957842,
+  "exp_mean_rel_fluor_local": -0.006164001139643751,
+  "total_all_local": [
+   0.41640370559690487,
+   0.0004131071316186409
+  ],
+  "exp_rms_rel_all_local": 0.06330792335514958,
+  "exp_mean_rel_all_local": 0.005875905965661707,
+  "eedl_exp_rms_rel_escape": 0.06892955961297872,
+  "eedl_exp_mean_rel_escape": -0.011533671152506354,
+  "eedl_total_escape": [
+   0.4097865066172937,
+   0.0003149864033571914
+  ],
+  "csda_range_lib_exp_eedl": 0.2627911806604092,
+  "backscatter_energy_fraction_eedl": 0.16616350444793193,
+  "tiger_rms_rel_escape": 0.048876974027840386,
+  "tiger_mean_rel_escape": -0.02406008158330583,
+  "tiger_vs_exp_rms_rel": 0.05453957185949508,
+  "tiger_vs_exp_mean_rel": 0.015517463643881372,
+  "total_exp": 0.412,
+  "total_tiger": 0.417,
+  "total_escape_nominal": [
+   0.40935599339042616,
+   0.0003821457216703745
+  ]
+ },
+ "cu_0.3_0": {
+  "E_exp": 0.3,
+  "E_nom": 0.3,
+  "angle": 0,
+  "material": "Cu",
+  "csda_range_paper_exp": 0.125,
+  "csda_range_lib_exp": 0.1263305024020731,
+  "backscatter_energy_fraction": 0.18402645004656737,
+  "backscatter_number_primaries": 0.28115,
+  "mc_ms_per_primary": 0.2685463261604309,
+  "csda_range_tiger_inferred": 0.12484897301651228,
+  "tiger_compared_at": "nominal",
+  "csda_range_lib_nom": 0.1263305024020731,
+  "total_escape": [
+   0.24177859568075138,
+   0.00018158023806838129
+  ],
+  "exp_rms_rel_escape": 0.05818666074995688,
+  "exp_mean_rel_escape": -0.022122235043408395,
+  "total_fluor_local": [
+   0.24272023669000137,
+   0.00018275170812157276
+  ],
+  "exp_rms_rel_fluor_local": 0.05734579905961749,
+  "exp_mean_rel_fluor_local": -0.01848193246796559,
+  "total_all_local": [
+   0.24479206498600276,
+   0.00019628610814908672
+  ],
+  "exp_rms_rel_all_local": 0.05708511076369757,
+  "exp_mean_rel_all_local": -0.011004805387260563,
+  "eedl_exp_rms_rel_escape": 0.04428930181236824,
+  "eedl_exp_mean_rel_escape": -0.021041041046212888,
+  "eedl_total_escape": [
+   0.24070786959955015,
+   0.00020468487971806923
+  ],
+  "csda_range_lib_exp_eedl": 0.12889230760908477,
+  "backscatter_energy_fraction_eedl": 0.18744389722871582,
+  "tiger_rms_rel_escape": 0.040110651759973075,
+  "tiger_mean_rel_escape": -0.028017664414416204,
+  "tiger_vs_exp_rms_rel": 0.04320629811377058,
+  "tiger_vs_exp_mean_rel": 0.013307390657103254,
+  "total_exp": 0.242,
+  "total_tiger": 0.248,
+  "total_escape_nominal": [
+   0.24177859568075138,
+   0.00018158023806838129
+  ]
+ }
+}

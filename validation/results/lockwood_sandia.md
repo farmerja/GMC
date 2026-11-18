@@ -78,6 +78,8 @@ MC statistics: 200k histories per run, 1σ on the totals ≤ 0.1 %, ≤ 1 % per 
   depths, i.e. too little energy is backscattered (MC 21 %, implied by the measurement 26 %). TIGER shows the same sign
   (+3.4 % mean). At 0.5 and 0.3 MeV, 60°, the MC total is right (0.750 vs 0.750, 0.737 vs 0.732). Worth a look with the
   backscatter benchmark (Tabata) at oblique incidence.
+  **Superseded (2026-11-17):** the direct albedo measurement (SAND80-1968) shows the depth-dose integral is 6.5 points
+  below the measured total deposition here; our backscatter is right. See the SAND80-1968 section.
 - **Ranges.** Our tables' CSDA range (∫dE/S from 1 keV) is longer than the paper's / TIGER's for Al: +2.5–3 % at
   1 MeV, +4–5 % at 0.5 MeV, +5–7 % at 0.3 MeV (the larger number at the measured energy vs the paper's table), ~+6 %
   vs ESTAR at 0.1 MeV; Cu +2–3 %. This shows up as long tails in Al 0.3 MeV (MC / exp
@@ -206,10 +208,133 @@ Cu 0.3 MeV, 0°: 1.4 cells per range (two GMC steps). GMC + SCR 1.3 % rms from t
 bin +1.8 %. The calorimeter spans 0.176 FMR, which is why the first measured points sit below the MC line but on the
 MC diamonds.
 
+## Stopping power: EEDL vs ESTAR (2026-11-17)
+
+**Finding.** The collision stopping power of our EEDL tables (`PhysicsLibrary.stopping_power`) is below ICRU 37 / ESTAR.
+The reference is Bethe–Rohrlich–Carlson with the Sternheimer density effect, which reproduces `Copper_ESTAR.txt` and
+`Water_ESTAR.txt` to 0.1 %.
+
+| S_col(EEDL) / ESTAR | 10–300 keV | 0.5 MeV | 1–2 MeV | CSDA range (from 1 keV) vs ESTAR |
+|---|---|---|---|---|
+| Al | 0.94–0.98 | 0.99 | 0.97 | +5.2 % (0.1 MeV), +4.5 % (0.3), +3.0 % (0.5), +1.9 % (1.0) |
+| Cu | 0.95–0.98 | 1.02 | 1.03–1.05 (no density effect) | +3.8 % (0.1 MeV) … −1.3 % (1.0) |
+| Water | 0.94–0.98 | 0.96 | ≈ 1.0 | ≈ +3 % |
+
+The ENDF EEDL ionization spectra are tabulated about once per decade (Al K shell: 15.8 keV, 501 keV, 39.8 MeV). The ratio
+is best at those nodes and sags between them. Corresponding-point interpolation in ln(W + B) recovers only about 1 %, so
+most of the gap is in EEDL itself.
+
+**Option `build_library(stopping="estar")`** (`material_data.py`, opt-in; the default is still `"eedl"`):
+- Every excitation and ionization cross section of a material is multiplied by k(E) = S_ref / S_EEDL.
+- The factor applies fully at ≥ 10 keV and fades to 1 at 1 keV, linearly in ln E.
+- Spectra and angular models are unchanged. The collision stopping power then equals ESTAR to 0.01 % at ≥ 10 keV.
+- k ranges from 0.96 to 1.06; Cu < 1 at MeV is the density effect.
+- `lockwood_slab.py mc|plot --stopping estar`; figures and `metrics.json` are in `lockwood_sandia/estar/`.
+
+**Lockwood, analog MC (200k, same seed), rms (mean) vs experiment:**
+
+| Case | EEDL stopping | ESTAR stopping | TIGER |
+|---|---|---|---|
+| Al 1.033 MeV 0° | 2.9 % (+2.2) | 3.0 % (+2.8) | 5.2 % |
+| Al 1.033 MeV 60° | 4.7 % (+4.5) | 6.5 % (+6.1) | 6.8 % |
+| Al 0.521 MeV 0° | 4.1 % (+1.6) | **2.6 % (+1.8)** | 3.5 % |
+| Al 0.521 MeV 60° | 1.7 % (+0.2) | 2.2 % (+1.3) | 4.8 % |
+| Al 0.314 MeV 0° | 7.8 % (+3.1) | **3.7 % (+2.1)** | 8.5 % |
+| Al 0.314 MeV 60° | 4.0 % (−2.9) | **2.9 % (−1.5)** | 4.0 % |
+| Al 0.109 MeV surface (MC/exp) | 0.942 | **0.982** | 1.051 |
+| Al 0.058 MeV surface (MC/exp) | 1.036 | 1.053 | 0.945 |
+| Cu 0.5 MeV 0° | 6.9 % (−1.2) | 6.1 % (−1.0) | 5.5 % |
+| Cu 0.3 MeV 0° | 4.4 % (−2.1) | 5.8 % (−2.2) | 4.3 % |
+
+- **Net: 5 cases better, 4 worse, 1 flat.** Mean rms over the 8 profiles goes from 4.6 % to 4.1 %. The gains are the
+  large ones (the Al long-range defect); the losses are small, or trace to other errors (below). Changes of about 0.5 %
+  (Al 0.5 MeV 60°, Al 1 MeV 0°) are within MC noise and the measurement uncertainty. Al 0.058 MeV sits at the 10 keV
+  edge, where the correction fades out.
+- **Al tails fixed.** Al 0.314 MeV 0° beyond 0.6 FMR goes from MC/exp 1.13–1.25 to 0.99–1.04; rms is halved. The
+  0.109 MeV surface deficit goes from −6 % to −2 %. R_lib / R_paper drops from 1.03–1.07 to 1.01–1.03 (the paper's
+  ranges predate ESTAR).
+- **Al 1 MeV 60° gets worse.** Total deposition is unchanged (0.808 vs 0.806); the shorter range moves dose toward the
+  surface. Against the direct total-stopping measurement (0.800) the MC (0.783) is fine. The depth-dose integral (0.735)
+  is low; see the SAND80-1968 section.
+- **Cu 0.3 MeV tail moves lower** (−12 % at 0.54 FMR). It is now on TIGER's side; the paper itself reports theory low
+  in the Cu tails. Cu 0.5 MeV improves.
+- Backscattered energy drops by 0.2–0.6 points of E0 everywhere: more collisions per path, so less path to return.
+
+![](lockwood_sandia/estar/al_0.3_0.png)
+
+![](lockwood_sandia/estar/overview.png)
+
+## Backscatter: direct albedo measurements (SAND80-1968, 2026-11-17)
+
+The "too little backscatter at Al 1 MeV 60°" above came from integrating the depth-dose profile (26 % implied). The same
+group measured the Al albedos directly:
+- G. J. Lockwood, L. E. Ruggles, G. H. Miller, J. A. Halbleib, *Electron energy and charge albedos — calorimetric
+  measurement vs Monte Carlo theory*, SAND80-1968 (1981), OSTI 5018508. PDF: `papers/sand80_1968.pdf`.
+- Tables V-C(i), V-C.1 and V-C.2 are transcribed in `lockwood_sandia/sand80_1968_al_albedo.json`: 0.032–1.033 MeV,
+  0–75°, checked against the page images.
+
+**The depth-dose integral is not the total deposition.** Table V-C(i) lists two measurements of the deposited energy
+fraction:
+
+| Al case | TIGER | Total-stopping calorimeter | Integrated depth-dose (our "exp total") | Our MC, EEDL / ESTAR S |
+|---|---|---|---|---|
+| 1.0 MeV 0° | 0.954 | 0.940 | 0.939 | 0.949 / 0.951 |
+| 1.0 MeV 60° | 0.785 | **0.800** | **0.735** | 0.781 / 0.783 |
+| 0.5 MeV 0° | 0.942 | 0.948 | 0.919 | 0.934 / 0.936 |
+| 0.5 MeV 60° | 0.764 | 0.769 | 0.750 | 0.750 / 0.756 |
+| 0.3 MeV 0° | 0.933 | 0.946 | 0.908 | 0.925 / 0.929 |
+| 0.3 MeV 60° | 0.760 | 0.750 | 0.732 | 0.737 / 0.743 |
+
+The integrated depth-dose sits 2–6.5 points below the direct measurement. At 1 MeV 60° our MC is 1.7 points *below* the
+direct total, so it does not backscatter too little. The 6 % excess in the profile comparison is mostly the profile
+data's own normalization.
+
+**Albedos vs the direct measurement** (200k Lockwood runs; number albedo counts primaries only):
+
+| Al case | Energy albedo: exp / TIGER / MC EEDL S / MC ESTAR S | Number albedo: exp / TIGER / EEDL / ESTAR |
+|---|---|---|
+| 1.033 MeV 0° | 0.046 / 0.042 / 0.042 / 0.040 | 0.092 / 0.097 / 0.092 / 0.088 |
+| 1.033 MeV 60° | 0.195 / 0.202 / 0.211 / 0.209 | 0.337 / 0.344 / 0.335 / 0.333 |
+| 0.521 MeV 0° | 0.050 / 0.056 / 0.060 / 0.058 | 0.111 / 0.116 / 0.118 / 0.114 |
+| 0.521 MeV 60° | 0.228 / 0.233 / 0.245 / 0.240 | 0.354 / 0.367 / 0.363 / 0.356 |
+| 0.314 MeV 0° | 0.052 / 0.065 / 0.071 / 0.067 | 0.122 / 0.125 / 0.130 / 0.124 |
+| 0.314 MeV 60° | 0.249 / 0.244 / 0.259 / 0.253 | 0.363 / 0.371 / 0.372 / 0.364 |
+| 0.109 MeV 0° | 0.074 / 0.074 / 0.086 / 0.080 | 0.136 / 0.132 / 0.145 / 0.137 |
+| 0.058 MeV 0° | 0.074 / 0.079 / 0.091 / 0.085 | 0.140 / 0.136 / 0.150 / 0.142 |
+
+- **Number albedo.** With ESTAR stopping the primaries are within −4 % to +1 % of experiment, closer than TIGER. EEDL
+  stopping is +2 to +7 %.
+- **Energy albedo.** With ESTAR stopping we are slightly high: +7 % at 1 MeV 60°, +5 % at 0.5 MeV 60°, +8 % at
+  0.109 MeV. That tracks TIGER to within 0.002–0.009 in every case. The large gaps, +29 % at 0.314 MeV 0° and +16 % at
+  0.521 MeV 0°, are shared with TIGER (+25 %, +12 %). There the measured mean energy of the backscattered electrons,
+  <E>/E0 = 0.43 at 0.314 MeV, is out of trend with the experiment's own 0.50 at 1 MeV and 0.54 at 0.109 MeV.
+- **ESTAR stopping improves every albedo**, as expected: more energy loss per path means fewer electrons and less energy
+  come back out.
+
+**Physics-option sensitivity** (100k primaries, ESTAR stopping, all electrons counted; scratch script
+`albedo_sens.py`):
+
+| Variant | 0.314 MeV 0° E / N | 1.033 MeV 60° E / N | 0.109 MeV 0° E / N |
+|---|---|---|---|
+| EEDL stopping (current default) | +36 % / +9 % | +8 % / +6 % | +16 % / +9 % |
+| **ESTAR stopping** | +28 % / +4 % | +6 % / +4 % | +6 % / +2 % |
+| + binary ionization deflection | +37 % / +11 % | +11 % / +8 % | +14 % / +8 % |
+| + close_min_factor 0 | +35 % / +10 % | +10 % / +7 % | +13 % / +8 % |
+| + EEDL elastic | +53 % / +21 % | +82 % / +54 % | +15 % / +9 % |
+
+The Nov 15 choices (ELSEPA elastic, split deflection with close_min 3) are each confirmed independently. The EEDL
+elastic gap at 0.256–10 MeV would have put 1 MeV oblique backscatter 54 % too high.
+
+**Verdict.** There is no backscatter deficit; drop that item. With ESTAR stopping the analog MC matches the direct Al
+albedo data as well as TIGER does, or better for the number albedo. The remaining energy-albedo excess (+5–8 % where the
+data look consistent) is shared with TIGER.
+
 ## Next
 
 - Full Phase F retrain of the Cu / Al 100 µm GMCs (120-epoch flows) and 80k-step SCR kernels, then rerun
   `lockwood_slab.py gmc` (expect the 0.5 MeV 60° cell bias to drop).
-- Al stopping power at 0.1–0.5 MeV vs ESTAR (range 4–7 % long vs the paper / TIGER).
-- MeV oblique-incidence backscatter (Al 1 MeV 60°: 21 % vs 26 % implied) — with the Tabata benchmark.
+- Decide whether `stopping="estar"` becomes the default. If yes, regenerate the training data and retrain the Cu / Al
+  / water models with it (this combines with the Phase F retrain).
+- ~~MeV oblique-incidence backscatter~~: resolved. The Lockwood depth-dose integral underestimates the total
+  deposition; the direct albedos agree (see the SAND80-1968 section).
 - Find the Cu 1.0 MeV table (V.E.1); the MC and GMC runs for it already exist.

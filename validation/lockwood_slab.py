@@ -48,8 +48,9 @@ def load_cases():
     return json.loads(TABLES.read_text())["cases"]
 
 
-def run_name(key, E, N, seed):
-    return f"mc_{key}_{E:g}MeV_{N // 1000}k_s{seed}.npz"
+def run_name(key, E, N, seed, stopping="eedl"):
+    tag = "" if stopping == "eedl" else f"_{stopping}"
+    return f"mc_{key}_{E:g}MeV_{N // 1000}k_s{seed}{tag}.npz"
 
 
 def tiger_range(c):
@@ -79,7 +80,7 @@ def cmd_mc(a):
         c = cases[key]
         if c["material"] not in libs:
             m, h = named_material(c["material"])
-            libs[c["material"]] = (m, build_library([m], [h]))
+            libs[c["material"]] = (m, build_library([m], [h], stopping=a.stopping))
         m, lib = libs[c["material"]]
         Es = {"exp": [c["E_exp"]], "nom": [c["E_nom"]], "both": sorted({c["E_exp"], c["E_nom"]})}[a.energy]
         for E in Es:
@@ -120,7 +121,7 @@ def cmd_mc(a):
                   f"deposited {fr['E_deposited']:.4f}, e- out front {back['E_front'] / bal['E_in']:.4f}, "
                   f"sides/back {back['E_side'] / bal['E_in']:.2e}, photons {fr['E_photons']:.4f}; "
                   f"eta_N {back['n_primary_front'] / a.N:.4f}; R_lib {R_lib:.4g} g/cm^2", flush=True)
-            out = OUT / run_name(key, E, a.N, a.seed)
+            out = OUT / run_name(key, E, a.N, a.seed, a.stopping)
             np.savez_compressed(out, edges=edges, energy=energy, photon=photon, N=a.N, E=E,
                                 meta=json.dumps({"case": key, "E": E, "angle": c["angle"], "N": a.N,
                                                  "seed": a.seed, "E_cutoff": a.E_cutoff, "seconds": secs,
@@ -128,7 +129,8 @@ def cmd_mc(a):
                                                  "slab_cm": [T, H],
                                                  "physics": {"elastic": getattr(lib, "elastic", "eedl"),
                                                              "ionization_deflection":
-                                                                 getattr(lib, "ionization_deflection", "binary")}}))
+                                                                 getattr(lib, "ionization_deflection", "binary"),
+                                                             "stopping": getattr(lib, "stopping", "eedl")}}))
             print(f"  saved {out}")
 
 
@@ -272,8 +274,8 @@ class GmcRun:
         self.ms_chain = 1e3 * np.mean(self.meta["chain_s"]) / self.meta["N"]
 
 
-def find_run(key, E, N, seed):
-    p = OUT / run_name(key, E, N, seed)
+def find_run(key, E, N, seed, stopping="eedl"):
+    p = OUT / run_name(key, E, N, seed, stopping)
     return Run(p) if p.exists() else None
 
 
@@ -293,12 +295,19 @@ def cmd_plot(a):
     cases = load_cases()
     metrics, panels = {}, []
     C_MC, C_T, C_G, C_S = sty.REF, "#eb6834", "#2a78d6", "#1baf7a"
+    C_B = "#8a8a8a"  # the EEDL-stopping MC, overlaid when plotting another stopping model
+    # --stopping estar: the MC is the ESTAR-scaled run; figures go to a subfolder and the EEDL-stopping run is overlaid.
+    # The GMC models were trained on EEDL-stopping data, so they are left out of that comparison.
+    alt = a.stopping != "eedl"
+    fig_dir = OUT / a.stopping if alt else OUT
+    fig_dir.mkdir(exist_ok=True)
     for key, c in cases.items():
         if c.get("missing"):
             continue
-        r_exp = find_run(key, c["E_exp"], a.N, a.seed)
-        r_nom = find_run(key, c["E_nom"], a.N, a.seed)
-        g = find_gmc(key, c["E_exp"], a.gmc_N, a.gmc_n)
+        r_exp = find_run(key, c["E_exp"], a.N, a.seed, a.stopping)
+        r_nom = find_run(key, c["E_nom"], a.N, a.seed, a.stopping)
+        g = None if alt else find_gmc(key, c["E_exp"], a.gmc_N, a.gmc_n)
+        base = find_run(key, c["E_exp"], a.N, a.seed) if alt else None
         if r_exp is None:
             print(f"{key}: no run at {c['E_exp']} MeV, skipped")
             continue
@@ -323,6 +332,8 @@ def cmd_plot(a):
                 v, e = r_exp.window(conv, np.array([0.0]), np.array([t]))
                 m[f"surface_J_{conv}"] = [float(v[0]), float(e[0])]
             m["surface_J_exp"], m["MC_over_exp"] = j_exp, m["surface_J_escape"][0] / j_exp
+            if base is not None:
+                m["MC_eedl_over_exp"] = float(base.window("escape", np.array([0.0]), np.array([t]))[0][0]) / j_exp
             if r_nom is not None:
                 v, e = r_nom.window("escape", np.array([0.0]), np.array([t]))
                 m["surface_J_nominal"] = [float(v[0]), float(e[0])]
@@ -359,6 +370,13 @@ def cmd_plot(a):
             m[f"total_{conv}"] = r_exp.total(conv)
             m[f"exp_rms_rel_{conv}"] = rms(v[mask] / J[mask] - 1)
             m[f"exp_mean_rel_{conv}"] = float(np.mean(v[mask] / J[mask] - 1))
+        if base is not None:
+            vb, eb_ = base.window("escape", lo, hi)
+            m["eedl_exp_rms_rel_escape"] = rms(vb[mask] / J[mask] - 1)
+            m["eedl_exp_mean_rel_escape"] = float(np.mean(vb[mask] / J[mask] - 1))
+            m["eedl_total_escape"] = base.total("escape")
+            m["csda_range_lib_exp_eedl"] = base.meta["csda_range_lib"]
+            m["backscatter_energy_fraction_eedl"] = base.meta["backscatter"]["E_front"] / base.meta["balance"]["E_in"]
         v_t, _ = rt.window("escape", th_lo * R_mc_t, th_hi * R_mc_t)
         tmask = th[:, 1] > a.min_frac * th[:, 1].max()
         m["tiger_rms_rel_escape"] = rms(v_t[tmask] / th[tmask, 1] - 1)
@@ -413,7 +431,11 @@ def cmd_plot(a):
         # ---- figure: profile, ratio to experiment, ratio to analog MC
         fig, (ax, ar, am) = plt.subplots(3, 1, figsize=(7.2, 8.2), sharex=True,
                                          gridspec_kw=dict(height_ratios=[3, 1.25, 1.25]))
-        ax.plot(xm, v_mc, color=C_MC, lw=1.8, label="Analog MC")
+        mc_label = "Analog MC" + (f" ({a.stopping.upper()} stopping)" if alt else "")
+        ax.plot(xm, v_mc, color=C_MC, lw=1.8, label=mc_label)
+        if base is not None:
+            v_b, _ = base.window("escape", fl, fh)
+            ax.plot(xm, v_b, color=C_B, lw=1.2, ls="--", label="Analog MC (EEDL stopping)")
         ax.fill_between(xm, v_mc - e_mc, v_mc + e_mc, color=C_MC, alpha=0.18, lw=0)
         ax.stairs(th[:, 1], np.r_[0.0, th_hi], color=C_T, lw=1.4, label=f"TIGER ({c['E_nom']:g} MeV)")
         if g is not None:
@@ -436,6 +458,9 @@ def cmd_plot(a):
                     lw=1, label="MC / exp")
         ar.plot(fmr[mask] + dx, tig_at_exp[mask] / J[mask], "x", color=C_T, mec=C_T, ms=6, mew=1.6,
                 label="TIGER / exp")
+        if base is not None:
+            ar.errorbar(fmr[mask] + 2 * dx, vb[mask] / J[mask], yerr=eb_[mask] / J[mask], fmt="s", ms=3.5,
+                        mfc="none", color=C_B, mec=C_B, lw=1, label="MC (EEDL) / exp")
         if s_rows is not None:
             ar.errorbar(fmr[mask], s_rows[0][mask] / J[mask], yerr=s_rows[1][mask] / J[mask], fmt="^", ms=4.5,
                         color=C_S, mec=C_S, lw=1, label="GMC+SCR / exp")
@@ -447,6 +472,8 @@ def cmd_plot(a):
                         color=C_MC, alpha=0.18, lw=0, label="MC 1$\\sigma$")
         am.stairs(np.where(tmask, th[:, 1] / v_t, np.nan), np.r_[0.0, th_hi], color=C_T, lw=1.2,
                   label="TIGER / MC")
+        if base is not None:
+            am.plot(xm, np.where(cmask, v_b / v_mc, np.nan), color=C_B, lw=1.2, ls="--", label="MC (EEDL) / MC")
         if g is not None:
             am.stairs(np.where(ccm, v_g_c / v_mc_c, np.nan), ce / R_e, color=C_G, lw=1.3, ls="--",
                       label="GMC cells / MC")
@@ -458,7 +485,7 @@ def cmd_plot(a):
         am.legend(fontsize=7, loc="lower left", ncol=4)
         am.set_xlim(0, 1.0)
         fig.tight_layout()
-        fig.savefig(OUT / f"{key}.png", dpi=130)
+        fig.savefig(fig_dir / f"{key}.png", dpi=130)
         plt.close(fig)
         panels.append((key, c, r_exp, g, fmr, J, th, th_hi))
 
@@ -474,6 +501,9 @@ def cmd_plot(a):
             xm = 0.5 * (fine[1:] + fine[:-1])
             v, _ = r_exp.window("escape", fine[:-1] * R_e, fine[1:] * R_e)
             axx.plot(xm, v, color=C_MC, lw=1.5)
+            b = find_run(key, c["E_exp"], a.N, a.seed) if alt else None
+            if b is not None:
+                axx.plot(xm, b.window("escape", fine[:-1] * R_e, fine[1:] * R_e)[0], color=C_B, lw=1.0, ls="--")
             axx.stairs(th[:, 1], np.r_[0.0, th_hi], color=C_T, lw=1.0)
             if g is not None and g.scr is not None:
                 se = g.scr.edges
@@ -487,15 +517,18 @@ def cmd_plot(a):
             axx.set_ylim(bottom=0)
         for axx in list(axs.flat)[n:]:
             axx.axis("off")
-        fig.suptitle("Lockwood et al. (SAND79-0414): experiment (o), TIGER (orange), analog MC (black), "
-                     "GMC + SCR (green dash-dot)", fontsize=10)
+        fig.suptitle("Lockwood et al. (SAND79-0414): experiment (o), TIGER (orange), " +
+                     (f"analog MC {a.stopping.upper()} stopping (black), EEDL stopping (grey dashed)" if alt else
+                      "analog MC (black), GMC + SCR (green dash-dot)"), fontsize=10)
         fig.tight_layout()
-        fig.savefig(OUT / "overview.png", dpi=120)
+        fig.savefig(fig_dir / "overview.png", dpi=120)
         plt.close(fig)
-    (OUT / "metrics.json").write_text(json.dumps(metrics, indent=1))
+    (fig_dir / "metrics.json").write_text(json.dumps(metrics, indent=1))
     for key, m in metrics.items():
         if "MC_over_exp" in m:
             s = f", SCR/exp {m['SCR_over_exp']:.3f}, SCR/MC {m['SCR_over_MC']:.3f}" if "SCR_over_exp" in m else ""
+            if "MC_eedl_over_exp" in m:
+                s += f", EEDL-stopping MC/exp {m['MC_eedl_over_exp']:.3f}"
             print(f"{key:10s} surface J: MC/exp {m['MC_over_exp']:.3f}, TIGER/exp {m['TIGER_over_exp']:.3f}{s}")
             continue
         te = m["total_escape"][0]
@@ -503,6 +536,11 @@ def cmd_plot(a):
               f"MC {100 * m['exp_rms_rel_escape']:.1f}% ({100 * m['exp_mean_rel_escape']:+.1f}), TIGER "
               f"{100 * m['tiger_vs_exp_rms_rel']:.1f}% ({100 * m['tiger_vs_exp_mean_rel']:+.1f}) | MC/TIGER rms "
               f"{100 * m['tiger_rms_rel_escape']:.1f}% | R_lib/R_paper {m['csda_range_lib_exp'] / m['csda_range_paper_exp']:.3f}")
+        if "eedl_exp_rms_rel_escape" in m:
+            print(f"{'':10s} EEDL-stopping MC: total {m['eedl_total_escape'][0]:.3f}, vs exp rms "
+                  f"{100 * m['eedl_exp_rms_rel_escape']:.1f}% ({100 * m['eedl_exp_mean_rel_escape']:+.1f}), "
+                  f"R_lib/R_paper {m['csda_range_lib_exp_eedl'] / m['csda_range_paper_exp']:.3f}; backscatter E "
+                  f"{m['backscatter_energy_fraction']:.3f} (EEDL {m['backscatter_energy_fraction_eedl']:.3f})")
         if "scr_vs_mc_rms_rel" in m:
             print(f"{'':10s} GMC: total {m['gmc_total'][0]:.3f} (SCR {m['scr_total'][0]:.3f}); cells/MC rms "
                   f"{100 * m['gmc_cell_vs_mc_rms_rel']:.1f}% ({m['cells_in_range']:.1f} cells/range); SCR/MC rms "
@@ -524,6 +562,8 @@ def main():
     p.add_argument("--n_bins", type=int, default=1000, help="depth bins over 1.25 CSDA ranges")
     p.add_argument("--seed", type=int, default=79)
     p.add_argument("--E_cutoff", type=float, default=1e-3)
+    p.add_argument("--stopping", choices=("eedl", "estar"), default="eedl",
+                   help="material_data.build_library stopping model (estar: inelastic rescaled to ICRU 37)")
     p = sp.add_parser("gmc")
     p.add_argument("--cases", nargs="*", default=None)
     p.add_argument("--energy", choices=("exp", "nom", "both"), default="exp")
@@ -545,6 +585,8 @@ def main():
     p.add_argument("--gmc_N", type=int, default=200000)
     p.add_argument("--gmc_n", type=int, default=20)
     p.add_argument("--min_frac", type=float, default=0.1, help="ratio metrics use points with J > this x max")
+    p.add_argument("--stopping", choices=("eedl", "estar"), default="eedl",
+                   help="which MC runs to plot; non-default: figures in a subfolder, EEDL-stopping MC overlaid")
     a = ap.parse_args()
     {"mc": cmd_mc, "gmc": cmd_gmc, "plot": cmd_plot}[a.cmd](a)
 
