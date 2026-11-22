@@ -109,15 +109,7 @@ def edge_feats(y):
     return np.stack([(np.log10(y + EDGE_DELTA) + 2.0) / 2.0, (np.log10(1.0 - y + EDGE_DELTA) + 2.0) / 2.0], 1)
 
 
-def scatter_width_table(T, n_bins=40, min_count=200):
-    """Per-transit angular spread sigma(E) of boundary electrons crossing the cell: rms of v1 - v0 over right-face
-    exits entering in the middle half (y0 in [0.25, 0.75], away from the selection at the faces), in n_bins log-E
-    bins. Bins with too few such transits (low E: electrons rarely cross) take the value of the next higher-energy
-    bin; the table is made non-increasing in E and clipped to [1e-3, 1]. Returns (log10 E centres, sigma)."""
-    spec = T["spec"]
-    m = T["boundary"] & (T["cls"] == 1) & (np.abs(T["y0"] - 0.5) < 0.25)
-    lg = np.log10(np.maximum(T["E0"][m], 1e-300))
-    dv = T["v1"][m] - T["v0"][m]
+def _width_column(lg, dv, spec, n_bins, min_count):
     edges = np.linspace(spec.logE_lo, spec.logE_hi, n_bins + 1)
     b = np.clip(np.digitize(lg, edges) - 1, 0, n_bins - 1)
     cnt = np.bincount(b, minlength=n_bins)
@@ -133,42 +125,119 @@ def scatter_width_table(T, n_bins=40, min_count=200):
     return 0.5 * (edges[1:] + edges[:-1]), np.clip(sig, 1e-3, 1.0)
 
 
-def scatter_width(spec, E):
-    return np.interp(np.log10(np.maximum(E, 1e-300)), spec.sig_logE, spec.sig_val)
+def scatter_width_table(T, n_bins=40, min_count=200, n_L=8):
+    """Per-transit angular spread sigma(E) of boundary electrons crossing the cell: rms of v1 - v0 over right-face
+    exits entering in the middle half (y0 in [0.25, 0.75], away from the selection at the faces), in n_bins log-E
+    bins. Bins with too few such transits (low E: electrons rarely cross) take the value of the next higher-energy
+    bin; the table is made non-increasing in E and clipped to [1e-3, 1]. Returns (log10 E centres, sigma).
+
+    Size-conditioned data (spec.size_cond): one such column per log-L bin (n_L bins between the training bounds), so
+    sigma = sigma(E, L); returns (log10 E centres, log10 L centres, sigma [n_L, n_bins])."""
+    spec = T["spec"]
+    m = T["boundary"] & (T["cls"] == 1) & (np.abs(T["y0"] - 0.5) < 0.25)
+    lg = np.log10(np.maximum(T["E0"][m], 1e-300))
+    dv = T["v1"][m] - T["v0"][m]
+    if not getattr(spec, "size_cond", False):
+        return _width_column(lg, dv, spec, n_bins, min_count)
+    ll = np.log10(T["L"][m])
+    l_edges = np.linspace(spec.logL_lo, spec.logL_hi, n_L + 1)
+    bl = np.clip(np.digitize(ll, l_edges) - 1, 0, n_L - 1)
+    cols = [_width_column(lg[bl == k], dv[bl == k], spec, n_bins, min_count) for k in range(n_L)]
+    return cols[0][0], 0.5 * (l_edges[1:] + l_edges[:-1]), np.stack([c[1] for c in cols])
 
 
-def scale_feats(spec, y, E):
+def set_scatter_table(spec, T):
+    """Measure sigma(E) (or sigma(E, L)) on the tables T and store it in spec (sig_logE, sig_val[, sig_logL])."""
+    tab = scatter_width_table(T)
+    spec.sig_logE, spec.sig_val = tab[0].tolist(), tab[-1].tolist()
+    if len(tab) == 3:
+        spec.sig_logL = tab[1].tolist()
+        rows = [(10 ** l, dict(zip(tab[0][::8], r[::8]))) for l, r in zip(tab[1], tab[2])][::3]
+        print("scatter width sigma(E, L) (rms v1 - v0 per transit):")
+        for Lc, r in rows:
+            print(f"  L {Lc * 1e4:7.0f} um: " + ", ".join(f"{10 ** a:.3g} MeV {b:.3f}" for a, b in r.items()))
+    else:
+        print("scatter width sigma(E) (rms v1 - v0 per transit): " + ", ".join(
+            f"{10 ** a:.3g} MeV {b:.3f}" for a, b in list(zip(tab[0], tab[1]))[::5]))
+
+
+def scatter_width(spec, E, L=None):
+    """sigma(E) of the training cell, or sigma(E, L) (bilinear in log E, log L) for a size-conditioned spec."""
+    lg = np.atleast_1d(np.log10(np.maximum(E, 1e-300)))
+    if not getattr(spec, "sig_logL", None):
+        return np.interp(lg, spec.sig_logE, spec.sig_val)
+    if L is None:
+        raise ValueError("size-conditioned sigma(E, L): pass the cell side L (cm)")
+    tab = np.asarray(spec.sig_val)                        # [n_L, n_E]
+    gl = np.asarray(spec.sig_logL)
+    ll = np.broadcast_to(np.log10(np.asarray(L, np.float64)), np.shape(lg))
+    cols = np.stack([np.interp(lg, spec.sig_logE, row) for row in tab])   # [n_L, n]
+    k = np.clip(np.searchsorted(gl, ll) - 1, 0, len(gl) - 2)
+    t = np.clip((ll - gl[k]) / (gl[k + 1] - gl[k]), 0.0, 1.0)
+    idx = np.arange(len(lg))
+    return (1 - t) * cols[k, idx] + t * cols[k + 1, idx]
+
+
+def scale_feats(spec, y, E, L=None):
     """Distance of the entry point to the bottom / top face in units of the transit's angular spread sigma(E) (cells
     per radian, i.e. how many 'one-cell scattering widths' away the face is): clip(log10(d / sigma + 0.01) / 2, -1, 1).
     The face-selection effect on the exit (an electron entering near the bottom face that still leaves through the
     right face was scattered upward) is a near-universal function of d / sigma. With y0 and E as separate inputs the
     network leaked the strong low-energy profile (E[dv | y0 = 0.3] ~ +0.03 at 1-3 MeV) into the 20 MeV exits as a
     ~1e-3 focusing kick, which a forward beam accumulates over ~8 cells (Drumm benchmark, 2026-11-16)."""
-    sg = scatter_width(spec, E)
+    sg = scatter_width(spec, E, L)
     f = lambda d: np.clip(np.log10(d / sg + 0.01) / 2.0, -1.0, 1.0)  # noqa: E731
     return np.stack([f(y), f(1.0 - y)], 1)
 
 
-def boundary_cond(spec, y, u, v, E):
+def csda_range(spec, E):
+    """CSDA range (cm) of the material at energy E, from the table stored in a size-conditioned spec."""
+    return 10.0 ** np.interp(np.log10(np.maximum(E, 1e-300)), spec.csda_logE, spec.csda_logR)
+
+
+def size_feats(spec, L, E):
+    """Cell-size features of a size-conditioned model (spec.size_cond): the cell side L (cm) on a log scale between
+    the training bounds, in [-1, 1], and log10(L / R_CSDA(E)), the side in units of the electron's range, scaled to
+    about [-1, 1.5]. Transport through a square of one material depends on L mostly through L / R(E) (and through
+    L / lambda_tr(E), which tracks it), so the ratio is given directly instead of being learned from (log L, log E)."""
+    E = np.asarray(E, np.float64)
+    L = np.broadcast_to(np.asarray(L, np.float64), E.shape)
+    lf = 2.0 * (np.log10(L) - spec.logL_lo) / (spec.logL_hi - spec.logL_lo) - 1.0
+    rf = np.clip((np.log10(L / csda_range(spec, E)) - 1.0) / 4.0, -2.0, 2.0)
+    return np.stack([lf, rf], 1)
+
+
+def _with_size(spec, base, L, E):
+    if not getattr(spec, "size_cond", False):
+        return base
+    if L is None:
+        raise ValueError("size-conditioned model: pass the cell side L (cm)")
+    return np.concatenate([base, size_feats(spec, L, E)], 1)
+
+
+def boundary_cond(spec, y, u, v, E, L=None):
+    """Condition of an entering electron (canonical frame). L: cell side (cm, scalar or per row), used only by a
+    size-conditioned spec."""
     c, s, r = dir_feats(u, v)
     base = np.stack([2.0 * y - 1.0, c, s, r, spec.e_feat(E)], 1)
     yc = np.clip(y, 0.0, 1.0)
     if getattr(spec, "edge_feats", False):
         base = np.concatenate([base, edge_feats(yc)], 1)
     if getattr(spec, "scale_feats", False):
-        base = np.concatenate([base, scale_feats(spec, yc, E)], 1)
-    return base.astype(np.float32)
+        base = np.concatenate([base, scale_feats(spec, yc, E, L)], 1)
+    return _with_size(spec, base, L, E).astype(np.float32)
 
 
-def interior_cond(spec, x, y, u, v, E):
+def interior_cond(spec, x, y, u, v, E, L=None):
     c, s, r = dir_feats(u, v)
-    return np.stack([2.0 * x - 1.0, 2.0 * y - 1.0, c, s, r, spec.e_feat(E)], 1).astype(np.float32)
+    base = np.stack([2.0 * x - 1.0, 2.0 * y - 1.0, c, s, r, spec.e_feat(E)], 1)
+    return _with_size(spec, base, L, E).astype(np.float32)
 
 
-def parent_feats(spec, start, x, y, u, v, E):
+def parent_feats(spec, start, x, y, u, v, E, L=None):
     """Shared parent description for the daughter / photon flows (boundary parents have x = 0)."""
     return np.concatenate([np.asarray(start, np.float32).reshape(-1, 1) * np.ones((len(E), 1), np.float32),
-                           interior_cond(spec, x, y, u, v, E)], 1)
+                           interior_cond(spec, x, y, u, v, E, L)], 1)
 
 
 REF_S_CLIP = 0.01      # ray-relative exit encoding: reference face coordinate kept in [0.01, 0.99]
@@ -308,6 +377,9 @@ def load_tables(path, NR=3, max_rows=None):
 
     Positions are divided by the cell size; every segment (and its daughters) is mirrored to w0 >= 0 (z symmetry:
     w never enters the x-y transport, so only signs relative to the parent matter).
+    Size-sweep files (ElectronTransport/generate_size_sweep.py) carry the cell side of every segment (seg_L): the
+    spec is then size-conditioned (size_cond, log L bounds, CSDA range table) and T["L"] holds it per segment
+    (for one-size data T["L"] is that size on every row).
     """
     d = np.load(path, allow_pickle=False)
     if "segments" not in d.files or not bool(d.get("simulated_only", False)):
@@ -316,11 +388,18 @@ def load_tables(path, NR=3, max_rows=None):
     scol = [str(c) for c in d["secondary_columns"]]
     c, e = cols.index, scol.index
     seg, sec = d["segments"], d["secondaries"]
-    L = float(d["box_dims"][0])
+    sweep = "seg_L" in d.files
+    L = d["seg_L"] if sweep else np.full(len(seg), float(d["box_dims"][0]))
     E_cut = float(d["E_cutoff"])
     E_hi = float(d["inputs"][:, 4].max())
-    spec = Spec(L=L, E_cut=E_cut, logE_lo=math.log10(E_cut), logE_hi=math.log10(max(E_hi, 10 * E_cut)) + 1e-9,
-                NR=int(NR), material_density=float(np.atleast_1d(d["density"])[0]))
+    spec = Spec(L=float("nan") if sweep else float(L[0]), E_cut=E_cut, logE_lo=math.log10(E_cut),
+                logE_hi=math.log10(max(E_hi, 10 * E_cut)) + 1e-9, NR=int(NR),
+                material_density=float(np.atleast_1d(d["density"])[0]))
+    if sweep:
+        lo, hi = (float(v) for v in d["L_range"])
+        cE, cR = d["csda_E"], d["csda_R"]
+        spec.size_cond, spec.logL_lo, spec.logL_hi = True, math.log10(lo), math.log10(hi)
+        spec.csda_logE, spec.csda_logR = np.log10(cE[1:]).tolist(), np.log10(cR[1:]).tolist()
     status = seg[:, c("status")].astype(int)
     if np.any(status >= 6):
         bad = int((status >= 6).sum())
@@ -346,7 +425,7 @@ def load_tables(path, NR=3, max_rows=None):
     if resumed:
         print(f"[!] {resumed} resumed (post-split) segments ignored")
 
-    T = {"spec": spec, "x0": x0, "y0": y0, "u0": u0, "v0": v0, "E0": E0, "x1": x1, "y1": y1, "u1": u1, "v1": v1,
+    T = {"spec": spec, "L": L, "x0": x0, "y0": y0, "u0": u0, "v0": v0, "E0": E0, "x1": x1, "y1": y1, "u1": u1, "v1": v1,
          "E_out": E_out, "cls": cls, "n_rel": n_rel, "flag": flag, "q": q, "E_rel": E_rel,
          "dose": seg[:, c("E_dep_rel")], "boundary": boundary, "interior": interior, "sgn": sgn}
 
@@ -364,7 +443,7 @@ def load_tables(path, NR=3, max_rows=None):
         cs = np.cumsum(Ed)
         cum = cs - Ed - (cs[first] - Ed[first])        # energy of earlier daughters of the same parent
     B = (E0[p] - E_out[p]) - cum                      # budget available to daughter j
-    T["dau"] = {"parent": p, "j": j, "x": sec[:, e("x")] / L, "y": sec[:, e("y")] / L, "u": sec[:, e("u")],
+    T["dau"] = {"parent": p, "j": j, "x": sec[:, e("x")] / L[p], "y": sec[:, e("y")] / L[p], "u": sec[:, e("u")],
                 "v": sec[:, e("v")], "w": sec[:, e("w")] * sgn[p], "E": Ed, "B": B}
     print(f"Loaded {path}: {int(boundary.sum())} boundary transits, {int(interior.sum())} relevant-secondary "
           f"transits, {len(p)} relevant daughters; photon flag on {flag[keep].mean():.4f} of transits; "
@@ -388,8 +467,8 @@ def classifier_data(T, kind, augment=True):
     conds, labs = [], []
     for k in sym_set(kind, augment):
         x0, y0, u0, v0, _, _, _, _, cls = _aug_interior(T, r, k)
-        conds.append(boundary_cond(spec, y0, u0, v0, T["E0"][r]) if kind == "boundary"
-                     else interior_cond(spec, x0, y0, u0, v0, T["E0"][r]))
+        conds.append(boundary_cond(spec, y0, u0, v0, T["E0"][r], T["L"][r]) if kind == "boundary"
+                     else interior_cond(spec, x0, y0, u0, v0, T["E0"][r], T["L"][r]))
         labs.append(spec.encode(cls, T["n_rel"][r], T["flag"][r]))
     return np.concatenate(conds), np.concatenate(labs)
 
@@ -406,8 +485,8 @@ def exit_flow_data(T, kind, augment=True, rel=False, scaled=False, oversample=No
     conds, tgts, reps = [], [], []
     for k in sym_set(kind, augment):
         x0, y0, u0, v0, x1, y1, u1, v1, cls = _aug_interior(T, rows, k)
-        base = (boundary_cond(spec, y0, u0, v0, T["E0"][rows]) if kind == "boundary"
-                else interior_cond(spec, x0, y0, u0, v0, T["E0"][rows]))
+        base = (boundary_cond(spec, y0, u0, v0, T["E0"][rows], T["L"][rows]) if kind == "boundary"
+                else interior_cond(spec, x0, y0, u0, v0, T["E0"][rows], T["L"][rows]))
         extra = np.concatenate([np.eye(NF, dtype=np.float32)[cls],
                                 (np.minimum(T["n_rel"][rows], spec.NR) / spec.NR).reshape(-1, 1),
                                 T["flag"][rows].reshape(-1, 1)], 1).astype(np.float32)
@@ -422,7 +501,7 @@ def exit_flow_data(T, kind, augment=True, rel=False, scaled=False, oversample=No
             reps.append(r_)
         tgts.append(exit_targets(cls, x1, y1, u1, v1, T["E0"][rows], T["E_out"][rows], spec.E_cut,
                                  ref=(x0, y0, u0, v0) if (rel or scaled) else None,
-                                 scale=scatter_width(spec, T["E0"][rows]) if scaled else None))
+                                 scale=scatter_width(spec, T["E0"][rows], T["L"][rows]) if scaled else None))
     return (np.concatenate(conds), np.concatenate(tgts).astype(np.float32),
             np.concatenate(reps) if oversample is not None else None)
 
@@ -443,7 +522,7 @@ def _parent_block(T, prow, k):
         cls[ex] = exit_class_from_point(x1[ex], y1[ex])
     E0 = T["E0"][prow]
     lam = (E0 - T["E_out"][prow]) / np.maximum(E0 - spec.E_cut, 1e-300)
-    pf = parent_feats(spec, is_int.astype(np.float32), x0, y0, u0, v0, E0)
+    pf = parent_feats(spec, is_int.astype(np.float32), x0, y0, u0, v0, E0, T["L"][prow])
     blk = np.concatenate([pf, np.eye(N_EXIT, dtype=np.float32)[cls],
                           (np.minimum(T["n_rel"][prow], spec.NR) / spec.NR).reshape(-1, 1),
                           logit(lam, 1e-12).reshape(-1, 1) / 10.0], 1).astype(np.float32)
@@ -504,13 +583,13 @@ def stop_flow_data(T, augment=True):
         x0, y0, u0, v0 = d4(k, T["x0"][r], T["y0"][r], T["u0"][r], T["v0"][r])
         x1, y1, _, _ = d4(k, T["x1"][r], T["y1"][r], T["u0"][r], T["v0"][r])
         conds.append(stop_cond(spec, is_int[sel].astype(np.float32), x0, y0, u0, v0, T["E0"][r],
-                               T["n_rel"][r], T["flag"][r]))
+                               T["n_rel"][r], T["flag"][r], T["L"][r]))
         tgts.append(np.stack([logit(x1), logit(y1)], 1))
     return np.concatenate(conds), np.concatenate(tgts).astype(np.float32)
 
 
-def stop_cond(spec, start, x0, y0, u0, v0, E0, n_rel, flag):
-    return np.concatenate([parent_feats(spec, start, x0, y0, u0, v0, E0),
+def stop_cond(spec, start, x0, y0, u0, v0, E0, n_rel, flag, L=None):
+    return np.concatenate([parent_feats(spec, start, x0, y0, u0, v0, E0, L),
                            (np.minimum(n_rel, spec.NR) / spec.NR).reshape(-1, 1),
                            np.asarray(flag, np.float32).reshape(-1, 1)], 1).astype(np.float32)
 
@@ -643,6 +722,37 @@ def load_models(path, device):
 # ====================================================================================================================
 # Kernel: one cell transit for a batch of electrons
 # ====================================================================================================================
+class DaughterCalib:
+    """Inference-time calibration of the relevant-daughter channel (ml/gmc_calib.py).
+
+    Relevant daughters are rare (a few % of transits), so the joint classifier and the daughter flow can be off by a
+    few % in an (E, L) slice at a negligible loss cost; chained, that moves the wide-angle delta-ray dose (Drumm wings).
+    Tables of logit offsets on a (log10 E, log10 L) grid of bin centres, bilinear and clamped at the edges:
+        nrel_B / nrel_I   added to the classifier logits of every class with n_rel >= 1 (boundary / interior)
+        edau_B / edau_I   added to the daughter energy-share logit (z[:, 5]), by the parent's E0 and L
+    """
+
+    def __init__(self, src):
+        d = dict(np.load(src)) if isinstance(src, (str, os.PathLike)) else dict(src)
+        self.logE, self.logL = np.asarray(d["logE"], float), np.asarray(d["logL"], float)
+        self.tab = {k: np.asarray(d[k], float) for k in ("nrel_B", "nrel_I", "edau_B", "edau_I") if k in d}
+
+    def offset(self, key, E, L):
+        t = self.tab.get(key)
+        if t is None or E is None or len(E) == 0:
+            return None
+        lE = np.log10(np.maximum(np.asarray(E, float), 1e-300))
+        lL = np.full_like(lE, self.logL[0]) if L is None else np.log10(np.asarray(L, float))
+
+        def frac(x, g):
+            i = np.clip(np.searchsorted(g, x) - 1, 0, len(g) - 2)
+            return i, np.clip((x - g[i]) / (g[i + 1] - g[i]), 0.0, 1.0)
+        i, a = frac(lE, self.logE)
+        j, b = frac(lL, self.logL)
+        return ((1 - a) * (1 - b) * t[i, j] + a * (1 - b) * t[i + 1, j] + (1 - a) * b * t[i, j + 1]
+                + a * b * t[i + 1, j + 1])
+
+
 class SecondaryGMC:
     """Samples cell transits. boundary(): canonical frame (entering through the left face). interior(): cell frame.
 
@@ -655,40 +765,68 @@ class SecondaryGMC:
     made before that used 50. Not yet re-checked for the 100 um Cu / Al / water models.
     """
 
-    def __init__(self, path, device="cpu", ode_steps=20, ode_method="midpoint", seed=0, secondaries=True):
+    def __init__(self, path, device="cpu", ode_steps=20, ode_method="midpoint", seed=0, secondaries=True,
+                 calib=None):
+        """calib: optional daughter calibration (.npz from ml/gmc_calib.py, or its dict): logit offsets on (log10 E,
+        log10 L) of the classifier classes with n_rel >= 1 and of the daughter energy share (see DaughterCalib)."""
         self.spec, self.m = load_models(path, device)
         self.device, self.steps, self.method = device, ode_steps, ode_method
         self.gen = torch.Generator().manual_seed(seed)                       # ODE noise (CPU)
         self.cgen = torch.Generator(device=device).manual_seed(seed + 7777)  # class sampling (model device)
         self.rng = np.random.default_rng(seed)
         self.secondaries = secondaries
+        self.calib = None if calib is None else DaughterCalib(calib)
 
-    def _classify(self, name, cond):
+    def _classify(self, name, cond, E=None, L=None):
         clf = self.m[name]["model"]
-        lab = clf.sample(torch.as_tensor(cond, device=self.device), generator=self.cgen).cpu().numpy()
+        c = torch.as_tensor(cond, device=self.device)
+        off = None if self.calib is None else self.calib.offset("nrel_" + name[-1], E, L)
+        if off is None:
+            lab = clf.sample(c, generator=self.cgen).cpu().numpy()
+        else:
+            nr_of = torch.as_tensor(self.spec.decode(np.arange(clf.cfg.num_classes))[1] >= 1, device=self.device)
+            o = torch.as_tensor(off, dtype=torch.float32, device=self.device)
+            labs = []
+            with torch.no_grad():
+                for i in range(0, len(c), 65536):
+                    lg = clf(c[i:i + 65536]) + o[i:i + 65536, None] * nr_of[None, :]
+                    labs.append(torch.multinomial(torch.softmax(lg, -1), 1, generator=self.cgen).squeeze(1))
+            lab = (torch.cat(labs) if labs else torch.zeros(0, dtype=torch.long)).cpu().numpy()
         return self.spec.decode(lab)
 
     def _flow(self, name, cond):
         return sample_flow(self.m[name], cond, self.device, self.steps, self.method, self.gen)
 
-    def boundary(self, y, u, v, w, E):
+    def _size(self, L, n):
+        if not getattr(self.spec, "size_cond", False):
+            return None
+        if L is None:
+            raise ValueError("size-conditioned GMC: pass the cell side L (cm, scalar or per electron)")
+        return np.broadcast_to(np.asarray(L, np.float64), (n,)).copy()
+
+    def boundary(self, y, u, v, w, E, L=None):
+        """L: cell side (cm), scalar or per electron; required by a size-conditioned model, ignored otherwise."""
         n = len(E)
-        return self._transit("B", np.zeros(n), y, u, v, w, E, boundary_cond(self.spec, y, u, v, E))
+        L = self._size(L, n)
+        return self._transit("B", np.zeros(n), y, u, v, w, E, boundary_cond(self.spec, y, u, v, E, L), L)
 
-    def interior(self, x, y, u, v, w, E):
-        return self._transit("I", x, y, u, v, w, E, interior_cond(self.spec, x, y, u, v, E))
+    def interior(self, x, y, u, v, w, E, L=None):
+        L = self._size(L, len(E))
+        return self._transit("I", x, y, u, v, w, E, interior_cond(self.spec, x, y, u, v, E, L), L)
 
-    def _transit(self, which, x0, y0, u0, v0, w0, E0, cond):
+    def _transit(self, which, x0, y0, u0, v0, w0, E0, cond, L=None):
         spec = self.spec
         n = len(E0)
-        cls, nr, flag = self._classify("clf_" + which, cond)
+        Lr = (lambda r: None) if L is None else (lambda r: L[r])  # noqa: E731
+        cls, nr, flag = self._classify("clf_" + which, cond, E0, L)
         out = {k: np.zeros(n) for k in ("x", "y", "u", "v", "w", "E_out", "dose")}
         out["cls"] = cls
         sgn = np.where(w0 < 0, -1.0, 1.0)
         ab = np.flatnonzero(cls == ABSORBED)
         if ab.size and "stop" in self.m:     # stop point of absorbed electrons (charge tally); else left at 0
             start = START_BOUNDARY if which == "B" else START_INTERIOR
-            z = self._flow("stop", stop_cond(spec, start, x0[ab], y0[ab], u0[ab], v0[ab], E0[ab], nr[ab], flag[ab]))
+            z = self._flow("stop", stop_cond(spec, start, x0[ab], y0[ab], u0[ab], v0[ab], E0[ab], nr[ab], flag[ab],
+                                             Lr(ab)))
             out["x"][ab], out["y"][ab] = sigmoid(z[:, 0]), sigmoid(z[:, 1])
         ex = np.flatnonzero(cls < NF)
         if ex.size:
@@ -697,7 +835,7 @@ class SecondaryGMC:
             z = self._flow("exit_" + which, np.concatenate([cond[ex], extra], 1))
             fm = self.m["exit_" + which]
             ref = (x0[ex], y0[ex], u0[ex], v0[ex]) if (fm.get("rel") or fm.get("scaled")) else None
-            scale = scatter_width(spec, E0[ex]) if fm.get("scaled") else None
+            scale = scatter_width(spec, E0[ex], Lr(ex)) if fm.get("scaled") else None
             x1, y1, u1, v1, r1, E1 = decode_exit(z, cls[ex], E0[ex], spec.E_cut, ref=ref, scale=scale)
             out["x"][ex], out["y"][ex], out["u"][ex], out["v"][ex], out["E_out"][ex] = x1, y1, u1, v1, E1
             out["w"][ex] = self.rng.choice([-1.0, 1.0], ex.size) * np.sqrt(np.clip(1 - r1 * r1, 0, 1))
@@ -706,7 +844,7 @@ class SecondaryGMC:
         # Daughters, sequentially (energy shares of what is left)
         start = START_BOUNDARY if which == "B" else START_INTERIOR
         lam = budget / np.maximum(E0 - spec.E_cut, 1e-300)
-        pblk = np.concatenate([parent_feats(spec, start, x0, y0, u0, v0, E0), np.eye(N_EXIT, dtype=np.float32)[cls],
+        pblk = np.concatenate([parent_feats(spec, start, x0, y0, u0, v0, E0, L), np.eye(N_EXIT, dtype=np.float32)[cls],
                                (nr / spec.NR).reshape(-1, 1), (logit(lam, 1e-12) / 10.0).reshape(-1, 1)],
                               1).astype(np.float32)
         dau = {k: [] for k in ("parent", "x", "y", "u", "v", "w", "E")}
@@ -718,7 +856,9 @@ class SecondaryGMC:
             c = np.concatenate([pblk[rows], np.stack([np.full(rows.size, j / spec.NR), spec.e_feat(budget[rows])],
                                                      1).astype(np.float32)], 1)
             z = self._flow("daughter", c)
-            f = sigmoid(z[:, 5])
+            off = None if self.calib is None else self.calib.offset("edau_" + which, E0[rows],
+                                                                     None if L is None else L[rows])
+            f = sigmoid(z[:, 5] if off is None else z[:, 5] + off)
             Ed = f * budget[rows]
             budget[rows] -= Ed
             dx, dy = sigmoid(z[:, 0]), sigmoid(z[:, 1])
@@ -765,10 +905,7 @@ def cmd_train(args):
     spec.edge_feats = bool(args.edge_feats)
     spec.scale_feats = bool(args.scale_feats)
     if spec.scale_feats or args.exit_scaled:
-        lg, sg = scatter_width_table(T)
-        spec.sig_logE, spec.sig_val = lg.tolist(), sg.tolist()
-        print("scatter width sigma(E) (rms v1 - v0 per transit): " + ", ".join(
-            f"{10 ** a:.3g} MeV {b:.3f}" for a, b in list(zip(lg, sg))[::5]))
+        set_scatter_table(spec, T)
     models, info = {}, {}
     only = set(args.only.split(",")) if args.only else None
     prev = None
@@ -838,7 +975,7 @@ def cmd_train(args):
     print(f"\nSaved {os.path.join(args.out, 'secondary_gmc.pth')}")
 
 
-MATERIAL_BY_DENSITY = {8.96: "Cu", 2.699: "Al"}  # g/cm^3 as stored by ElectronTransport/NIST_EPICS_convert.py
+MATERIAL_BY_DENSITY = {8.96: "Cu", 2.699: "Al", 1.0: "water"}  # g/cm^3 as stored by ElectronTransport/NIST_EPICS_convert.py
 
 
 def describe(spec):
@@ -849,7 +986,11 @@ def describe(spec):
     mat = next((n for d, n in MATERIAL_BY_DENSITY.items() if abs(d - rho) < 1e-3), f"ρ = {rho:g} g/cm³")
     lo, hi = 10 ** spec.logE_lo, 10 ** spec.logE_hi
     fmt = lambda E: f"{E * 1e3:.3g} keV" if E < 1 else f"{E:.3g} MeV"  # noqa: E731
-    return f"{spec.L * 1e4:g} µm {mat}, {fmt(lo)} – {fmt(hi)}"
+    if getattr(spec, "size_cond", False):
+        size = f"{10 ** spec.logL_lo * 1e4:g} µm – {10 ** spec.logL_hi * 1e4:g} µm"
+    else:
+        size = f"{spec.L * 1e4:g} µm"
+    return f"{size} {mat}, {fmt(lo)} – {fmt(hi)}"
 
 
 def cmd_plot_history(args):

@@ -61,13 +61,17 @@ def mean_with_err(x, idx, nb):
     return m, np.sqrt(var / np.maximum(n, 1)), n
 
 
-def compare(which, T, rows, K, edges, out_dir, metrics, rng):
+def compare(which, T, rows, K, edges, out_dir, metrics, rng, title=None):
+    """title: figure label (default: the model's description). The cell side of every row (T["L"]) is passed to the
+    kernel; one-size models ignore it."""
     spec = T["spec"]
     E0 = T["E0"][rows]
+    Lr = T["L"][rows] if "L" in T else None
     if which == "boundary":
-        g = K.boundary(T["y0"][rows], T["u0"][rows], T["v0"][rows], np.full(len(rows), 0.5), E0)
+        g = K.boundary(T["y0"][rows], T["u0"][rows], T["v0"][rows], np.full(len(rows), 0.5), E0, L=Lr)
     else:
-        g = K.interior(T["x0"][rows], T["y0"][rows], T["u0"][rows], T["v0"][rows], np.full(len(rows), 0.5), E0)
+        g = K.interior(T["x0"][rows], T["y0"][rows], T["u0"][rows], T["v0"][rows], np.full(len(rows), 0.5), E0,
+                       L=Lr)
     # MC truth for these rows
     mc_cls, mc_n, mc_flag = T["cls"][rows], T["n_rel"][rows], T["flag"][rows]
     mc_dose, mc_q = T["dose"][rows], T["q"][rows]
@@ -130,13 +134,18 @@ def compare(which, T, rows, K, edges, out_dir, metrics, rng):
     M["dose_ratio"] = ratio.tolist()
     M["dose_ratio_err"] = rerr.tolist()
     M["total_dose_ratio"] = float(g["dose"].sum() / mc_dose.sum())
+    M["total_photon_ratio"] = float(g["photon_E"].sum() / max(mc_q.sum(), 1e-300))
+    zd = np.abs(ratio - 1)[ok] / np.maximum(rerr[ok], 1e-300)
+    M["dose_ratio_max_abs_z"] = float(zd.max()) if zd.size else float("nan")
+    mc_ex_, gm_ex_ = mc_cls < NF, gm_cls < NF
+    M["exit_energy_total_ratio"] = float(g["E_out"][gm_ex_].sum() / max(T["E_out"][rows][mc_ex_].sum(), 1e-300))
     for ax in axs.flat:
         ax.set_xscale("log")
     for ax in axs[1]:
         ax.set_xlabel("Entry energy (MeV)")
     axs.flat[0].legend(loc="best", fontsize=8)
     axs.flat[7].legend(loc="best", fontsize=8)
-    fig.suptitle(f"{which.capitalize()} transits, {describe(spec).split(',')[0]}: GMC vs held-out analog MC "
+    fig.suptitle(f"{which.capitalize()} transits, {title or describe(spec).split(',')[0]}: GMC vs held-out analog MC "
                  f"({len(rows)} entries)",
                  fontweight="bold")
     fig.tight_layout()
@@ -145,6 +154,8 @@ def compare(which, T, rows, K, edges, out_dir, metrics, rng):
 
     # ---- 2. exit-state and dose distributions in energy bands ------------------------------------------------------
     bands = [(1e-3, 3e-2, "1–30 keV"), (3e-2, 1.0, "30 keV–1 MeV"), (1.0, 10.0, "1–10 MeV")]
+    if 10 ** spec.logE_hi > 11.0:
+        bands.append((10.0, 10 ** spec.logE_hi, f"10–{10 ** spec.logE_hi:.0f} MeV"))
     fig, axs = plt.subplots(len(bands), 4, figsize=(17, 10))
     mc_ex = mc_cls < NF
     gm_ex = gm_cls < NF

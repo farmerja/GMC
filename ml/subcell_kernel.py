@@ -252,8 +252,26 @@ def _logfrac(f):
     return torch.log10(f.clamp(1e-6, 1.0)) / 3.0 + 1.0     # 1e-6 .. 1 -> -1 .. 1
 
 
+def _interp(x, xp, fp):
+    """np.interp for torch (xp increasing; clamped at the ends)."""
+    xp = torch.as_tensor(xp, dtype=x.dtype, device=x.device)
+    fp = torch.as_tensor(fp, dtype=x.dtype, device=x.device)
+    k = torch.searchsorted(xp, x.contiguous()).clamp(1, len(xp) - 1)
+    t = ((x - xp[k - 1]) / (xp[k] - xp[k - 1])).clamp(0.0, 1.0)
+    return fp[k - 1] + t * (fp[k] - fp[k - 1])
+
+
+def size_features(spec, L, E0):
+    """(log L between the training bounds, log10(L / R_CSDA(E0))) as secondary_gmc.size_feats, in torch."""
+    ll = torch.log10(L)
+    lf = 2.0 * (ll - spec.logL_lo) / (spec.logL_hi - spec.logL_lo) - 1.0
+    lr = _interp(torch.log10(E0.clamp_min(1e-300)), spec.csda_logE, spec.csda_logR)
+    return torch.stack([lf, ((ll - lr - 1.0) / 4.0).clamp(-2.0, 2.0)], -1)
+
+
 def cond_features(spec, R):
-    """Transit features from raw per-transit tensors R (dict of RAW columns, positions in cell units [0, 1])."""
+    """Transit features from raw per-transit tensors R (dict of RAW columns, positions in cell units [0, 1]).
+    A size-conditioned spec (size_cond) also needs R["L"], the cell side in cm."""
     E0, Eo, dose = R["E0"], R["E_out"], R["dose"]
     cls = R["cls"].long()
     ex = (cls != ABSORBED).float()
@@ -277,6 +295,8 @@ def cond_features(spec, R):
         tan_y = ex * ((cls == 1) | (cls == 3)).float()
         feats.append(torch.stack([interior * ph(R["x0"]), ph(R["y0"]), tan_x * ph(R["x1"]), tan_y * ph(R["y1"])],
                                  -1))
+    if getattr(spec, "size_cond", False):
+        feats.append(size_features(spec, R["L"], E0.float()).to(feats[0].dtype))
     return torch.cat(feats, -1)
 
 
@@ -284,7 +304,7 @@ COND_DIM = 7 + N_EXIT + 8 + (NR + 1) + 1
 
 
 def cond_dim(spec):
-    return COND_DIM + (4 if getattr(spec, "phase_n", 0) else 0)
+    return COND_DIM + (4 if getattr(spec, "phase_n", 0) else 0) + (2 if getattr(spec, "size_cond", False) else 0)
 
 
 def d4_points(k, x, y):
@@ -353,11 +373,18 @@ def load_kernel_data(seg_npz, sub_npz=None, check_sha=True, max_segments=None, e
         raise ValueError("the kernel is trained on scheme 'rel' images (sum = E_dep_rel)")
     cols = [str(c) for c in D["segment_columns"]]
     c = cols.index
-    L = float(D["box_dims"][0])
+    sweep = "seg_L" in D.files                       # generate_size_sweep.py: cell side and grid per segment
+    Lseg = D["seg_L"] if sweep else np.full(len(seg), float(D["box_dims"][0]))
     E_cut = float(D["E_cutoff"])
     E_hi = float(seg[:, c("E0")].max())
-    spec = Spec(L=L, E_cut=E_cut, logE_lo=math.log10(E_cut), logE_hi=math.log10(max(E_hi, 10 * E_cut)) + 1e-9,
-                n_sub=int(S["subcell_bins"]), density=float(np.atleast_1d(D["density"])[0]))
+    spec = Spec(L=float("nan") if sweep else float(Lseg[0]), E_cut=E_cut, logE_lo=math.log10(E_cut),
+                logE_hi=math.log10(max(E_hi, 10 * E_cut)) + 1e-9, n_sub=0 if sweep else int(S["subcell_bins"]),
+                density=float(np.atleast_1d(D["density"])[0]))
+    if sweep:
+        lo, hi = (float(v) for v in D["L_range"])
+        spec.size_cond, spec.logL_lo, spec.logL_hi = True, math.log10(lo), math.log10(hi)
+        spec.csda_logE = np.log10(D["csda_E"][1:]).tolist()
+        spec.csda_logR = np.log10(D["csda_R"][1:]).tolist()
     status = seg[:, c("status")].astype(int)
     cls = classes_from_status(status, invalid=-1)
     origin = seg[:, c("origin")].astype(int)
@@ -366,6 +393,7 @@ def load_kernel_data(seg_npz, sub_npz=None, check_sha=True, max_segments=None, e
     if max_segments is not None:
         keep &= np.arange(len(seg)) < max_segments
     rows = np.flatnonzero(keep)
+    L = Lseg[rows]
     E0 = seg[rows, c("E0")]
     E1 = seg[rows, c("E1")]
     cl = cls[rows]
@@ -376,6 +404,8 @@ def load_kernel_data(seg_npz, sub_npz=None, check_sha=True, max_segments=None, e
          "x1": seg[rows, c("x1")] / L, "y1": seg[rows, c("y1")] / L, "u1": seg[rows, c("u1")],
          "v1": seg[rows, c("v1")], "E_out": E_out, "dose": dose[rows], "n_rel": seg[rows, c("n_rel_e")],
          "flag": (q > 1e-12 * E0).astype(np.float64)}
+    if sweep:
+        R["L"] = L
     R = {k: v.astype(np.float32) for k, v in R.items()}
     R["E0"] = E0                                      # float64 for exact dose fractions on the host
     R["dose"] = dose[rows]
@@ -388,15 +418,19 @@ def load_kernel_data(seg_npz, sub_npz=None, check_sha=True, max_segments=None, e
     s = S["sub_seg"]
     ns = new[s]
     ok = ns >= 0
-    ent = {"seg": ns[ok].astype(np.int32), "bin": S["sub_bin"][ok].astype(np.int16 if spec.n_sub <= 128 else np.int32),
-           "E": S["sub_E"][ok]}
+    ent = {"seg": ns[ok].astype(np.int32),
+           "bin": S["sub_bin"][ok].astype(np.int16 if 0 < spec.n_sub <= 128 else np.int32), "E": S["sub_E"][ok]}
+    if sweep:
+        ent["n"] = S["seg_n"][s[ok]].astype(np.int16)  # grid size of every entry's segment
     if "sub_mx" in S.files:  # in-bin mean offset / spread of the deposits (bin widths)
         ent["mom"] = np.stack([S[k][ok] for k in ("sub_mx", "sub_my", "sub_sx", "sub_sy")], 1).astype(np.float16)
     n_b = int((R["start"] < 0.5).sum())
+    grid = (f"{int(ent['n'].min())}-{int(ent['n'].max())} bins per side" if sweep
+            else f"{spec.n_sub}x{spec.n_sub} bins")
+    size = f"{L.min() * 1e4:.0f}-{L.max() * 1e4:.0f} um" if sweep else f"{L[0] * 1e4:.0f} um"
     print(f"Loaded {os.path.basename(seg_npz)}: {len(rows)} transits ({n_b} boundary, {len(rows) - n_b} interior), "
           f"{len(ent['seg'])} image entries ({len(ent['seg']) / max(1, len(rows)):.1f} per transit), "
-          f"{spec.n_sub}x{spec.n_sub} bins{' + in-bin moments' if 'mom' in ent else ''}, L = {L * 1e4:.0f} um",
-          flush=True)
+          f"{grid}{' + in-bin moments' if 'mom' in ent else ''}, L = {size}", flush=True)
     return (spec, R, ent, rows) if return_rows else (spec, R, ent)
 
 
@@ -420,10 +454,16 @@ def beta_offsets(m, sd, min_spread):
     return (ga / (ga + gb).clamp_min(1e-30)).nan_to_num(0.5).clamp(0.0, 1.0)
 
 
-def entry_points(spec, bins, gen=None, dequant=True, mom=None, min_spread=0.05):
+def entry_points(spec, bins, gen=None, dequant=True, mom=None, min_spread=0.05, n=None):
     """Training points of image entries: bin + in-bin offset. mom (N, 4) = in-bin (mx, my, sx, sy) -> moment-matched
-    Beta offsets; otherwise uniform offsets (or bin centres with dequant=False)."""
-    n = spec.n_sub
+    Beta offsets; otherwise uniform offsets (or bin centres with dequant=False). n: per-entry grid size (size-sweep
+    data, one grid per cell size); default spec.n_sub."""
+    if n is not None and getattr(spec, "min_spread_cell", 0.0) > 0:
+        # floor the spread at a fixed fraction of the CELL (not of the bin): with 1000 x 1000 bins (1 cm cells) the
+        # bin floor alone leaves ~1e-4-cell-wide points, sharper than the splines' smallest bin (1e-3), and the
+        # likelihood chased them into loss spikes (size_stream scr, 2026-11-22)
+        min_spread = torch.clamp(spec.min_spread_cell * n.float(), min=min_spread)
+    n = spec.n_sub if n is None else n.long()
     b = bins.long()
     bx, by = (b // n).float(), (b % n).float()
     if dequant and mom is not None:
@@ -459,14 +499,14 @@ class EMA:
 
 
 def batch_nll(model, spec, Rd, ent_seg, ent_bin, idx, gen=None, augment=True, dequant=True, ent_mom=None,
-              points=None):
+              points=None, ent_n=None):
     s = ent_seg[idx].long()
     Rb = gather(Rd, s)
     if points is not None:
         px, py = points
     else:
         px, py = entry_points(spec, ent_bin[idx], gen, dequant, None if ent_mom is None else ent_mom[idx],
-                              getattr(spec, "min_spread", 0.05))
+                              getattr(spec, "min_spread", 0.05), None if ent_n is None else ent_n[idx])
     if augment:
         k = random_sym(Rb["start"], gen)
         Rb = apply_d4(k, Rb)
