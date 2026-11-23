@@ -88,8 +88,72 @@ def centre_mesh(L_c, L_min, grade=1.0):
     return QuadMesh(x0, y0, L, material(x0 + L / 2, y0 + L / 2), BOX, L.min())
 
 
+def sym_mesh(L_max, h, L_vac=None, order="x"):
+    """Fewest-cells tiling, mirror-symmetric about the beam axis (y = 1) but not in x: squares of any side k * h
+    (corners on the h lattice; the chain's point location and the size-conditioned models do not need quadtree
+    alignment or power-of-two sides). The water / vacuum interface is the h staircase of quad:<..>:h (lattice cell =
+    water iff its centre is inside the circle); every square is homogeneous in it (water: side <= L_max, vacuum: side
+    <= L_vac, default unlimited), so the surface geometry is exactly that of the h quadtree with far fewer cells.
+    Greedy, largest square first; a square either straddles the axis centred on it or
+    is placed together with its mirror image. Ties at one side: order 'x' takes the smallest x first (then the
+    nearest to the axis), 'axis' the nearest to the axis first."""
+    n = int(round(BOX[0] / h))
+    if abs(n * h - BOX[0]) > 1e-9 or n % 2:
+        raise ValueError(f"h = {h} cm must divide the box into an even number of cells")
+    c_ = (np.arange(n) + 0.5) * h
+    kind = material(c_[:, None], c_[None, :])                   # the h staircase: 0 water, 1 vacuum per lattice cell
+    free = np.ones((n, n), bool)
+    cells = []
+    caps = {0: int(round(L_max / h)), 1: n if L_vac is None else int(round(L_vac / h))}
+
+    def window_ok(ok, k):
+        """ok[i, j] for all k x k windows starting at (i, j) that are entirely True."""
+        c = np.zeros((n + 1, n + 1), np.int64)
+        c[1:, 1:] = ok.cumsum(0).cumsum(1)
+        s = c[k:, k:] - c[:-k, k:] - c[k:, :-k] + c[:-k, :-k]
+        return s == k * k
+
+    def place(i, j, k, m):
+        free[i:i + k, j:j + k] = False
+        cells.append((i, j, k, m))
+
+    for k in range(max(caps.values()), 1, -1):
+        for m in (0, 1):
+            if k > caps[m]:
+                continue
+            while True:
+                ok = window_ok(free & (kind == m), k)
+                ii, jj = np.nonzero(ok)
+                if not len(ii):
+                    break
+                # symmetric placement: straddle the axis centred (j + k/2 = n/2) or stay on one side of it
+                centred = 2 * jj + k == n
+                one_side = (jj + k <= n // 2) | (jj >= n // 2)
+                keep = centred | one_side
+                ii, jj, centred = ii[keep], jj[keep], centred[keep]
+                if not len(ii):
+                    break
+                dist_axis = np.abs(2 * jj + k - n)
+                key = (np.lexsort((dist_axis, ii, ~centred)) if order == "x"
+                       else np.lexsort((ii, dist_axis, ~centred)))
+                i, j = int(ii[key[0]]), int(jj[key[0]])
+                place(i, j, k, m)
+                jm = n - j - k
+                if jm != j:
+                    place(i, jm, k, m)
+    # unit cells: everything left (cut cells and the leftovers of the other kinds)
+    ii, jj = np.nonzero(free)
+    for i, j in zip(ii, jj):
+        cells.append((int(i), int(j), 1, -1))
+    c = np.array(cells, np.float64)
+    x0, y0, L = c[:, 0] * h, c[:, 1] * h, c[:, 2] * h
+    return QuadMesh(x0, y0, L, material(x0 + L / 2, y0 + L / 2), BOX, h)
+
+
 def make_mesh(spec):
     kind, *v = spec.split(":")
+    if kind == "sym":
+        return sym_mesh(float(v[0]) / 10, float(v[1]) / 10, order=v[2] if len(v) > 2 else "x")
     if kind == "centre":
         return centre_mesh(float(v[0]) / 10, float(v[1]) / 10, float(v[2]) if len(v) > 2 else 1.0)
     if kind == "uniform":
@@ -142,8 +206,11 @@ def cmd_run(a):
             t0 = time.time()
             # one tally, two conventions from the same samples: dose (photon energy local, the paper's) and
             # dose_cond (the model's own dose: photons escape)
+            tr = c["transits"]
+            chord = (np.where(tr["cls"] != 4, tr["dose"] - tr["dose_cond"], 0.0) if a.photon_place == "chord"
+                     else None)
             f_loc, info = scr_tally_quadtree(c, mesh, kern, H_OUT, device=dev, gen=gen, samples=samples,
-                                             extra={"esc": c["transits"]["dose_cond"]})
+                                             extra={"esc": tr["dose_cond"]}, chord=chord)
             if dev == "cuda":
                 torch.cuda.synchronize()
             tt += time.time() - t0
@@ -357,6 +424,9 @@ def main():
     p.add_argument("--K_scale", type=float, default=1.0, help="multiplier of the automatic K")
     p.add_argument("--K_min", type=int, default=32)
     p.add_argument("--E_cutoff", type=float, default=1e-3)
+    p.add_argument("--photon_place", default="chord", choices=["chord", "kernel"],
+                   help="where the local photon energy of an exiting transit goes: along its entry -> exit chord "
+                        "(default since 2026-11-22) or with the SCR kernel's electron deposits (the 1 cm cell dip)")
     p.add_argument("--tag", default="")
     p.add_argument("--out", default=None)
     c = sub.add_parser("compare")

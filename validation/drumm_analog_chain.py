@@ -31,7 +31,8 @@ from chain_core import transform_from_canonical  # noqa: E402
 from drumm_quadtree import make_mesh, mesh_tag, OUT, H_OUT, load_mc  # noqa: E402
 from drumm_cylinder import triangle_source  # noqa: E402
 
-LOG_COLS = ("cid", "start", "face", "gen", "y0", "u0", "v0", "w0", "E0", "cls", "x1", "y1", "E_out", "dose")
+LOG_COLS = ("cid", "start", "face", "gen", "x0", "y0", "u0", "v0", "w0", "E0", "cls", "x1", "y1", "u1", "v1", "w1",
+            "E_out", "dose", "n_rel", "flag")     # the full transit log (an SCR tally can be run on it: cmd_scr)
 ABSORBED = 4
 
 
@@ -66,7 +67,7 @@ def cmd_mc(a):
     mesh = make_mesh(a.mesh)
     src = triangle_source(a.N, a.src_seed)
     dose = np.zeros(mesh.n_cells)
-    T, X = [], []
+    T, X, P = [], [], []
     off = 0
     t0 = time.time()
     for i, b in enumerate(range(0, a.N, a.batch)):
@@ -79,6 +80,7 @@ def cmd_mc(a):
         if int(w.sum()) != rec.n:
             raise RuntimeError(f"recorder rows {rec.n} != water transits {int(w.sum())}")
         T.append({k: tr[k][w] for k in LOG_COLS})
+        P.append(c["points"])
         x = {k: np.concatenate([r[k] for r in rec.rec]) for k in ("row", "x", "y", "E")}
         x["row"] = x["row"] + off
         X.append(x)
@@ -88,11 +90,12 @@ def cmd_mc(a):
     secs = time.time() - t0
     T = {k: np.concatenate([t[k] for t in T]) for k in LOG_COLS}
     X = {k: np.concatenate([x[k] for x in X]) for k in ("row", "x", "y", "E")}
+    P = {k: np.concatenate([p_[k] for p_ in P]) for k in ("gx", "gy", "E")}
     out = a.out or str(OUT / f"analog_{mesh_tag(a.mesh)}_{a.N // 1000}k.npz")
     f32 = lambda v: v.astype(np.float32) if v.dtype == np.float64 else v  # noqa: E731
     np.savez_compressed(out, cell=dose, x0=mesh.x0, y0=mesh.y0, L=mesh.L, mat=mesh.mat, N=a.N,
                         **{"T_" + k: (v if k in ("E0", "E_out", "dose") else f32(v)) for k, v in T.items()},
-                        **{"X_" + k: v for k, v in X.items()},
+                        **{"X_" + k: v for k, v in X.items()}, **{"P_" + k: v for k, v in P.items()},
                         meta=json.dumps({**vars(a), "seconds": secs}))
     print(f"analog chain {a.mesh}: {secs:.0f} s ({1e3 * secs / a.N:.2f} ms/primary) -> {out}")
 
@@ -333,6 +336,61 @@ def cmd_flux(a):
             print(line, flush=True)
 
 
+def cmd_scr(a):
+    """SCR tally of the ANALOG chain's transit log (exact entries and transit doses, learned sub-cell placement) vs
+    the true-circle MC, beside a GMC + SCR run on the same mesh: columns (|y| < y_band) along the beam axis.
+    CAUTION, not like-for-like: an analog transit's dose includes the in-cell deposits of the secondaries that later
+    leave the cell (they are passed on as boundary exits), while the kernel was trained with relevant daughters as
+    separate interior segments, so the analog-log map is distorted near cell faces (-14 % / +6 % across the 1 cm
+    cell's entry face, 2026-11-22). For a clean kernel test use validation/scr_probe.py (exact MC images of the logged
+    entries)."""
+    import torch
+    from chain_quadtree import scr_tally_quadtree
+    from ml.subcell_kernel import load_kernel, auto_samples
+    dev = "cuda" if torch.cuda.is_available() else "cpu"
+    F = np.load(a.run, allow_pickle=False)
+    meta = json.loads(str(F["meta"]))
+    N = int(F["N"])
+    mesh = make_mesh(meta["mesh"])
+    T = {k: F["T_" + k].astype(np.float64) for k in LOG_COLS}
+    for k in ("cid", "start", "face", "gen", "cls", "n_rel", "flag"):
+        T[k] = T[k].astype(np.int64)
+    T["mat"] = np.zeros(len(T["cid"]), np.int64)
+    T["dose_cond"] = T["dose"]
+    P = {k: F["P_" + k] for k in ("gx", "gy", "E")} if "P_E" in F.files else {"gx": [], "gy": [], "E": []}
+    spec, model, _ = load_kernel(a.kernel, dev)
+    gen = torch.Generator(device=dev)
+    gen.manual_seed(a.seed)
+    samples = lambda n: max(a.K_min, int(a.K_scale * auto_samples(n)))  # noqa: E731
+    fine, info = scr_tally_quadtree({"transits": T, "points": P}, mesh, {0: (spec, model)}, H_OUT, device=dev,
+                                    gen=gen, samples=samples)
+    h2 = H_OUT * H_OUT
+    maps = {"analog log + SCR": fine / (N * h2)}
+    for p_ in a.gmc or []:
+        G = np.load(p_)
+        maps[Path(p_).stem[4:40]] = G["loc"].mean(0) / (int(G["N"]) * h2)
+    mc = load_mc()
+    m1, m2 = mc["loc"]
+    n = m1.shape[0]
+    c = n // 2
+    k = int(round(a.y_band / H_OUT))
+    xs = (np.arange(n) + 0.5) * H_OUT - 1.0
+    sel = np.flatnonzero((xs > a.x_lo) & (xs < a.x_hi))
+    sel = sel[: len(sel) // a.group * a.group]
+    col = lambda d: d[sel, c - k:c + k].sum(1).reshape(-1, a.group).sum(1)  # noqa: E731
+    ref, hd = col((m1 + m2) / 2), 0.5 * np.abs(col(m1) - col(m2))
+    print(f"{meta['mesh']}: |y| < {10 * a.y_band:.2f} mm columns, {10 * a.group * H_OUT:.3f} mm x bins, ratio to the "
+          f"true-circle MC (MC half-diff); analog-log SCR used {info['samples'] / max(len(T['cid']), 1):.0f} samples "
+          f"per transit")
+    xg = xs[sel].reshape(-1, a.group).mean(1)
+    print(f"  {'x (mm)':>24} " + " ".join(f"{10 * v:6.2f}" for v in xg))
+    print(f"  {'MC half-diff':>24} " + " ".join(f"{v:6.3f}" for v in hd / ref))
+    for name, d in maps.items():
+        print(f"  {name[:24]:>24} " + " ".join(f"{v:6.3f}" for v in col(d) / ref))
+    if a.out:
+        np.savez_compressed(a.out, fine=fine, N=N, mesh=meta["mesh"])
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -362,8 +420,20 @@ def main():
     f.add_argument("--seed", type=int, default=11)
     f.add_argument("--batch", type=int, default=100000)
     f.add_argument("--y_max", type=float, default=0.6)
+    s_ = sub.add_parser("scr")
+    s_.add_argument("--run", required=True)
+    s_.add_argument("--kernel", default=str(ROOT / "ml/models/size_scr_water_100um-1cm_30MeV_v2"))
+    s_.add_argument("--gmc", nargs="*", help="GMC + SCR runs (drumm_quadtree run) on the same mesh to print beside")
+    s_.add_argument("--K_scale", type=float, default=1.0)
+    s_.add_argument("--K_min", type=int, default=32)
+    s_.add_argument("--seed", type=int, default=3)
+    s_.add_argument("--y_band", type=float, default=0.5, help="half width of the column band (cm)")
+    s_.add_argument("--x_lo", type=float, default=-0.7)
+    s_.add_argument("--x_hi", type=float, default=-0.2)
+    s_.add_argument("--group", type=int, default=2, help="125 um bins per printed x bin")
+    s_.add_argument("--out", default=None)
     a = ap.parse_args()
-    {"mc": cmd_mc, "compare": cmd_compare, "flux": cmd_flux}[a.cmd](a)
+    {"mc": cmd_mc, "compare": cmd_compare, "flux": cmd_flux, "scr": cmd_scr}[a.cmd](a)
 
 
 if __name__ == "__main__":

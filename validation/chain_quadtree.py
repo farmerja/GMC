@@ -372,12 +372,16 @@ class MirrorY:
 # SCR tally on a fine uniform grid
 # ====================================================================================================================
 def scr_tally_quadtree(log, mesh, kernels, h_out, device="cpu", gen=None, samples=None, max_points=1 << 20,
-                       sampling="sobol", extra=None):
+                       sampling="sobol", extra=None, chord=None):
     """Fine dose (box / h_out bins per axis) from a quadtree chain's transit log. kernels: {material: (spec, model)};
     materials without a kernel spread their dose uniformly over the cell. samples(n) -> flow samples per transit for
     a cell n = L / h_out output bins wide (default subcell_kernel.auto_samples). extra: {name: per-transit weight}
     tallied with the SAME samples (e.g. the dose without photons), returned in info["extra"] (point deposits are
-    added to every map). Returns (fine, info)."""
+    added to every map). chord: per-transit energy (main map only) placed uniformly along the straight entry -> exit
+    chord instead of by the kernel, e.g. the photon energy of the local-photon convention: bremsstrahlung is emitted
+    evenly along a fast electron's track, while the kernel spreads with the electron deposits, which build up with depth
+    (in a 1 cm cell the photon part was ~12 % low at the entry face; drumm_quadtree, 2026-11-22). The kernel gets dose -
+    chord. Returns (fine, info)."""
     import torch
     from ml.subcell_kernel import auto_samples, canonical_to_cell, cond_features, transit_log_tensors
     samples = samples or auto_samples
@@ -385,9 +389,10 @@ def scr_tally_quadtree(log, mesh, kernels, h_out, device="cpu", gen=None, sample
     gx_n, gy_n = int(round(mesh.box[0] / h_out)), int(round(mesh.box[1] / h_out))
     names = [None] + list(extra or {})
     fines = {nm: torch.zeros(gx_n * gy_n, dtype=torch.float64, device=device) for nm in names}
-    wts = {None: np.asarray(T["dose"], dtype=np.float64),
+    chord = np.zeros(len(T["dose"])) if chord is None else np.asarray(chord, dtype=np.float64)
+    wts = {None: np.asarray(T["dose"], dtype=np.float64) - chord,
            **{k: np.asarray(v, dtype=np.float64) for k, v in (extra or {}).items()}}
-    info = {"kernel": 0.0, "flat": 0.0, "points": 0.0, "samples": 0}
+    info = {"kernel": 0.0, "flat": 0.0, "points": 0.0, "samples": 0, "chord": 0.0}
     X0, Y0, LL = (torch.as_tensor(a, device=device) for a in (mesh.x0, mesh.y0, mesh.L))
 
     def add(cid, x, y, r, per):
@@ -438,6 +443,25 @@ def scr_tally_quadtree(log, mesh, kernels, h_out, device="cpu", gen=None, sample
                     add(torch.as_tensor(cid_all[r], device=device), x, y, r, 1.0 / K)
                     info["kernel"] += float(dose_all[r].sum())
                     info["samples"] += len(r) * K
+        rows = np.flatnonzero(chord > 0)
+        if len(rows):
+            # stratified, jittered points along entry -> exit (canonical frame of the transit, like the kernel samples)
+            Kc = max(4, samples(max(1, int(round(float(np.median(Lrow[rows])) / h_out)))) // 2)
+            for i in range(0, len(rows), max(1, max_points // Kc)):
+                r = rows[i:i + max(1, max_points // Kc)]
+                g_ = lambda k_: torch.as_tensor(np.asarray(T[k_], dtype=np.float64)[r], device=device)[:, None]  # noqa: E731
+                t = (torch.arange(Kc, device=device, dtype=torch.float64)[None, :]
+                     + torch.rand(len(r), Kc, device=device, dtype=torch.float64, generator=gen)) / Kc
+                xc = g_("x0") + t * (g_("x1") - g_("x0"))
+                yc = g_("y0") + t * (g_("y1") - g_("y0"))
+                face = torch.as_tensor(np.asarray(T["face"])[r], device=device)
+                x, y = canonical_to_cell(xc.clamp(0.0, 1.0), yc.clamp(0.0, 1.0), face)
+                cid = torch.as_tensor(cid_all[r], device=device).unsqueeze(-1)
+                ix = ((X0[cid] + x * LL[cid]) / h_out).long().clamp(0, gx_n - 1)
+                iy = ((Y0[cid] + y * LL[cid]) / h_out).long().clamp(0, gy_n - 1)
+                w_ = torch.as_tensor(chord[r], device=device)[:, None].expand(-1, Kc) / Kc
+                fines[None].index_add_(0, (ix * gy_n + iy).reshape(-1), w_.reshape(-1))
+            info["chord"] = float(chord[rows].sum())
         if len(P["E"]):
             e = torch.as_tensor(np.asarray(P["E"], dtype=np.float64), device=device)
             ix = torch.as_tensor(np.clip((np.asarray(P["gx"]) / h_out).astype(np.int64), 0, gx_n - 1), device=device)
