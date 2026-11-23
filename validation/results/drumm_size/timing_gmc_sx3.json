@@ -1,0 +1,62 @@
+{
+ "E": 19.0,
+ "n": 100000,
+ "model": "ml/models/size_gmc_water_100um-1cm_30MeV_sx3/secondary_gmc.pth",
+ "kernel": "/home/aubrey/PycharmProjects/GMC/ml/models/size_scr_water_100um-1cm_30MeV_v2",
+ "res": {
+  "0.125": {
+   "gmc_us_per_transit": 10.930538177490234,
+   "scr_us_per_transit": 3.065462112426758,
+   "scr_samples": 8,
+   "daughters_per_transit": 0.02386
+  },
+  "0.25": {
+   "gmc_us_per_transit": 11.376352310180664,
+   "scr_us_per_transit": 2.6922154426574707,
+   "scr_samples": 8,
+   "daughters_per_transit": 0.03043
+  },
+  "0.5": {
+   "gmc_us_per_transit": 11.116702556610107,
+   "scr_us_per_transit": 2.689661979675293,
+   "scr_samples": 8,
+   "daughters_per_transit": 0.04014
+  },
+  "1.0": {
+   "gmc_us_per_transit": 11.437954902648926,
+   "scr_us_per_transit": 2.690567970275879,
+   "scr_samples": 8,
+   "daughters_per_transit": 0.05132
+  },
+  "2.0": {
+   "gmc_us_per_transit": 12.119429111480713,
+   "scr_us_per_transit": 2.6890945434570312,
+   "scr_samples": 8,
+   "daughters_per_transit": 0.06435
+  },
+  "4.0": {
+   "gmc_us_per_transit": 12.62566089630127,
+   "scr_us_per_transit": 5.321800708770752,
+   "scr_samples": 16,
+   "daughters_per_transit": 0.08035
+  },
+  "6.0": {
+   "gmc_us_per_transit": 12.609689235687256,
+   "scr_us_per_transit": 10.568900108337402,
+   "scr_samples": 32,
+   "daughters_per_transit": 0.08775
+  },
+  "8.0": {
+   "gmc_us_per_transit": 13.018221855163574,
+   "scr_us_per_transit": 10.568103790283203,
+   "scr_samples": 32,
+   "daughters_per_transit": 0.0933
+  },
+  "10.0": {
+   "gmc_us_per_transit": 12.79897928237915,
+   "scr_us_per_transit": 21.064484119415283,
+   "scr_samples": 64,
+   "daughters_per_transit": 0.09755
+  }
+ }
+}

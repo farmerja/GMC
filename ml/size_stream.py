@@ -72,13 +72,14 @@ def file_path(data_dir, k):
     return os.path.join(data_dir, f"part_{k:04d}.npz")
 
 
-def wait_for_file(data_dir, k, wait, poll=60):
-    """Path of finished file k; with wait, poll the manifest until the generator has written it."""
+def wait_for_file(data_dir, k, wait, poll=60, need_sub=True):
+    """Path of finished file k; with wait, poll the manifest until the generator has written it. need_sub=False (the
+    GMC) accepts files without sub-cell images (generate_size_sweep.py --no_subcell)."""
     p = file_path(data_dir, k)
     announced = False
     while True:
         man = read_manifest(data_dir)
-        if str(k) in man["files"] and os.path.exists(p) and os.path.exists(p[:-4] + "_subcell.npz"):
+        if str(k) in man["files"] and os.path.exists(p) and (not need_sub or os.path.exists(p[:-4] + "_subcell.npz")):
             return p
         if not wait:
             raise FileNotFoundError(f"{p} is not finished (pass --wait to wait for the generator)")
@@ -190,7 +191,8 @@ def merged_scatter_T(Ts, spec):
 
 def gmc_init(args, dev):
     man = read_manifest(args.data_dir)
-    paths = [wait_for_file(args.data_dir, k, args.wait) for k in range(min(args.spec_files, args.n_files))]
+    paths = [wait_for_file(args.data_dir, k, args.wait, need_sub=False)
+             for k in range(min(args.spec_files, args.n_files))]
     if args.init_from:
         spec, _ = sg.load_models(args.init_from, "cpu")
         print(f"  spec and frozen models from {args.init_from}; training {sorted(gmc_model_table(args))}")
@@ -233,6 +235,15 @@ def gmc_init(args, dev):
                             "cond_dim": cond.shape[1], "target_dim": tgt.shape[1],
                             "scaled": bool(name == "exit_B" and args.exit_scaled), "rel": False}
             print(f"  {name}: cond {cond.shape[1]}, target {tgt.shape[1]} ({len(tgt)} rows in file 0)")
+    if getattr(args, "finetune", False):
+        # start every trained model from its --init_from weights and target normalisation (mu / sd, scaled flag)
+        _, loaded = sg.load_models(args.init_from, dev)
+        for name, m in models.items():
+            src = loaded[name]
+            m["model"].load_state_dict(src["model"].state_dict())
+            if m["kind"] != "classifier":
+                m["mu"], m["sd"], m["scaled"] = src["mu"], src["sd"], src["scaled"]
+            print(f"  {name}: fine-tuning from {args.init_from}")
     for m in models.values():
         lr = args.clf_lr if m["kind"] == "classifier" else args.flow_lr
         wd = 1e-4 if m["kind"] == "classifier" else 1e-5
@@ -354,7 +365,7 @@ def gmc_export(out, spec, models, V, dev, which):
 
 GMC_PLAN_KEYS = ("data_dir", "n_files", "sweeps", "clf_passes", "flow_passes", "small_passes", "NR", "edge_feats",
                  "exit_scaled", "stop", "exit_hidden", "exit_depth", "clf_lr", "flow_lr", "seed", "init_from",
-                 "train_only", "smooth_exit_sigma")
+                 "train_only", "smooth_exit_sigma", "finetune")
 
 
 def cmd_gmc(args):
@@ -398,7 +409,7 @@ def cmd_gmc(args):
     while visit < n_visits:
         k = order[visit]
         t0 = time.time()
-        path = wait_for_file(args.data_dir, k, args.wait)
+        path = wait_for_file(args.data_dir, k, args.wait, need_sub=False)
         T = load_T(path, spec, args.NR)
         t_load = time.time() - t0
         info = gmc_visit(T, models, args, dev, visit, n_visits)
@@ -612,6 +623,9 @@ def main():
     g.add_argument("--init_from", default=None,
                    help="existing secondary_gmc.pth: its spec and every model not in --train_only are kept as they are")
     g.add_argument("--train_only", default=None, help="comma-separated models to (re)train from scratch, e.g. exit_B")
+    g.add_argument("--finetune", action="store_true",
+                   help="with --init_from: the trained models START from the --init_from weights (fine-tuning, e.g. "
+                        "on a mix_dirs.py directory of new + old files) instead of from scratch")
     g.add_argument("--smooth_exit_sigma", action="store_true",
                    help="exit-flow scale from a smooth sigma(E, L) over the --spec_files files (spec.sigx_*)")
     s = sub.choices["scr"]
