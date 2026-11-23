@@ -36,6 +36,12 @@ Notes on the table:
 
 ![profiles](../validation/results/drumm_size/fig8a_meshes.png)
 
+Dose density maps (top row) on 125 µm bins, log scale over three decades below the MC peak, for the analog MC on
+the true circle and GMC + SCR on each mesh; the meshes are underneath (blue = water, circle = the true boundary).
+The staircase boundary of uniform:1 is visible in its map; the quadtree meshes follow the circle.
+
+![dose density maps and meshes](../validation/results/drumm_size/meshes_dose_maps.png)
+
 How to choose a mesh:
 - **Fastest:** `min:10:0.125` or `sym:10:0.125`. They match MC in the beam core within 0.1 %. The beam edge inside
   their 8 mm and 1 cm cells is 4–5 % too high in energy, which is under 1 % of the peak dose. See the open issues.

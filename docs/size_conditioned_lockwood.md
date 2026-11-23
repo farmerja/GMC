@@ -108,6 +108,18 @@ Cells, side range and cell transits per primary:
 The 60° cases use the same meshes, with fewer transits per primary. Cu 1 MeV has no Lockwood measurement (it is
 marked `missing` in `load_cases`), but it has an ESTAR MC reference, so it was run with `--cases cu_1.0_0`.
 
+Dose density on each mesh (K8 runs). Top row: the GMC cell dose density, cell energy ÷ cell area, log scale relative
+to the largest cell (the beam enters at mid-height on the left). Bottom row: the depth-dose J against depth / R for
+the analog MC, the GMC cell-level dose (each cell's energy spread evenly over its depth extent, i.e. no SCR) and
+GMC + SCR (what is scored). The cell-level curve shows how little the coarse meshes resolve on their own; the SCR
+recovers the MC shape from it, down to the single cell of `one`.
+
+![dose density, Al 1 MeV 0°](../validation/results/lockwood_sandia/size/writeup/dose_density_al_1.0_0.png)
+
+![dose density, Al 1 MeV 60°](../validation/results/lockwood_sandia/size/writeup/dose_density_al_1.0_60.png)
+
+![dose density, Cu 0.5 MeV 0°](../validation/results/lockwood_sandia/size/writeup/dose_density_cu_0.5_0.png)
+
 ## 3. Speed and accuracy
 
 Runs: 200k primaries × 2 seeds, 20 ODE steps, K8. The reference is the analog MC with ESTAR stopping (200k

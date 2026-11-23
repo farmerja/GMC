@@ -8,6 +8,7 @@ mesh and the old dedicated 100 um model (lockwood_slab.py), all vs the ESTAR ana
   speed_accuracy.png       speed-up vs MC against rms shape error and chi2/dof (K8 runs + the dedicated model)
   timing.png               ms per primary: MC vs each mesh per case; chain cost vs transits; chain / tally split
   meshes.png               the meshes of the Al 1 MeV case
+  dose_density_<case>.png  GMC cell dose density on each mesh + depth-dose: MC vs cell level vs GMC + SCR
   summary.json             every scored run (both K settings)
 
     .venv/bin/python validation/lockwood_size_writeup.py --out_dir validation/results/lockwood_sandia/size/writeup
@@ -219,6 +220,66 @@ def meshes(data, png, plt, key="al_1.0_0", kset="k8"):
     print(f"wrote {png}")
 
 
+def dose_density(data, png, plt, key="al_1.0_0", kset="k8", n_bins=25):
+    """Per mesh: row 1 the GMC cell dose density (cell energy / cell area, log scale, relative to the row maximum) on
+    the mesh; row 2 the depth-dose J vs depth / R: analog MC, the GMC cell-level dose (each cell's energy spread
+    evenly over its depth extent) and GMC + SCR (the sub-cell reconstruction actually scored)."""
+    from matplotlib.collections import PatchCollection
+    from matplotlib.colors import LogNorm
+    from matplotlib.patches import Rectangle
+    from lockwood_quadtree import coarse_edges
+    import sec_plot_style as S
+    runs = [r for r in data.get(key, []) if r["stats"]["kset"] == kset]
+    runs = sorted(runs, key=lambda r: (["one", "random", "uniform"].index(r["stats"]["family"]), r["stats"]["mesh"]))
+    if not runs:
+        return
+    dens = [np.asarray(r["z"]["cell"]).mean(0) / np.asarray(r["z"]["L"]) ** 2 for r in runs]
+    vmax = max(d.max() for d in dens)
+    norm = LogNorm(vmax * 1e-3, vmax)
+    fig, ax = plt.subplots(2, len(runs), figsize=(3.3 * len(runs), 7.4), constrained_layout=True, squeeze=False,
+                           gridspec_kw={"height_ratios": [1.15, 1]})
+    for j, (r, d) in enumerate(zip(runs, dens)):
+        z, s = r["z"], r["stats"]
+        rho = float(z["rho"])
+        R_g = r["meta"]["R_cm"] * rho / 1.1
+        a = ax[0, j]
+        pc = [Rectangle((x, y), l, l) for x, y, l in zip(z["x0"], z["y0"], z["L"])]
+        a.add_collection(PatchCollection(pc, facecolor=S.SEQ(norm(np.maximum(d, vmax * 1e-3))),
+                                         edgecolor="white", lw=0.25))
+        W, H = z["box"]
+        a.set_xlim(0, W)
+        a.set_ylim(0, H)
+        a.set_aspect("equal")
+        a.grid(False)
+        a.set_title(f"{s['mesh']}: {s['n_cells']} cell{'s' if s['n_cells'] > 1 else ''}", fontsize=9)
+        a.set_xlabel("depth (cm)")
+        # depth-dose: cell-level (energy spread evenly over each cell's depth extent) vs SCR vs MC
+        ed, _ = coarse_edges(z["edges"], R_g, n_bins)
+        ed = ed[:len(r["xm"]) + 1]
+        cl = np.zeros(len(ed) - 1)
+        E = np.asarray(z["cell"]).mean(0)
+        for x0, l, e in zip(np.asarray(z["x0"]) * rho, np.asarray(z["L"]) * rho, E):
+            ov = np.clip(np.minimum(ed[1:], x0 + l) - np.maximum(ed[:-1], x0), 0, None)
+            cl += e * ov / l
+        cl /= np.diff(ed)
+        b = ax[1, j]
+        b.plot(r["xm"], r["m"], color="0.15", lw=2, label="analog MC")
+        b.stairs(cl, ed / R_g, color="#eb6834", lw=1.2, label="GMC, cell level")
+        b.plot(r["xm"], r["g"], color="#2a78d6", lw=1.5, ls="--", label="GMC + SCR")
+        b.set_xlabel("depth / R")
+        b.set_title(f"rms {100 * s['rms_rel']:.1f} %, {s['speedup_vs_mc']:.1f}× MC", fontsize=9)
+    ax[1, 0].set_ylabel("J (MeV cm² / g per e⁻)")
+    ax[0, 0].set_ylabel("y (cm)")
+    ax[1, 0].legend(fontsize=8)
+    sm = plt.cm.ScalarMappable(cmap=S.SEQ, norm=LogNorm(1e-3, 1))
+    fig.colorbar(sm, ax=ax[0, -1], label="cell energy / cell area (rel. to max)")
+    fig.suptitle(f"Dose density, {key.replace('_', ' ')}° ({kset}): GMC cell dose on each mesh, and the depth-dose "
+                 "before / after the sub-cell reconstruction", fontweight="bold")
+    fig.savefig(png, dpi=120)
+    plt.close(fig)
+    print(f"wrote {png}")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out_dir", default=str(OUT / "writeup"))
@@ -238,6 +299,8 @@ def main():
     ks = "k8" if any(r["stats"]["kset"] == "k8" for rs in data.values() for r in rs) else "auto"
     timing(data, out / "timing.png", plt, ks)
     meshes(data, out / "meshes.png", plt, kset=ks)
+    for key in ("al_1.0_0", "al_1.0_60", "cu_0.5_0"):
+        dose_density(data, out / f"dose_density_{key}.png", plt, key=key, kset=ks, n_bins=a.n_bins)
     summ = {k: {r["file"]: r["stats"] for r in rs} for k, rs in data.items()}
     json.dump(summ, open(out / "summary.json", "w"), indent=1)
     # per-family aggregate: median over cases

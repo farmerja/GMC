@@ -154,6 +154,12 @@ The same meshes with `_sx2` (all bins):
 
 ![speed vs accuracy](../validation/results/drumm_size/writeup/speed_accuracy.png)
 
+Dose density maps of the `_sx3` runs (top row; 125 µm bins, log scale over three decades below the MC peak) next
+to the analog MC on the true circle, with each mesh underneath. At this scale every mesh reproduces the MC map; the
+differences are at the percent level and are shown in the error maps and the noise test of section 4.
+
+![dose density maps and meshes, _sx3](../validation/results/drumm_size/writeup/meshes_dose_maps.png)
+
 What the comparison shows:
 - **Speed is set by the water transits per primary.**
   - The cost per water transit is about 14–20 µs for every mesh, including the tally.
