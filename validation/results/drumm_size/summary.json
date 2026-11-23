@@ -1,6 +1,462 @@
 {
  "mc_ms_per_primary": 4.227749116420746,
  "runs": {
+  "gmc_centre_10_0p15625_2_500k_K8": {
+   "mesh": "centre:10:0.15625:2",
+   "N": 500000,
+   "n_seeds": 2,
+   "maps": {
+    "loc": {
+     "fine_125um": {
+      "mc_noise": 0.05095613821815886,
+      "noise": 0.0170422166351102,
+      "bias": 0.027434774238300492
+     },
+     "bins_500um": {
+      "mc_noise": 0.012941681553054096,
+      "noise": 0.006376394262338024,
+      "bias": 0.017488312739786037
+     },
+     "deposited_ratio": 1.0016063277691665
+    },
+    "esc": {
+     "fine_125um": {
+      "mc_noise": 0.009482669089692648,
+      "noise": 0.009665413282721249,
+      "bias": 0.025981190257595887
+     },
+     "bins_500um": {
+      "mc_noise": 0.004065385237333319,
+      "noise": 0.0036813777822862,
+      "bias": 0.01591889812812791
+     },
+     "deposited_ratio": 1.0065428823911264
+    }
+   },
+   "profiles": {
+    "E_along": {
+     "vs_mc_mean_rel": -0.004661953626463429,
+     "vs_mc_rel_rms": 0.020451922683557076,
+     "gmc_vs_its_mean_rel_core": -0.018615539050902147,
+     "mc_vs_its_mean_rel_core": -0.01375215585746016
+    },
+    "E_xm05": {
+     "vs_mc_mean_rel": -0.034959433227910196,
+     "vs_mc_rel_rms": 0.0480446229982693,
+     "gmc_vs_its_mean_rel_core": -0.030807231493395332,
+     "mc_vs_its_mean_rel_core": 0.004212103369851492
+    },
+    "E_x0": {
+     "vs_mc_mean_rel": 0.0015815414223662545,
+     "vs_mc_rel_rms": 0.03940844327093107,
+     "gmc_vs_its_mean_rel_core": 0.02375287881459677,
+     "mc_vs_its_mean_rel_core": 0.02319121060774797
+    },
+    "E_xp05": {
+     "vs_mc_mean_rel": -0.01756291957728243,
+     "vs_mc_rel_rms": 0.04001797401986876,
+     "gmc_vs_its_mean_rel_core": 0.007920075659643408,
+     "mc_vs_its_mean_rel_core": 0.025639691337068803
+    }
+   },
+   "timing": {
+    "chain_ms": 0.22074950623512268,
+    "tally_ms": 0.07272684335708618,
+    "water_transits_per_primary": 16.234178,
+    "samples_per_transit": 13.16470917098482,
+    "total_ms": 0.29347634959220886,
+    "speedup_vs_mc": 14.405757473456672
+   },
+   "settings": {
+    "ode_steps": 20,
+    "K": null,
+    "K_scale": 0.25,
+    "K_min": 8,
+    "batch": 100000,
+    "model": "/home/aubrey/PycharmProjects/GMC/ml/models/size_gmc_water_100um-1cm_30MeV/secondary_gmc.pth",
+    "kernel": "/home/aubrey/PycharmProjects/GMC/ml/models/size_scr_water_100um-1cm_30MeV_v2"
+   }
+  },
+  "gmc_centre_10_0p15625_2_500k_K8_sx2": {
+   "mesh": "centre:10:0.15625:2",
+   "N": 500000,
+   "n_seeds": 2,
+   "maps": {
+    "loc": {
+     "fine_125um": {
+      "mc_noise": 0.05095613821815886,
+      "noise": 0.016795330853432412,
+      "bias": 0.025097835805198337
+     },
+     "bins_500um": {
+      "mc_noise": 0.012941681553054096,
+      "noise": 0.005932120034128349,
+      "bias": 0.014289183026807022
+     },
+     "deposited_ratio": 1.0015197375897926
+    },
+    "esc": {
+     "fine_125um": {
+      "mc_noise": 0.009482669089692648,
+      "noise": 0.009334438749338494,
+      "bias": 0.023968496651292363
+     },
+     "bins_500um": {
+      "mc_noise": 0.004065385237333319,
+      "noise": 0.0029476353117005353,
+      "bias": 0.012697492101130983
+     },
+     "deposited_ratio": 1.0062716926279451
+    }
+   },
+   "profiles": {
+    "E_along": {
+     "vs_mc_mean_rel": -0.009385185659870869,
+     "vs_mc_rel_rms": 0.01986449818439522,
+     "gmc_vs_its_mean_rel_core": -0.023195962388101947,
+     "mc_vs_its_mean_rel_core": -0.01375215585746016
+    },
+    "E_xm05": {
+     "vs_mc_mean_rel": -0.03286900840972643,
+     "vs_mc_rel_rms": 0.04426797391568576,
+     "gmc_vs_its_mean_rel_core": -0.02924439609248494,
+     "mc_vs_its_mean_rel_core": 0.004212103369851492
+    },
+    "E_x0": {
+     "vs_mc_mean_rel": 0.0047906334574236535,
+     "vs_mc_rel_rms": 0.037715101622117275,
+     "gmc_vs_its_mean_rel_core": 0.02686215751778226,
+     "mc_vs_its_mean_rel_core": 0.02319121060774797
+    },
+    "E_xp05": {
+     "vs_mc_mean_rel": -0.011119109967821277,
+     "vs_mc_rel_rms": 0.04079837679357457,
+     "gmc_vs_its_mean_rel_core": 0.014665464066574983,
+     "mc_vs_its_mean_rel_core": 0.025639691337068803
+    }
+   },
+   "timing": {
+    "chain_ms": 0.1915875232219696,
+    "tally_ms": 0.07227200317382812,
+    "water_transits_per_primary": 16.272762,
+    "samples_per_transit": 13.15101148778554,
+    "total_ms": 0.2638595263957977,
+    "speedup_vs_mc": 16.022726843218038
+   },
+   "settings": {
+    "ode_steps": 20,
+    "K": null,
+    "K_scale": 0.25,
+    "K_min": 8,
+    "batch": 100000,
+    "model": "ml/models/size_gmc_water_100um-1cm_30MeV_sx2/secondary_gmc.pth",
+    "kernel": "/home/aubrey/PycharmProjects/GMC/ml/models/size_scr_water_100um-1cm_30MeV_v2"
+   }
+  },
+  "gmc_centre_10_0p3125_2_500k_K8": {
+   "mesh": "centre:10:0.3125:2",
+   "N": 500000,
+   "n_seeds": 2,
+   "maps": {
+    "loc": {
+     "fine_125um": {
+      "mc_noise": 0.05095613821815886,
+      "noise": 0.01626667435889094,
+      "bias": 0.030763238743668635
+     },
+     "bins_500um": {
+      "mc_noise": 0.012941681553054096,
+      "noise": 0.006811666006165873,
+      "bias": 0.019623492892245117
+     },
+     "deposited_ratio": 1.0019544370726243
+    },
+    "esc": {
+     "fine_125um": {
+      "mc_noise": 0.009482669089692648,
+      "noise": 0.009430104866350755,
+      "bias": 0.028967916007051845
+     },
+     "bins_500um": {
+      "mc_noise": 0.004065385237333319,
+      "noise": 0.0033652321645706532,
+      "bias": 0.01804450488378369
+     },
+     "deposited_ratio": 1.0072233661052745
+    }
+   },
+   "profiles": {
+    "E_along": {
+     "vs_mc_mean_rel": 0.000675129082309113,
+     "vs_mc_rel_rms": 0.021314778502350126,
+     "gmc_vs_its_mean_rel_core": -0.0134583344989715,
+     "mc_vs_its_mean_rel_core": -0.01375215585746016
+    },
+    "E_xm05": {
+     "vs_mc_mean_rel": -0.03174082673002495,
+     "vs_mc_rel_rms": 0.04698855606995389,
+     "gmc_vs_its_mean_rel_core": -0.02730911480009178,
+     "mc_vs_its_mean_rel_core": 0.004212103369851492
+    },
+    "E_x0": {
+     "vs_mc_mean_rel": -0.0011102879475614412,
+     "vs_mc_rel_rms": 0.041131055240558836,
+     "gmc_vs_its_mean_rel_core": 0.02126361263462838,
+     "mc_vs_its_mean_rel_core": 0.02319121060774797
+    },
+    "E_xp05": {
+     "vs_mc_mean_rel": -0.02337387702812677,
+     "vs_mc_rel_rms": 0.03883766933241606,
+     "gmc_vs_its_mean_rel_core": 0.0011127484721822462,
+     "mc_vs_its_mean_rel_core": 0.025639691337068803
+    }
+   },
+   "timing": {
+    "chain_ms": 0.16387818336486817,
+    "tally_ms": 0.06597947907447815,
+    "water_transits_per_primary": 13.918705,
+    "samples_per_transit": 14.027740655470462,
+    "total_ms": 0.22985766243934633,
+    "speedup_vs_mc": 18.39290050875003
+   },
+   "settings": {
+    "ode_steps": 20,
+    "K": null,
+    "K_scale": 0.25,
+    "K_min": 8,
+    "batch": 100000,
+    "model": "/home/aubrey/PycharmProjects/GMC/ml/models/size_gmc_water_100um-1cm_30MeV/secondary_gmc.pth",
+    "kernel": "/home/aubrey/PycharmProjects/GMC/ml/models/size_scr_water_100um-1cm_30MeV_v2"
+   }
+  },
+  "gmc_centre_10_0p3125_2_500k_K8_sx2": {
+   "mesh": "centre:10:0.3125:2",
+   "N": 500000,
+   "n_seeds": 2,
+   "maps": {
+    "loc": {
+     "fine_125um": {
+      "mc_noise": 0.05095613821815886,
+      "noise": 0.016461477935722467,
+      "bias": 0.027401019314842085
+     },
+     "bins_500um": {
+      "mc_noise": 0.012941681553054096,
+      "noise": 0.006557238501894154,
+      "bias": 0.014597182411025412
+     },
+     "deposited_ratio": 1.0019283421189449
+    },
+    "esc": {
+     "fine_125um": {
+      "mc_noise": 0.009482669089692648,
+      "noise": 0.009544565121399683,
+      "bias": 0.025652946845678752
+     },
+     "bins_500um": {
+      "mc_noise": 0.004065385237333319,
+      "noise": 0.0037654478623436825,
+      "bias": 0.012853523963445005
+     },
+     "deposited_ratio": 1.0061692103710755
+    }
+   },
+   "profiles": {
+    "E_along": {
+     "vs_mc_mean_rel": -0.004253029639989948,
+     "vs_mc_rel_rms": 0.016841575984008587,
+     "gmc_vs_its_mean_rel_core": -0.018105352909181367,
+     "mc_vs_its_mean_rel_core": -0.01375215585746016
+    },
+    "E_xm05": {
+     "vs_mc_mean_rel": -0.031249441831290112,
+     "vs_mc_rel_rms": 0.04605204716820088,
+     "gmc_vs_its_mean_rel_core": -0.0262209996751173,
+     "mc_vs_its_mean_rel_core": 0.004212103369851492
+    },
+    "E_x0": {
+     "vs_mc_mean_rel": 0.005913396106659596,
+     "vs_mc_rel_rms": 0.03893129002441636,
+     "gmc_vs_its_mean_rel_core": 0.027965427706054646,
+     "mc_vs_its_mean_rel_core": 0.02319121060774797
+    },
+    "E_xp05": {
+     "vs_mc_mean_rel": -0.011386672274675028,
+     "vs_mc_rel_rms": 0.037309893412249474,
+     "gmc_vs_its_mean_rel_core": 0.014057966265996868,
+     "mc_vs_its_mean_rel_core": 0.025639691337068803
+    }
+   },
+   "timing": {
+    "chain_ms": 0.16369413709640504,
+    "tally_ms": 0.06585568070411682,
+    "water_transits_per_primary": 13.946405,
+    "samples_per_transit": 14.010151003072117,
+    "total_ms": 0.22954981780052186,
+    "speedup_vs_mc": 18.417566857293906
+   },
+   "settings": {
+    "ode_steps": 20,
+    "K": null,
+    "K_scale": 0.25,
+    "K_min": 8,
+    "batch": 100000,
+    "model": "ml/models/size_gmc_water_100um-1cm_30MeV_sx2/secondary_gmc.pth",
+    "kernel": "/home/aubrey/PycharmProjects/GMC/ml/models/size_scr_water_100um-1cm_30MeV_v2"
+   }
+  },
+  "gmc_quad_4_0p125_500k_K8": {
+   "mesh": "quad:4:0.125",
+   "N": 500000,
+   "n_seeds": 2,
+   "maps": {
+    "loc": {
+     "fine_125um": {
+      "mc_noise": 0.05095613821815886,
+      "noise": 0.021159454424693372,
+      "bias": 0.024347434775142375
+     },
+     "bins_500um": {
+      "mc_noise": 0.012941681553054096,
+      "noise": 0.007242989793770163,
+      "bias": 0.014322982452590179
+     },
+     "deposited_ratio": 1.007031199926141
+    },
+    "esc": {
+     "fine_125um": {
+      "mc_noise": 0.009482669089692648,
+      "noise": 0.01184139724478978,
+      "bias": 0.02380069479728613
+     },
+     "bins_500um": {
+      "mc_noise": 0.004065385237333319,
+      "noise": 0.0038028363385744298,
+      "bias": 0.0139960017294646
+     },
+     "deposited_ratio": 1.0074773148796354
+    }
+   },
+   "profiles": {
+    "E_along": {
+     "vs_mc_mean_rel": 0.003958669762312682,
+     "vs_mc_rel_rms": 0.015188793730642455,
+     "gmc_vs_its_mean_rel_core": -0.009926862928358461,
+     "mc_vs_its_mean_rel_core": -0.01375215585746016
+    },
+    "E_xm05": {
+     "vs_mc_mean_rel": 0.00820188376737941,
+     "vs_mc_rel_rms": 0.034165211778656474,
+     "gmc_vs_its_mean_rel_core": 0.01341934211931496,
+     "mc_vs_its_mean_rel_core": 0.004212103369851492
+    },
+    "E_x0": {
+     "vs_mc_mean_rel": 0.000779493175315943,
+     "vs_mc_rel_rms": 0.04093330686023982,
+     "gmc_vs_its_mean_rel_core": 0.02319890653272679,
+     "mc_vs_its_mean_rel_core": 0.02319121060774797
+    },
+    "E_xp05": {
+     "vs_mc_mean_rel": 0.0061747197934393155,
+     "vs_mc_rel_rms": 0.03722596334031364,
+     "gmc_vs_its_mean_rel_core": 0.03169284361215689,
+     "mc_vs_its_mean_rel_core": 0.025639691337068803
+    }
+   },
+   "timing": {
+    "chain_ms": 0.19725406193733216,
+    "tally_ms": 0.057472797870635986,
+    "water_transits_per_primary": 17.199983,
+    "samples_per_transit": 9.804662713910822,
+    "total_ms": 0.25472685980796816,
+    "speedup_vs_mc": 16.59718617662831
+   },
+   "settings": {
+    "ode_steps": 20,
+    "K": null,
+    "K_scale": 0.25,
+    "K_min": 8,
+    "batch": 100000,
+    "model": "/home/aubrey/PycharmProjects/GMC/ml/models/size_gmc_water_100um-1cm_30MeV/secondary_gmc.pth",
+    "kernel": "ml/models/size_scr_water_100um-1cm_30MeV_v2"
+   }
+  },
+  "gmc_quad_4_0p125_500k_K8_sx2": {
+   "mesh": "quad:4:0.125",
+   "N": 500000,
+   "n_seeds": 2,
+   "maps": {
+    "loc": {
+     "fine_125um": {
+      "mc_noise": 0.05095613821815886,
+      "noise": 0.02088679111599605,
+      "bias": 0.02398865729638205
+     },
+     "bins_500um": {
+      "mc_noise": 0.012941681553054096,
+      "noise": 0.007483137248069762,
+      "bias": 0.011749397273074077
+     },
+     "deposited_ratio": 1.0043609913123737
+    },
+    "esc": {
+     "fine_125um": {
+      "mc_noise": 0.009482669089692648,
+      "noise": 0.011950574454019015,
+      "bias": 0.021862190264532174
+     },
+     "bins_500um": {
+      "mc_noise": 0.004065385237333319,
+      "noise": 0.0038618025825147757,
+      "bias": 0.010328409357434875
+     },
+     "deposited_ratio": 1.0045521877252197
+    }
+   },
+   "profiles": {
+    "E_along": {
+     "vs_mc_mean_rel": -0.001596531977532016,
+     "vs_mc_rel_rms": 0.01491240018784994,
+     "gmc_vs_its_mean_rel_core": -0.015301643141488639,
+     "mc_vs_its_mean_rel_core": -0.01375215585746016
+    },
+    "E_xm05": {
+     "vs_mc_mean_rel": 0.004052133382966442,
+     "vs_mc_rel_rms": 0.03509883497563905,
+     "gmc_vs_its_mean_rel_core": 0.008187292791163307,
+     "mc_vs_its_mean_rel_core": 0.004212103369851492
+    },
+    "E_x0": {
+     "vs_mc_mean_rel": -0.0034074712450960576,
+     "vs_mc_rel_rms": 0.04119760542534145,
+     "gmc_vs_its_mean_rel_core": 0.02112211505115692,
+     "mc_vs_its_mean_rel_core": 0.02319121060774797
+    },
+    "E_xp05": {
+     "vs_mc_mean_rel": 0.010120149912417182,
+     "vs_mc_rel_rms": 0.035632928085050974,
+     "gmc_vs_its_mean_rel_core": 0.035561560914622474,
+     "mc_vs_its_mean_rel_core": 0.025639691337068803
+    }
+   },
+   "timing": {
+    "chain_ms": 0.19802277326583861,
+    "tally_ms": 0.057498957395553586,
+    "water_transits_per_primary": 17.207876,
+    "samples_per_transit": 9.806706649908449,
+    "total_ms": 0.2555217306613922,
+    "speedup_vs_mc": 16.545556049098618
+   },
+   "settings": {
+    "ode_steps": 20,
+    "K": null,
+    "K_scale": 0.25,
+    "K_min": 8,
+    "batch": 100000,
+    "model": "ml/models/size_gmc_water_100um-1cm_30MeV_sx2/secondary_gmc.pth",
+    "kernel": "/home/aubrey/PycharmProjects/GMC/ml/models/size_scr_water_100um-1cm_30MeV_v2"
+   }
+  },
   "gmc_uniform_1_500k": {
    "mesh": "uniform:1",
    "N": 500000,
@@ -77,7 +533,7 @@
     "kernel": "ml/models/size_scr_water_100um-1cm_30MeV_v2"
    }
   },
-  "gmc_uniform_1_500k_calib": {
+  "gmc_uniform_1_500k_K8_sx2": {
    "mesh": "uniform:1",
    "N": 500000,
    "n_seeds": 2,
@@ -85,63 +541,63 @@
     "loc": {
      "fine_125um": {
       "mc_noise": 0.05095613821815886,
-      "noise": 0.020759451256713694,
-      "bias": 0.029975839050627024
+      "noise": 0.021109061440131072,
+      "bias": 0.03027416678111855
      },
      "bins_500um": {
       "mc_noise": 0.012941681553054096,
-      "noise": 0.009124728639934254,
-      "bias": 0.00856714222040263
+      "noise": 0.00955739409876381,
+      "bias": 0.007937989447130794
      },
-     "deposited_ratio": 1.0012427231697802
+     "deposited_ratio": 1.0005379521003557
     },
     "esc": {
      "fine_125um": {
       "mc_noise": 0.009482669089692648,
-      "noise": 0.009420174588734604,
-      "bias": 0.029395276076476472
+      "noise": 0.009442056641997945,
+      "bias": 0.0299931316681725
      },
      "bins_500um": {
       "mc_noise": 0.004065385237333319,
-      "noise": 0.0035955028881138927,
-      "bias": 0.008799143448971663
+      "noise": 0.004076652525054088,
+      "bias": 0.009228332772556757
      },
-     "deposited_ratio": 1.005460394449716
+     "deposited_ratio": 1.0041895805593872
     }
    },
    "profiles": {
     "E_along": {
-     "vs_mc_mean_rel": -0.015470154616303005,
-     "vs_mc_rel_rms": 0.019333151297068515,
-     "gmc_vs_its_mean_rel_core": -0.028910827197747624,
+     "vs_mc_mean_rel": -0.012925991363187533,
+     "vs_mc_rel_rms": 0.018733012500470284,
+     "gmc_vs_its_mean_rel_core": -0.02661429537912408,
      "mc_vs_its_mean_rel_core": -0.01375215585746016
     },
     "E_xm05": {
-     "vs_mc_mean_rel": 0.0023360390158904906,
-     "vs_mc_rel_rms": 0.035594222091338897,
-     "gmc_vs_its_mean_rel_core": 0.007104587275623732,
+     "vs_mc_mean_rel": 0.004192034671064286,
+     "vs_mc_rel_rms": 0.04308806395007299,
+     "gmc_vs_its_mean_rel_core": 0.006630616757943737,
      "mc_vs_its_mean_rel_core": 0.004212103369851492
     },
     "E_x0": {
-     "vs_mc_mean_rel": -0.004375113920804534,
-     "vs_mc_rel_rms": 0.04242829297663327,
-     "gmc_vs_its_mean_rel_core": 0.01717416700880326,
+     "vs_mc_mean_rel": -0.004354689092910004,
+     "vs_mc_rel_rms": 0.041319580646505906,
+     "gmc_vs_its_mean_rel_core": 0.01840537294665237,
      "mc_vs_its_mean_rel_core": 0.02319121060774797
     },
     "E_xp05": {
-     "vs_mc_mean_rel": 0.008408645326829004,
-     "vs_mc_rel_rms": 0.04039486624347594,
-     "gmc_vs_its_mean_rel_core": 0.03452526477802779,
+     "vs_mc_mean_rel": 0.0036494223808399913,
+     "vs_mc_rel_rms": 0.031603830752608066,
+     "gmc_vs_its_mean_rel_core": 0.02936185354299886,
      "mc_vs_its_mean_rel_core": 0.025639691337068803
     }
    },
    "timing": {
-    "chain_ms": 0.287280237197876,
-    "tally_ms": 0.07028529787063599,
-    "water_transits_per_primary": 25.431399,
+    "chain_ms": 0.28608415961265565,
+    "tally_ms": 0.06973971199989319,
+    "water_transits_per_primary": 25.468543,
     "samples_per_transit": 8.0,
-    "total_ms": 0.35756553506851196,
-    "speedup_vs_mc": 11.823704193444373
+    "total_ms": 0.35582387161254886,
+    "speedup_vs_mc": 11.881578088791853
    },
    "settings": {
     "ode_steps": 20,
@@ -149,311 +605,7 @@
     "K_scale": 0.25,
     "K_min": 8,
     "batch": 100000,
-    "model": "/home/aubrey/PycharmProjects/GMC/ml/models/size_gmc_water_100um-1cm_30MeV/secondary_gmc.pth",
-    "kernel": "/home/aubrey/PycharmProjects/GMC/ml/models/size_scr_water_100um-1cm_30MeV_v2"
-   }
-  },
-  "gmc_uniform_1_500k_nosec": {
-   "mesh": "uniform:1",
-   "N": 500000,
-   "n_seeds": 1,
-   "maps": {
-    "loc": {
-     "fine_125um": {
-      "mc_noise": 0.05095613821815886,
-      "noise": NaN,
-      "bias": NaN
-     },
-     "bins_500um": {
-      "mc_noise": 0.012941681553054096,
-      "noise": NaN,
-      "bias": NaN
-     },
-     "deposited_ratio": 1.0300008191393104
-    },
-    "esc": {
-     "fine_125um": {
-      "mc_noise": 0.009482669089692648,
-      "noise": NaN,
-      "bias": NaN
-     },
-     "bins_500um": {
-      "mc_noise": 0.004065385237333319,
-      "noise": NaN,
-      "bias": NaN
-     },
-     "deposited_ratio": 1.0391134856809194
-    }
-   },
-   "profiles": {
-    "E_along": {
-     "vs_mc_mean_rel": -0.010296913498433865,
-     "vs_mc_rel_rms": 0.02726398030216901,
-     "gmc_vs_its_mean_rel_core": -0.023468382115538824,
-     "mc_vs_its_mean_rel_core": -0.01375215585746016
-    },
-    "E_xm05": {
-     "vs_mc_mean_rel": -0.021205158696061592,
-     "vs_mc_rel_rms": 0.05565229640624861,
-     "gmc_vs_its_mean_rel_core": -0.0151752906866307,
-     "mc_vs_its_mean_rel_core": 0.004212103369851492
-    },
-    "E_x0": {
-     "vs_mc_mean_rel": -0.039757673753867365,
-     "vs_mc_rel_rms": 0.0702014714983618,
-     "gmc_vs_its_mean_rel_core": -0.01853145213236493,
-     "mc_vs_its_mean_rel_core": 0.02319121060774797
-    },
-    "E_xp05": {
-     "vs_mc_mean_rel": -0.04656854962677109,
-     "vs_mc_rel_rms": 0.06392923052422549,
-     "gmc_vs_its_mean_rel_core": -0.021567733308919593,
-     "mc_vs_its_mean_rel_core": 0.025639691337068803
-    }
-   },
-   "timing": {
-    "chain_ms": 0.23912872552871703,
-    "tally_ms": 0.05931715202331543,
-    "water_transits_per_primary": 21.466456,
-    "samples_per_transit": 8.0,
-    "total_ms": 0.29844587755203245,
-    "speedup_vs_mc": 14.165882105989756
-   },
-   "settings": {
-    "ode_steps": 20,
-    "K": null,
-    "K_scale": 0.25,
-    "K_min": 8,
-    "batch": 100000,
-    "model": "/home/aubrey/PycharmProjects/GMC/ml/models/size_gmc_water_100um-1cm_30MeV/secondary_gmc.pth",
-    "kernel": "/home/aubrey/PycharmProjects/GMC/ml/models/size_scr_water_100um-1cm_30MeV_v2"
-   }
-  },
-  "gmc_uniform_2_500k": {
-   "mesh": "uniform:2",
-   "N": 500000,
-   "n_seeds": 2,
-   "maps": {
-    "loc": {
-     "fine_125um": {
-      "mc_noise": 0.05095613821815886,
-      "noise": 0.014966033697327763,
-      "bias": 0.03018531427224351
-     },
-     "bins_500um": {
-      "mc_noise": 0.012941681553054096,
-      "noise": 0.007343302560133807,
-      "bias": 0.01783417660937092
-     },
-     "deposited_ratio": 1.0041623011958616
-    },
-    "esc": {
-     "fine_125um": {
-      "mc_noise": 0.009482669089692648,
-      "noise": 0.007876927639818839,
-      "bias": 0.02876061286854832
-     },
-     "bins_500um": {
-      "mc_noise": 0.004065385237333319,
-      "noise": 0.0033741026863629065,
-      "bias": 0.01891656659496354
-     },
-     "deposited_ratio": 1.0050431395487174
-    }
-   },
-   "profiles": {
-    "E_along": {
-     "vs_mc_mean_rel": -0.010432760442082223,
-     "vs_mc_rel_rms": 0.0211095036805383,
-     "gmc_vs_its_mean_rel_core": -0.024155777090478933,
-     "mc_vs_its_mean_rel_core": -0.01375215585746016
-    },
-    "E_xm05": {
-     "vs_mc_mean_rel": 0.0046521286266337555,
-     "vs_mc_rel_rms": 0.03339451093791265,
-     "gmc_vs_its_mean_rel_core": 0.009215068381774832,
-     "mc_vs_its_mean_rel_core": 0.004212103369851492
-    },
-    "E_x0": {
-     "vs_mc_mean_rel": -0.01879898247885935,
-     "vs_mc_rel_rms": 0.04887758864383272,
-     "gmc_vs_its_mean_rel_core": 0.004463669346202991,
-     "mc_vs_its_mean_rel_core": 0.02319121060774797
-    },
-    "E_xp05": {
-     "vs_mc_mean_rel": -0.0032883211563308748,
-     "vs_mc_rel_rms": 0.03783075870152643,
-     "gmc_vs_its_mean_rel_core": 0.022089191064500198,
-     "mc_vs_its_mean_rel_core": 0.025639691337068803
-    }
-   },
-   "timing": {
-    "chain_ms": 0.14695189332962036,
-    "tally_ms": 0.13683942294120788,
-    "water_transits_per_primary": 12.860415,
-    "samples_per_transit": 32.0,
-    "total_ms": 0.2837913162708282,
-    "speedup_vs_mc": 14.897387178634153
-   },
-   "settings": {
-    "ode_steps": 20,
-    "K": null,
-    "K_scale": 1.0,
-    "K_min": 32,
-    "batch": 100000,
-    "model": "/home/aubrey/PycharmProjects/GMC/ml/models/size_gmc_water_100um-1cm_30MeV/secondary_gmc.pth",
-    "kernel": "ml/models/size_scr_water_100um-1cm_30MeV_v2"
-   }
-  },
-  "gmc_uniform_2_500k_calib": {
-   "mesh": "uniform:2",
-   "N": 500000,
-   "n_seeds": 2,
-   "maps": {
-    "loc": {
-     "fine_125um": {
-      "mc_noise": 0.05095613821815886,
-      "noise": 0.021375191868222235,
-      "bias": 0.030525325281572657
-     },
-     "bins_500um": {
-      "mc_noise": 0.012941681553054096,
-      "noise": 0.007254113287465928,
-      "bias": 0.018787348373801218
-     },
-     "deposited_ratio": 1.0034540142913102
-    },
-    "esc": {
-     "fine_125um": {
-      "mc_noise": 0.009482669089692648,
-      "noise": 0.012018614190292265,
-      "bias": 0.028616214065610882
-     },
-     "bins_500um": {
-      "mc_noise": 0.004065385237333319,
-      "noise": 0.003196394858924381,
-      "bias": 0.01825624062980541
-     },
-     "deposited_ratio": 1.0043280368274778
-    }
-   },
-   "profiles": {
-    "E_along": {
-     "vs_mc_mean_rel": -0.013400243223398167,
-     "vs_mc_rel_rms": 0.021522856272755117,
-     "gmc_vs_its_mean_rel_core": -0.027106140384337122,
-     "mc_vs_its_mean_rel_core": -0.01375215585746016
-    },
-    "E_xm05": {
-     "vs_mc_mean_rel": 0.0005024497740271194,
-     "vs_mc_rel_rms": 0.033912382940155666,
-     "gmc_vs_its_mean_rel_core": 0.0057606912941522365,
-     "mc_vs_its_mean_rel_core": 0.004212103369851492
-    },
-    "E_x0": {
-     "vs_mc_mean_rel": -0.016849691621064797,
-     "vs_mc_rel_rms": 0.052834309475125865,
-     "gmc_vs_its_mean_rel_core": 0.006161427466407315,
-     "mc_vs_its_mean_rel_core": 0.02319121060774797
-    },
-    "E_xp05": {
-     "vs_mc_mean_rel": 0.0005095831968272123,
-     "vs_mc_rel_rms": 0.03771486675828089,
-     "gmc_vs_its_mean_rel_core": 0.025599865873712567,
-     "mc_vs_its_mean_rel_core": 0.025639691337068803
-    }
-   },
-   "timing": {
-    "chain_ms": 0.1489135205745697,
-    "tally_ms": 0.03560162425041199,
-    "water_transits_per_primary": 12.858055,
-    "samples_per_transit": 8.0,
-    "total_ms": 0.1845151448249817,
-    "speedup_vs_mc": 22.912748546635
-   },
-   "settings": {
-    "ode_steps": 20,
-    "K": null,
-    "K_scale": 0.25,
-    "K_min": 8,
-    "batch": 100000,
-    "model": "/home/aubrey/PycharmProjects/GMC/ml/models/size_gmc_water_100um-1cm_30MeV/secondary_gmc.pth",
-    "kernel": "/home/aubrey/PycharmProjects/GMC/ml/models/size_scr_water_100um-1cm_30MeV_v2"
-   }
-  },
-  "gmc_uniform_2_500k_nosec": {
-   "mesh": "uniform:2",
-   "N": 500000,
-   "n_seeds": 1,
-   "maps": {
-    "loc": {
-     "fine_125um": {
-      "mc_noise": 0.05095613821815886,
-      "noise": NaN,
-      "bias": NaN
-     },
-     "bins_500um": {
-      "mc_noise": 0.012941681553054096,
-      "noise": NaN,
-      "bias": NaN
-     },
-     "deposited_ratio": 1.0301447313236929
-    },
-    "esc": {
-     "fine_125um": {
-      "mc_noise": 0.009482669089692648,
-      "noise": NaN,
-      "bias": NaN
-     },
-     "bins_500um": {
-      "mc_noise": 0.004065385237333319,
-      "noise": NaN,
-      "bias": NaN
-     },
-     "deposited_ratio": 1.0365103174466284
-    }
-   },
-   "profiles": {
-    "E_along": {
-     "vs_mc_mean_rel": -0.036227644535478526,
-     "vs_mc_rel_rms": 0.04704976746841138,
-     "gmc_vs_its_mean_rel_core": -0.049344610769548936,
-     "mc_vs_its_mean_rel_core": -0.01375215585746016
-    },
-    "E_xm05": {
-     "vs_mc_mean_rel": 0.08559160264090422,
-     "vs_mc_rel_rms": 0.1309037199980488,
-     "gmc_vs_its_mean_rel_core": 0.0904138033221706,
-     "mc_vs_its_mean_rel_core": 0.004212103369851492
-    },
-    "E_x0": {
-     "vs_mc_mean_rel": -0.10453816140634098,
-     "vs_mc_rel_rms": 0.12571235870134462,
-     "gmc_vs_its_mean_rel_core": -0.07912738189580616,
-     "mc_vs_its_mean_rel_core": 0.02319121060774797
-    },
-    "E_xp05": {
-     "vs_mc_mean_rel": 0.0520978971946342,
-     "vs_mc_rel_rms": 0.10367384041676582,
-     "gmc_vs_its_mean_rel_core": 0.0766618210375218,
-     "mc_vs_its_mean_rel_core": 0.025639691337068803
-    }
-   },
-   "timing": {
-    "chain_ms": 0.12235764360427856,
-    "tally_ms": 0.029422625064849852,
-    "water_transits_per_primary": 10.747542,
-    "samples_per_transit": 8.0,
-    "total_ms": 0.15178026866912842,
-    "speedup_vs_mc": 27.854405276070352
-   },
-   "settings": {
-    "ode_steps": 20,
-    "K": null,
-    "K_scale": 0.25,
-    "K_min": 8,
-    "batch": 100000,
-    "model": "/home/aubrey/PycharmProjects/GMC/ml/models/size_gmc_water_100um-1cm_30MeV/secondary_gmc.pth",
+    "model": "ml/models/size_gmc_water_100um-1cm_30MeV_sx2/secondary_gmc.pth",
     "kernel": "/home/aubrey/PycharmProjects/GMC/ml/models/size_scr_water_100um-1cm_30MeV_v2"
    }
   }

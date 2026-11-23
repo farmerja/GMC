@@ -180,6 +180,11 @@ def chain_quadtree(kernels, source, mesh, E_cutoff, max_steps=20000, max_generat
             ex = np.flatnonzero(np.asarray(out["cls"]) != ABSORBED)
             x_, y_, u_, v_ = to_cell(out["x"][ex], out["y"][ex], out["u"][ex], out["v"][ex], ex)
             move_out(cid[ex], x_, y_, u_, v_, out["w"][ex], out["E_out"][ex], gen[ex], Eb[ex])
+            X = out.get("extra_exits")        # analog kernels: secondaries that left the cell (already transported)
+            if X is not None and len(X["E"]):
+                p = np.asarray(X["parent"], dtype=np.int64)
+                x_, y_, u_, v_ = to_cell(X["x"], X["y"], X["u"], X["v"], p)
+                move_out(cid[p], x_, y_, u_, v_, X["w"], X["E"], np.minimum(gen[p] + 1, max_generation), X["E"])
             D = out.get("daughters")
             if D is not None and len(D["E"]):
                 p = np.asarray(D["parent"], dtype=np.int64)
@@ -223,6 +228,70 @@ def _concat(rows, cols):
 # ====================================================================================================================
 # Kernel wrappers with the cell side
 # ====================================================================================================================
+class MCSizeKernel:
+    """Analog MC (ElectronTransport analog_stepper) on one homogeneous cell of any side L, as a chain_quadtree kernel
+    (chain_secondaries.MCCellKernel with the cell side per row: one run_transport call per distinct L). Exact by the
+    Markov property, so a chain of it reproduces the analog MC on the mesh's geometry. Needs the ElectronTransport
+    venv / path."""
+
+    def __init__(self, library, E_cutoff, seed=1000, secondaries=True, material=0):
+        from analog_stepper import VoxelGeometry, run_transport
+        self.VG, self.run_transport = VoxelGeometry, run_transport
+        self.lib, self.E_cut, self.seed, self.secondaries, self.material = library, E_cutoff, seed, secondaries, material
+        self.geo, self.calls = {}, 0
+
+    def _one(self, x, y, u, v, w, E, L):
+        from ml.cell_topology import classes_from_status
+        if L not in self.geo:
+            self.geo[L] = self.VG.uniform(L, L, 1, 1, material=self.material)
+        p = np.zeros((len(E), 8))
+        p[:, 0], p[:, 1], p[:, 2], p[:, 3], p[:, 4], p[:, 7] = x * L, y * L, u, v, E, w
+        self.calls += 1
+        r = self.run_transport(self.lib, self.geo[L], p, E_cutoff=self.E_cut, seed=self.seed + 7919 * self.calls,
+                               n_tracks=0)
+        f = r["final"]
+        status = f[:, 6].astype(int)
+        if np.any(status == 6):
+            raise RuntimeError("status 6 (lost along z) inside a filled cell")
+        cls = classes_from_status(status)
+        E_out = np.where(cls == ABSORBED, 0.0, f[:, 4])
+        n = len(E)
+        ph = r["photon_bank"]
+        E_ph = np.bincount(ph[:, 6].astype(int), weights=ph[:, 5], minlength=n) if len(ph) else np.zeros(n)
+        eb = r["electron_bank"]
+        sec = eb[(eb[:, 8] > 0) & (eb[:, 6] >= 1) & (eb[:, 6] <= 4)] if len(eb) else np.zeros((0, 10))
+        E_sec = np.bincount(sec[:, 7].astype(int), weights=sec[:, 5], minlength=n) if len(sec) else np.zeros(n)
+        out = {"cls": cls, "x": f[:, 0] / L, "y": f[:, 1] / L, "u": f[:, 2], "v": f[:, 3], "w": f[:, 7],
+               "E_out": E_out, "photon_E": E_ph, "dose": E - E_out - E_sec - E_ph,
+               "n_rel": np.bincount(sec[:, 7].astype(int), minlength=n),
+               "extra_exits": {"parent": sec[:, 7].astype(int), "x": sec[:, 0] / L, "y": sec[:, 1] / L,
+                               "u": sec[:, 2], "v": sec[:, 3], "w": sec[:, 4], "E": sec[:, 5]}}
+        return out
+
+    def _call(self, x, y, u, v, w, E, L):
+        L = np.broadcast_to(np.asarray(L, np.float64), (len(E),))
+        keys = ("cls", "x", "y", "u", "v", "w", "E_out", "photon_E", "dose", "n_rel")
+        out = {k: np.zeros(len(E), np.int64 if k in ("cls", "n_rel") else np.float64) for k in keys}
+        ex = {k: [] for k in ("parent", "x", "y", "u", "v", "w", "E")}
+        for Lv in np.unique(L):
+            r = np.flatnonzero(L == Lv)
+            o = self._one(x[r], y[r], u[r], v[r], w[r], E[r], float(Lv))
+            for k in keys:
+                out[k][r] = o[k]
+            X = o["extra_exits"]
+            for k in ex:
+                ex[k].append(r[X["parent"]] if k == "parent" else X[k])
+        out["extra_exits"] = {k: (np.concatenate(v) if v else np.zeros(0, np.int64 if k == "parent" else float))
+                              for k, v in ex.items()}
+        return out
+
+    def boundary(self, y_c, u_c, v_c, w, E, L=None):
+        return self._call(np.zeros_like(y_c), y_c, u_c, v_c, w, E, L)
+
+    def interior(self, x, y, u, v, w, E, L=None):
+        return self._call(x, y, u, v, w, E, L)
+
+
 class VacuumKernel:
     """Straight streaming through an empty cell (scale-free: the cell side does not matter)."""
 

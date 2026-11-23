@@ -151,7 +151,22 @@ def gmc_model_table(args):
     }
     if args.stop:
         t["stop"] = ("flow", sg.stop_flow_data, "flow_passes", 8192, 0.05)
+    if getattr(args, "train_only", None):
+        t = {k: v for k, v in t.items() if k in args.train_only.split(",")}
     return t
+
+
+def exit_sigma_rows(T):
+    """(log10 E0, log10 L, v1 - v0) of the rows sigma(E, L) is measured on (as scatter_width_table)."""
+    m = T["boundary"] & (T["cls"] == 1) & (np.abs(T["y0"] - 0.5) < 0.25)
+    return np.log10(np.maximum(T["E0"][m], 1e-300)), np.log10(T["L"][m]), T["v1"][m] - T["v0"][m]
+
+
+def load_frozen(args, dev):
+    """Models of --init_from that are not retrained (inference format, kept as they are)."""
+    _, loaded = sg.load_models(args.init_from, dev)
+    keep = set(loaded) - set(gmc_model_table(args))
+    return {k: {**loaded[k], "frozen": True} for k in keep}
 
 
 def gmc_arch(name, args):
@@ -176,17 +191,29 @@ def merged_scatter_T(Ts, spec):
 def gmc_init(args, dev):
     man = read_manifest(args.data_dir)
     paths = [wait_for_file(args.data_dir, k, args.wait) for k in range(min(args.spec_files, args.n_files))]
-    T0 = sg.load_tables(paths[0], NR=args.NR)
-    spec = T0["spec"]
-    if not getattr(spec, "size_cond", False):
-        raise ValueError(f"{paths[0]}: not a generate_size_sweep.py file (no seg_L)")
-    spec.logE_hi = math.log10(float(man["settings"]["E_high"])) + 1e-9
-    spec.edge_feats, spec.scale_feats = bool(args.edge_feats), False
-    Ts = [T0] + [load_T(p, spec, args.NR) for p in paths[1:]]
-    if args.exit_scaled:
+    if args.init_from:
+        spec, _ = sg.load_models(args.init_from, "cpu")
+        print(f"  spec and frozen models from {args.init_from}; training {sorted(gmc_model_table(args))}")
+        T0 = load_T(paths[0], spec, args.NR)
+    else:
+        T0 = sg.load_tables(paths[0], NR=args.NR)
+        spec = T0["spec"]
+        if not getattr(spec, "size_cond", False):
+            raise ValueError(f"{paths[0]}: not a generate_size_sweep.py file (no seg_L)")
+        spec.logE_hi = math.log10(float(man["settings"]["E_high"])) + 1e-9
+        spec.edge_feats, spec.scale_feats = bool(args.edge_feats), False
+    if args.smooth_exit_sigma:
+        rows = [exit_sigma_rows(T0)] + [exit_sigma_rows(load_T(p, spec, args.NR)) for p in paths[1:]]
+        lg, ll, dv = (np.concatenate(v) for v in zip(*rows))
+        spec.sigx_logE, spec.sigx_logL, val = (v.tolist() for v in sg.smooth_scatter_table(lg, ll, dv, spec))
+        spec.sigx_val = val
+        print(f"  smooth exit sigma(E, L) from {len(paths)} file(s), {len(lg)} rows: 20 MeV at L = 1 / 2 / 4 mm "
+              f"{np.round(sg.scatter_width(spec, np.full(3, 20.0), np.array([0.1, 0.2, 0.4]), 'exit'), 4)}")
+    if not args.init_from and args.exit_scaled:
+        Ts = [T0] + [load_T(p, spec, args.NR) for p in paths[1:]]
         sg.set_scatter_table(spec, merged_scatter_T(Ts, spec))
+        del Ts
     T0["spec"] = spec
-    del Ts
     models = {}
     for name, (kind, build, *_rest) in gmc_model_table(args).items():
         cond, tgt = build(T0)
@@ -304,6 +331,9 @@ def gmc_export(out, spec, models, V, dev, which):
     'last'. Classifier temperatures are fitted on the validation rows (on a copy; training is untouched)."""
     ex = {}
     for name, m in models.items():
+        if m.get("frozen"):
+            ex[name] = m
+            continue
         mod = copy.deepcopy(m["model"])
         if which == "best":
             mod.load_state_dict(m["best"])
@@ -323,7 +353,8 @@ def gmc_export(out, spec, models, V, dev, which):
 
 
 GMC_PLAN_KEYS = ("data_dir", "n_files", "sweeps", "clf_passes", "flow_passes", "small_passes", "NR", "edge_feats",
-                 "exit_scaled", "stop", "exit_hidden", "exit_depth", "clf_lr", "flow_lr", "seed")
+                 "exit_scaled", "stop", "exit_hidden", "exit_depth", "clf_lr", "flow_lr", "seed", "init_from",
+                 "train_only", "smooth_exit_sigma")
 
 
 def cmd_gmc(args):
@@ -356,7 +387,10 @@ def cmd_gmc(args):
         print(f"New run {args.out}: initializing from the first {args.spec_files} file(s)", flush=True)
         spec, models = gmc_init(args, dev)
         visit, log = 0, []
-    V = gmc_val_data(args, spec, models, dev)
+    trained = {k: m for k, m in models.items()}
+    if args.init_from:
+        models = {**load_frozen(args, dev), **trained}
+    V = gmc_val_data(args, spec, trained, dev)
     order = visit_order(args.n_files, args.sweeps, args.seed)
     n_visits = len(order)
     done_this_run = 0
@@ -370,7 +404,7 @@ def cmd_gmc(args):
         info = gmc_visit(T, models, args, dev, visit, n_visits)
         del T
         vals = {}
-        for name, m in models.items():
+        for name, m in trained.items():
             v = gmc_val(name, m, V[name], dev)
             vals[name] = v
             m["history"].append((info.get(name, (0, 0, float("nan")))[2], v))
@@ -385,7 +419,7 @@ def cmd_gmc(args):
               " ".join(f"{n} {v:.4f}" for n, v in vals.items()), flush=True)
         st = {"args": vars(args), "spec": vars(spec), "visit": visit, "log": log, "torch_rng": torch.get_rng_state(),
               "cuda_rng": torch.cuda.get_rng_state() if dev == "cuda" else None, "models": {}}
-        for name, m in models.items():
+        for name, m in trained.items():
             st["models"][name] = {**{k_: v for k_, v in m.items() if k_ not in ("model", "opt")},
                                   "state": m["model"].state_dict(), "opt": m["opt"].state_dict()}
         save_atomic(st, st_path)
@@ -575,6 +609,11 @@ def main():
     g.add_argument("--no_exit_scaled", dest="exit_scaled", action="store_false")
     g.add_argument("--stop", action="store_true", help="also train the stop-point flow (charge tally)")
     g.add_argument("--spec_files", type=int, default=4, help="files used to measure sigma(E, L) at the start")
+    g.add_argument("--init_from", default=None,
+                   help="existing secondary_gmc.pth: its spec and every model not in --train_only are kept as they are")
+    g.add_argument("--train_only", default=None, help="comma-separated models to (re)train from scratch, e.g. exit_B")
+    g.add_argument("--smooth_exit_sigma", action="store_true",
+                   help="exit-flow scale from a smooth sigma(E, L) over the --spec_files files (spec.sigx_*)")
     s = sub.choices["scr"]
     s.add_argument("--sweeps", type=int, default=3)
     s.add_argument("--steps", type=int, default=160000, help="optimizer steps over the whole plan")

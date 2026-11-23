@@ -10,7 +10,8 @@ cuts the cells (fine staircase at the surface, large cells inside and in the vac
            ITS: whole-map scores, profiles, timing; figures.
 
 Meshes (--mesh): "uniform:<L mm>"; "quad:<L_max mm>:<L_min mm>" (uniform L_max tiling, cells cut by the circle
-split down to L_min; leaf material = water if its centre is inside the circle).
+split down to L_min; leaf material = water if its centre is inside the circle); "centre:<L_c mm>:<L_min mm>[:<grade>]"
+(one L_c square on the axis, graded squares shrinking towards the surface, see centre_mesh).
 
     python validation/drumm_quadtree.py run --mesh quad:4:0.125 --model ml/models/size_gmc_water_100um-1cm_30MeV/secondary_gmc.pth \
         --kernel ml/models/size_scr_water_100um-1cm_30MeV
@@ -54,8 +55,43 @@ def cut_by_circle(x0, y0, L):
     return (dmin < R) & (dmax > R)
 
 
+def dist_to_surface(x0, y0, L):
+    """Distance from a cell lying fully inside the circle to the circle (its farthest corner to the surface)."""
+    dmax = np.hypot(np.maximum(np.abs(x0 - 1.0), np.abs(x0 + L - 1.0)), np.maximum(np.abs(y0 - 1.0),
+                                                                                   np.abs(y0 + L - 1.0)))
+    return R - dmax
+
+
+def centre_mesh(L_c, L_min, grade=1.0):
+    """One L_c square centred on the cylinder axis, the rest of the box tiled with L_c / 2 squares that are halved
+    while the circle cuts them or (water cells) while they are larger than grade x their distance to the surface, down
+    to L_min (the smallest L_c / 2^k >= L_min): cells get smaller and smaller towards the surface."""
+    base = L_c / 2
+    n = int(round(BOX[0] / base))
+    if abs(n * base - BOX[0]) > 1e-9 or abs((BOX[0] - L_c) / 2 / base - round((BOX[0] - L_c) / 2 / base)) > 1e-9:
+        raise ValueError(f"centre cell {L_c} cm does not align with a {base} cm tiling of the box")
+    gx, gy = np.meshgrid(np.arange(n) * base, np.arange(n) * base, indexing="ij")
+    x0, y0 = gx.ravel(), gy.ravel()
+    lo = (BOX[0] - L_c) / 2
+    centre = (x0 >= lo - 1e-9) & (x0 < lo + L_c - 1e-9) & (y0 >= lo - 1e-9) & (y0 < lo + L_c - 1e-9)
+    done = [(np.array([lo]), np.array([lo]), np.array([L_c]))]
+    x0, y0, L = x0[~centre], y0[~centre], np.full(int((~centre).sum()), base)
+    while len(L):
+        cut = cut_by_circle(x0, y0, L)
+        inside = ~cut & (np.hypot(x0 + L / 2 - 1.0, y0 + L / 2 - 1.0) < R)
+        split = (cut | (inside & (L > grade * dist_to_surface(x0, y0, L)))) & (L / 2 >= L_min * (1 - 1e-9))
+        done.append((x0[~split], y0[~split], L[~split]))
+        x0, y0, L = x0[split], y0[split], L[split] / 2
+        x0, y0 = np.concatenate([x0, x0 + L, x0, x0 + L]), np.concatenate([y0, y0, y0 + L, y0 + L])
+        L = np.tile(L, 4)
+    x0, y0, L = (np.concatenate(v) for v in zip(*done))
+    return QuadMesh(x0, y0, L, material(x0 + L / 2, y0 + L / 2), BOX, L.min())
+
+
 def make_mesh(spec):
     kind, *v = spec.split(":")
+    if kind == "centre":
+        return centre_mesh(float(v[0]) / 10, float(v[1]) / 10, float(v[2]) if len(v) > 2 else 1.0)
     if kind == "uniform":
         return QuadMesh.uniform(BOX, float(v[0]) / 10, material)
     if kind == "quad":
@@ -306,7 +342,7 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("run")
     p.add_argument("--mesh", required=True)
-    p.add_argument("--model", default=str(ROOT / "ml/models/size_gmc_water_100um-1cm_30MeV/secondary_gmc.pth"))
+    p.add_argument("--model", default=str(ROOT / "ml/models/size_gmc_water_100um-1cm_30MeV_sx2/secondary_gmc.pth"))
     p.add_argument("--kernel", default=str(ROOT / "ml/models/size_scr_water_100um-1cm_30MeV_v2"))
     p.add_argument("--calib", default=None, help="daughter calibration .npz (ml/gmc_calib.py)")
     p.add_argument("--no_secondaries", action="store_true",

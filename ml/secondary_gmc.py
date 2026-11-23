@@ -161,17 +161,69 @@ def set_scatter_table(spec, T):
             f"{10 ** a:.3g} MeV {b:.3f}" for a, b in list(zip(tab[0], tab[1]))[::5]))
 
 
-def scatter_width(spec, E, L=None):
-    """sigma(E) of the training cell, or sigma(E, L) (bilinear in log E, log L) for a size-conditioned spec."""
+def smooth_scatter_table(lg, ll, dv, spec, n_E=40, n_L=16, s_E=0.15, s_L=0.25, min_count=200):
+    """Smooth sigma(E, L): rms(dv) on a fine (log E, log L) grid, then count-weighted local-linear Gaussian smoothing of
+    log sigma (widths s_E, s_L decades), gaps filled from higher E, non-increasing in E, clipped to [1e-3, 1].
+
+    Why: the per-bin rms of v1 - v0 is dominated by the single-scattering tail, so the 8 x 40 table measured on 4 files
+    was noisy (+-5-7 % at 20 MeV between neighbouring L nodes) and the scaled exit flow inherited most of that noise:
+    the far-exit position spread of 20 MeV transits was +5 % at 1 mm, -5..-10 % at 2-4 mm vs analog MC, which a chained
+    beam turns into +10 % / -5 % Drumm wings (2026-11-22, validation/scatter_width_scan.py).
+    Returns (log10 E centres, log10 L centres, sigma [n_L, n_E])."""
+    eE = np.linspace(spec.logE_lo, spec.logE_hi, n_E + 1)
+    eL = np.linspace(spec.logL_lo, spec.logL_hi, n_L + 1)
+    cE, cL = 0.5 * (eE[1:] + eE[:-1]), 0.5 * (eL[1:] + eL[:-1])
+    nodes = getattr(spec, "_sigx_nodes", "edges")
+    b = np.clip(np.digitize(lg, eE) - 1, 0, n_E - 1) * n_L + np.clip(np.digitize(ll, eL) - 1, 0, n_L - 1)
+    cnt = np.bincount(b, minlength=n_E * n_L).reshape(n_E, n_L)
+    raw = np.sqrt(np.bincount(b, weights=dv * dv, minlength=n_E * n_L).reshape(n_E, n_L) / np.maximum(cnt, 1))
+    W = np.where(cnt >= min_count, cnt, 0).astype(float).ravel()
+    lv = np.where(cnt >= min_count, np.log(np.maximum(raw, 1e-6)), 0.0).ravel()
+    KE = np.exp(-0.5 * ((cE[:, None] - cE[None, :]) / s_E) ** 2)
+    KL = np.exp(-0.5 * ((cL[:, None] - cL[None, :]) / s_L) ** 2)
+    # evaluated on L nodes at the bin EDGES, so the end nodes sit on the trained range (0.1 mm / 1 cm) and the local-
+    # linear fit extrapolates there; bin centres left the last node at 8.7 mm and the lookup clamped beyond it, 6 %
+    # too narrow at 1 cm (20 MeV)
+    gL = eL if nodes == "edges" else cL
+    KL = np.exp(-0.5 * ((gL[:, None] - cL[None, :]) / s_L) ** 2)
+    n_G = len(gL)
+    sm = np.full((n_E, n_G), np.nan)
+    for i in range(n_E):
+        for j in range(n_G):
+            w = (KE[i][:, None] * KL[j][None, :]).ravel() * W
+            if w.sum() <= 0:
+                continue
+            X = np.stack([np.ones(n_E * n_L), np.repeat(cE - cE[i], n_L), np.tile(cL - gL[j], n_E)], 1)
+            A = X * w[:, None]
+            sm[i, j] = np.linalg.lstsq(A.T @ X + 1e-9 * np.eye(3), A.T @ lv, rcond=None)[0][0]
+    sm = np.exp(sm)
+    for j in range(n_G):
+        col = sm[:, j]
+        for i in range(n_E - 2, -1, -1):
+            if not np.isfinite(col[i]):
+                col[i] = col[i + 1]
+        col[~np.isfinite(col)] = 1.0
+        sm[:, j] = np.clip(np.maximum.accumulate(col[::-1])[::-1], 1e-3, 1.0)
+    return cE, gL, sm.T
+
+
+def scatter_width(spec, E, L=None, which="feat"):
+    """sigma(E) of the training cell, or sigma(E, L) (bilinear in log E, log L) for a size-conditioned spec.
+    which="exit": the exit-flow scale table (spec.sigx_*: a smooth table, smooth_scatter_table) when the spec has
+    one, else the same table as the features."""
     lg = np.atleast_1d(np.log10(np.maximum(E, 1e-300)))
-    if not getattr(spec, "sig_logL", None):
-        return np.interp(lg, spec.sig_logE, spec.sig_val)
+    if which == "exit" and getattr(spec, "sigx_val", None) is not None:
+        logE, logL, val = spec.sigx_logE, spec.sigx_logL, spec.sigx_val
+    else:
+        logE, logL, val = spec.sig_logE, getattr(spec, "sig_logL", None), spec.sig_val
+    if not logL:
+        return np.interp(lg, logE, val)
     if L is None:
         raise ValueError("size-conditioned sigma(E, L): pass the cell side L (cm)")
-    tab = np.asarray(spec.sig_val)                        # [n_L, n_E]
-    gl = np.asarray(spec.sig_logL)
+    tab = np.asarray(val)                                 # [n_L, n_E]
+    gl = np.asarray(logL)
     ll = np.broadcast_to(np.log10(np.asarray(L, np.float64)), np.shape(lg))
-    cols = np.stack([np.interp(lg, spec.sig_logE, row) for row in tab])   # [n_L, n]
+    cols = np.stack([np.interp(lg, logE, row) for row in tab])   # [n_L, n]
     k = np.clip(np.searchsorted(gl, ll) - 1, 0, len(gl) - 2)
     t = np.clip((ll - gl[k]) / (gl[k + 1] - gl[k]), 0.0, 1.0)
     idx = np.arange(len(lg))
@@ -501,7 +553,7 @@ def exit_flow_data(T, kind, augment=True, rel=False, scaled=False, oversample=No
             reps.append(r_)
         tgts.append(exit_targets(cls, x1, y1, u1, v1, T["E0"][rows], T["E_out"][rows], spec.E_cut,
                                  ref=(x0, y0, u0, v0) if (rel or scaled) else None,
-                                 scale=scatter_width(spec, T["E0"][rows], T["L"][rows]) if scaled else None))
+                                 scale=scatter_width(spec, T["E0"][rows], T["L"][rows], "exit") if scaled else None))
     return (np.concatenate(conds), np.concatenate(tgts).astype(np.float32),
             np.concatenate(reps) if oversample is not None else None)
 
@@ -835,7 +887,7 @@ class SecondaryGMC:
             z = self._flow("exit_" + which, np.concatenate([cond[ex], extra], 1))
             fm = self.m["exit_" + which]
             ref = (x0[ex], y0[ex], u0[ex], v0[ex]) if (fm.get("rel") or fm.get("scaled")) else None
-            scale = scatter_width(spec, E0[ex], Lr(ex)) if fm.get("scaled") else None
+            scale = scatter_width(spec, E0[ex], Lr(ex), "exit") if fm.get("scaled") else None
             x1, y1, u1, v1, r1, E1 = decode_exit(z, cls[ex], E0[ex], spec.E_cut, ref=ref, scale=scale)
             out["x"][ex], out["y"][ex], out["u"][ex], out["v"][ex], out["E_out"][ex] = x1, y1, u1, v1, E1
             out["w"][ex] = self.rng.choice([-1.0, 1.0], ex.size) * np.sqrt(np.clip(1 - r1 * r1, 0, 1))
