@@ -229,6 +229,82 @@
     "kernel": "/home/aubrey/PycharmProjects/GMC/ml/models/size_scr_water_100um-1cm_30MeV_v2"
    }
   },
+  "gmc_min_10_0p125_500k_K8_sx2_chord": {
+   "mesh": "min:10:0.125",
+   "N": 500000,
+   "n_seeds": 2,
+   "maps": {
+    "loc": {
+     "fine_125um": {
+      "mc_noise": 0.05095613821815886,
+      "noise": 0.015944296195375907,
+      "bias": 0.02266330952076165
+     },
+     "bins_500um": {
+      "mc_noise": 0.012941681553054096,
+      "noise": 0.005144181219532723,
+      "bias": 0.010601257802470225
+     },
+     "deposited_ratio": 1.0019847074650463
+    },
+    "esc": {
+     "fine_125um": {
+      "mc_noise": 0.009482669089692648,
+      "noise": 0.010583018852574923,
+      "bias": 0.023301484196484954
+     },
+     "bins_500um": {
+      "mc_noise": 0.004065385237333319,
+      "noise": 0.003514141498788903,
+      "bias": 0.012330464025421508
+     },
+     "deposited_ratio": 1.0075488817441849
+    }
+   },
+   "profiles": {
+    "E_along": {
+     "vs_mc_mean_rel": 0.0015399158461534344,
+     "vs_mc_rel_rms": 0.014384157226063876,
+     "gmc_vs_its_mean_rel_core": -0.012281005347767283,
+     "mc_vs_its_mean_rel_core": -0.01375215585746016
+    },
+    "E_xm05": {
+     "vs_mc_mean_rel": 0.009650459644037273,
+     "vs_mc_rel_rms": 0.034379533453236466,
+     "gmc_vs_its_mean_rel_core": 0.014797872385072628,
+     "mc_vs_its_mean_rel_core": 0.004212103369851492
+    },
+    "E_x0": {
+     "vs_mc_mean_rel": -0.014263565547546094,
+     "vs_mc_rel_rms": 0.03812362864525397,
+     "gmc_vs_its_mean_rel_core": 0.00880792316979189,
+     "mc_vs_its_mean_rel_core": 0.02319121060774797
+    },
+    "E_xp05": {
+     "vs_mc_mean_rel": 0.01292644258901942,
+     "vs_mc_rel_rms": 0.04176493041904765,
+     "gmc_vs_its_mean_rel_core": 0.03970129057296113,
+     "mc_vs_its_mean_rel_core": 0.025639691337068803
+    }
+   },
+   "timing": {
+    "chain_ms": 0.06951030254364014,
+    "tally_ms": 0.04601825714111328,
+    "water_transits_per_primary": 5.519656,
+    "samples_per_transit": 24.81517398910367,
+    "total_ms": 0.11552855968475342,
+    "speedup_vs_mc": 36.594839647937654
+   },
+   "settings": {
+    "ode_steps": 20,
+    "K": null,
+    "K_scale": 0.25,
+    "K_min": 8,
+    "batch": 100000,
+    "model": "/home/aubrey/PycharmProjects/GMC/ml/models/size_gmc_water_100um-1cm_30MeV_sx2/secondary_gmc.pth",
+    "kernel": "/home/aubrey/PycharmProjects/GMC/ml/models/size_scr_water_100um-1cm_30MeV_v2"
+   }
+  },
   "gmc_quad_4_0p125_500k_K8_sx2": {
    "mesh": "quad:4:0.125",
    "N": 500000,

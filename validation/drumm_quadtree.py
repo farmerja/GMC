@@ -11,7 +11,9 @@ cuts the cells (fine staircase at the surface, large cells inside and in the vac
 
 Meshes (--mesh): "uniform:<L mm>"; "quad:<L_max mm>:<L_min mm>" (uniform L_max tiling, cells cut by the circle
 split down to L_min; leaf material = water if its centre is inside the circle); "centre:<L_c mm>:<L_min mm>[:<grade>]"
-(one L_c square on the axis, graded squares shrinking towards the surface, see centre_mesh).
+(one L_c square on the axis, graded squares shrinking towards the surface, see centre_mesh); "sym:<L_max mm>:<h mm>"
+(fewest-cells greedy square tiling of the h staircase, mirror-symmetric about the beam axis, see tile_mesh);
+"min:<L_max mm>:<h mm>" (the same without symmetry, best of several tie-break rules; "minsym" keeps the symmetry).
 
     python validation/drumm_quadtree.py run --mesh quad:4:0.125 --model ml/models/size_gmc_water_100um-1cm_30MeV/secondary_gmc.pth \
         --kernel ml/models/size_scr_water_100um-1cm_30MeV
@@ -88,15 +90,15 @@ def centre_mesh(L_c, L_min, grade=1.0):
     return QuadMesh(x0, y0, L, material(x0 + L / 2, y0 + L / 2), BOX, L.min())
 
 
-def sym_mesh(L_max, h, L_vac=None, order="x"):
-    """Fewest-cells tiling, mirror-symmetric about the beam axis (y = 1) but not in x: squares of any side k * h
-    (corners on the h lattice; the chain's point location and the size-conditioned models do not need quadtree
-    alignment or power-of-two sides). The water / vacuum interface is the h staircase of quad:<..>:h (lattice cell =
-    water iff its centre is inside the circle); every square is homogeneous in it (water: side <= L_max, vacuum: side
-    <= L_vac, default unlimited), so the surface geometry is exactly that of the h quadtree with far fewer cells.
-    Greedy, largest square first; a square either straddles the axis centred on it or
-    is placed together with its mirror image. Ties at one side: order 'x' takes the smallest x first (then the
-    nearest to the axis), 'axis' the nearest to the axis first."""
+def tile_mesh(L_max, h, symmetric=True, order="x", L_vac=None, seed=0):
+    """Fewest-cells square tiling of the h staircase of the circle (lattice cell = water iff its centre is inside, the
+    same surface as quad:<..>:h): squares of any side k * h with corners on the h lattice (the chain's point location
+    and the size-conditioned models need no quadtree alignment or power-of-two sides), each homogeneous (water: side
+    <= L_max, vacuum: side <= L_vac, default unlimited). Greedy, largest side first; leftovers become h cells.
+    symmetric: mirror-symmetric about the beam axis (y = 1): a square straddles the axis centred on it or is placed
+    with its mirror image. Ties at one side: 'x' smallest x first (then nearest the axis), 'axis' nearest the axis
+    first, 'contact' the most border contact with taken / other-material / outside cells (bottom-left-fill: leaves
+    fewer slivers along the staircase; ties by x, or at random with seed > 0), 'random' (seed)."""
     n = int(round(BOX[0] / h))
     if abs(n * h - BOX[0]) > 1e-9 or n % 2:
         raise ValueError(f"h = {h} cm must divide the box into an even number of cells")
@@ -105,13 +107,15 @@ def sym_mesh(L_max, h, L_vac=None, order="x"):
     free = np.ones((n, n), bool)
     cells = []
     caps = {0: int(round(L_max / h)), 1: n if L_vac is None else int(round(L_vac / h))}
+    rng = np.random.default_rng(seed)
 
-    def window_ok(ok, k):
-        """ok[i, j] for all k x k windows starting at (i, j) that are entirely True."""
-        c = np.zeros((n + 1, n + 1), np.int64)
-        c[1:, 1:] = ok.cumsum(0).cumsum(1)
-        s = c[k:, k:] - c[:-k, k:] - c[k:, :-k] + c[:-k, :-k]
-        return s == k * k
+    def psum(a):
+        c = np.zeros((a.shape[0] + 1, a.shape[1] + 1), np.int64)
+        c[1:, 1:] = a.cumsum(0).cumsum(1)
+        return c
+
+    def rect(c, i0, i1, j0, j1):                               # sums over [i0, i1) x [j0, j1) (arrays)
+        return c[i1, j1] - c[i0, j1] - c[i1, j0] + c[i0, j0]
 
     def place(i, j, k, m):
         free[i:i + k, j:j + k] = False
@@ -122,27 +126,40 @@ def sym_mesh(L_max, h, L_vac=None, order="x"):
             if k > caps[m]:
                 continue
             while True:
-                ok = window_ok(free & (kind == m), k)
-                ii, jj = np.nonzero(ok)
+                ok_ = free & (kind == m)
+                cs = psum(ok_)
+                ii, jj = np.nonzero(rect(cs, np.arange(n - k + 1)[:, None], np.arange(n - k + 1)[:, None] + k,
+                                         np.arange(n - k + 1)[None, :], np.arange(n - k + 1)[None, :] + k) == k * k)
                 if not len(ii):
                     break
-                # symmetric placement: straddle the axis centred (j + k/2 = n/2) or stay on one side of it
                 centred = 2 * jj + k == n
-                one_side = (jj + k <= n // 2) | (jj >= n // 2)
-                keep = centred | one_side
-                ii, jj, centred = ii[keep], jj[keep], centred[keep]
-                if not len(ii):
-                    break
+                if symmetric:
+                    keep = centred | (jj + k <= n // 2) | (jj >= n // 2)
+                    ii, jj, centred = ii[keep], jj[keep], centred[keep]
+                    if not len(ii):
+                        break
                 dist_axis = np.abs(2 * jj + k - n)
-                key = (np.lexsort((dist_axis, ii, ~centred)) if order == "x"
-                       else np.lexsort((ii, dist_axis, ~centred)))
+                if order == "contact":
+                    blk = np.ones((n + 2, n + 2), np.int64)
+                    blk[1:-1, 1:-1] = ~ok_
+                    cb = psum(blk)                              # padded: lattice (i, j) -> (i + 1, j + 1)
+                    I, J = ii + 1, jj + 1
+                    contact = (rect(cb, I - 1, I, J, J + k) + rect(cb, I + k, I + k + 1, J, J + k)
+                               + rect(cb, I, I + k, J - 1, J) + rect(cb, I, I + k, J + k, J + k + 1))
+                    tie = rng.random(len(ii)) if seed else np.lexsort((dist_axis, ii)).argsort()
+                    key = np.lexsort((tie, -contact, ~centred))
+                elif order == "random":
+                    key = np.lexsort((rng.random(len(ii)), ~centred))
+                elif order == "axis":
+                    key = np.lexsort((ii, dist_axis, ~centred))
+                else:
+                    key = np.lexsort((dist_axis, ii, ~centred))
                 i, j = int(ii[key[0]]), int(jj[key[0]])
                 place(i, j, k, m)
                 jm = n - j - k
-                if jm != j:
+                if symmetric and jm != j:
                     place(i, jm, k, m)
-    # unit cells: everything left (cut cells and the leftovers of the other kinds)
-    ii, jj = np.nonzero(free)
+    ii, jj = np.nonzero(free)                                   # leftovers: h cells
     for i, j in zip(ii, jj):
         cells.append((int(i), int(j), 1, -1))
     c = np.array(cells, np.float64)
@@ -150,10 +167,34 @@ def sym_mesh(L_max, h, L_vac=None, order="x"):
     return QuadMesh(x0, y0, L, material(x0 + L / 2, y0 + L / 2), BOX, h)
 
 
+def sym_mesh(L_max, h, L_vac=None, order="x"):
+    """Mirror-symmetric (about the beam axis) fewest-cells tiling, see tile_mesh."""
+    return tile_mesh(L_max, h, True, order, L_vac)
+
+
+MIN_ORDERS = ("x", "contact") + tuple(f"contact{s}" for s in range(1, 25))
+
+
+def min_mesh(L_max, h, symmetric=False):
+    """Fewest cells over the greedy tie-break rules MIN_ORDERS (no symmetry by default). Water 1 cm / 125 um: 794 cells
+    either way (symmetry costs nothing here: the staircase forces the small cells); a pass merging cells that exactly
+    tile a homogeneous square found nothing to merge after the largest-first greedy (2026-11-22)."""
+    best = None
+    for o in MIN_ORDERS:
+        m = (tile_mesh(L_max, h, symmetric, "contact", seed=int(o[7:])) if o.startswith("contact") and o != "contact"
+             else tile_mesh(L_max, h, symmetric, o))
+        m.order = o
+        if best is None or m.n_cells < best.n_cells:
+            best = m
+    return best
+
+
 def make_mesh(spec):
     kind, *v = spec.split(":")
     if kind == "sym":
         return sym_mesh(float(v[0]) / 10, float(v[1]) / 10, order=v[2] if len(v) > 2 else "x")
+    if kind in ("min", "minsym"):
+        return min_mesh(float(v[0]) / 10, float(v[1]) / 10, symmetric=kind == "minsym")
     if kind == "centre":
         return centre_mesh(float(v[0]) / 10, float(v[1]) / 10, float(v[2]) if len(v) > 2 else 1.0)
     if kind == "uniform":
@@ -401,7 +442,53 @@ def cmd_compare(a):
         ax[1, j].set_title(f"{len(F['L'])} cells")
     fig.savefig(out_dir / "meshes_dose_maps.png", dpi=120)
     plt.close(fig)
+    error_maps(sel, runs, maps, scores, mc, out_dir, plt)
     print(f"wrote {out_dir}")
+
+
+def error_maps(sel, runs, maps, scores, mc, out_dir, plt, k=4):
+    """Dose error maps on k x k-coarsened bins (default 0.5 mm): row 1 (GMC - MC) / MC, row 2 (GMC - MC) / MC peak,
+    with each mesh's cells outlined; column 1 = the MC reference's own noise (seed 1 vs seed 2, as the error of their
+    mean). Bins inside the circle with MC > 1 % of its maximum (the scored region)."""
+    from matplotlib.colors import LinearSegmentedColormap
+    cmap = LinearSegmentedColormap.from_list("div", ["#2a78d6", "#f0efec", "#e34948"])   # dataviz blue <-> red
+    cmap.set_bad("#fcfcfb")
+    m1, m2 = (coarse(d, k) for d in mc["loc"])
+    m = 0.5 * (m1 + m2)
+    h = H_OUT * k
+    gx = (np.arange(m.shape[0]) + 0.5) * h - 1.0
+    inside = np.hypot(gx[:, None], gx[None, :]) < R
+    hot = inside & (m > 0.01 * m.max())
+    pk = m.max()
+    panels = [("analog MC noise (seed 1 vs 2)", 0.5 * (m1 - m2), None)]
+    for n_ in sel:
+        F = np.load(runs[[Path(p).stem for p in runs].index(n_)])
+        g = coarse(np.mean(maps[n_]["loc"], 0), k)
+        t = scores[n_]["timing"]
+        panels.append((f"{scores[n_]['mesh']}  ({len(F['L'])} cells, {t['speedup_vs_mc']:.0f}x MC)", g - m, F))
+    fig, ax = plt.subplots(2, len(panels), figsize=(3.9 * len(panels), 8.4), constrained_layout=True, squeeze=False)
+    for j, (title, d, F) in enumerate(panels):
+        for r, (den, lim, lab) in enumerate(((m, 0.10, "(GMC - MC) / MC"), (pk, 0.02, "(GMC - MC) / MC peak"))):
+            a_ = ax[r, j]
+            img = np.where(hot, d / den, np.nan)
+            im = a_.imshow(img.T, origin="lower", extent=[-1, 1, -1, 1], cmap=cmap, vmin=-lim, vmax=lim)
+            if F is not None:
+                for x0, y0, L_, m_ in zip(F["x0"], F["y0"], F["L"], F["mat"]):
+                    if m_ == 0 and L_ > 0.02:
+                        a_.add_patch(plt.Rectangle((x0 - 1, y0 - 1), L_, L_, fill=False, ec="0.35", lw=0.35))
+            a_.add_patch(plt.Circle((0, 0), 1, fill=False, color="0.35", lw=0.6))
+            a_.set_xlim(-1, 1)
+            a_.set_ylim(-1, 1)
+            a_.set_aspect("equal")
+            a_.grid(False)
+            v = img[np.isfinite(img)]
+            a_.set_title((title + "\n" if r == 0 else "") + f"rms {100 * np.sqrt(np.mean(v ** 2)):.1f} %", fontsize=9)
+            if j == len(panels) - 1:
+                fig.colorbar(im, ax=ax[r, :], shrink=0.85, label=lab, format=lambda x, _: f"{100 * x:+g} %")
+    fig.suptitle(f"Dose error vs the true-circle analog MC, {1e4 * h:.0f} um bins (scored region: MC > 1 % of max); "
+                 "red = GMC + SCR too high, blue = too low", fontweight="bold")
+    fig.savefig(out_dir / "error_maps.png", dpi=120)
+    plt.close(fig)
 
 
 def main():
