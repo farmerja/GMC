@@ -248,10 +248,11 @@ def cmd_run(a):
             # one tally, two conventions from the same samples: dose (photon energy local, the paper's) and
             # dose_cond (the model's own dose: photons escape)
             tr = c["transits"]
-            chord = (np.where(tr["cls"] != 4, tr["dose"] - tr["dose_cond"], 0.0) if a.photon_place == "chord"
+            chord = (np.where(tr["cls"] != 4, tr["dose"] - tr["dose_cond"], 0.0) if a.photon_place != "kernel"
                      else None)
             f_loc, info = scr_tally_quadtree(c, mesh, kern, H_OUT, device=dev, gen=gen, samples=samples,
-                                             extra={"esc": tr["dose_cond"]}, chord=chord)
+                                             extra={"esc": tr["dose_cond"]}, chord=chord,
+                                             chord_curve="hermite" if a.photon_place == "hermite" else "line")
             if dev == "cuda":
                 torch.cuda.synchronize()
             tt += time.time() - t0
@@ -511,7 +512,7 @@ def main():
     p.add_argument("--K_scale", type=float, default=1.0, help="multiplier of the automatic K")
     p.add_argument("--K_min", type=int, default=32)
     p.add_argument("--E_cutoff", type=float, default=1e-3)
-    p.add_argument("--photon_place", default="chord", choices=["chord", "kernel"],
+    p.add_argument("--photon_place", default="chord", choices=["chord", "hermite", "kernel"],
                    help="where the local photon energy of an exiting transit goes: along its entry -> exit chord "
                         "(default since 2026-11-22) or with the SCR kernel's electron deposits (the 1 cm cell dip)")
     p.add_argument("--tag", default="")

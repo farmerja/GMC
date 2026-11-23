@@ -372,7 +372,7 @@ class MirrorY:
 # SCR tally on a fine uniform grid
 # ====================================================================================================================
 def scr_tally_quadtree(log, mesh, kernels, h_out, device="cpu", gen=None, samples=None, max_points=1 << 20,
-                       sampling="sobol", extra=None, chord=None):
+                       sampling="sobol", extra=None, chord=None, chord_curve="line"):
     """Fine dose (box / h_out bins per axis) from a quadtree chain's transit log. kernels: {material: (spec, model)};
     materials without a kernel spread their dose uniformly over the cell. samples(n) -> flow samples per transit for
     a cell n = L / h_out output bins wide (default subcell_kernel.auto_samples). extra: {name: per-transit weight}
@@ -381,7 +381,8 @@ def scr_tally_quadtree(log, mesh, kernels, h_out, device="cpu", gen=None, sample
     chord instead of by the kernel, e.g. the photon energy of the local-photon convention: bremsstrahlung is emitted
     evenly along a fast electron's track, while the kernel spreads with the electron deposits, which build up with depth
     (in a 1 cm cell the photon part was ~12 % low at the entry face; drumm_quadtree, 2026-11-22). The kernel gets dose -
-    chord. Returns (fine, info)."""
+    chord. chord_curve 'hermite': a cubic Hermite curve leaving along the entry direction and arriving along the exit
+    direction (tangent length = chord length) instead of the straight line. Returns (fine, info)."""
     import torch
     from ml.subcell_kernel import auto_samples, canonical_to_cell, cond_features, transit_log_tensors
     samples = samples or auto_samples
@@ -452,8 +453,18 @@ def scr_tally_quadtree(log, mesh, kernels, h_out, device="cpu", gen=None, sample
                 g_ = lambda k_: torch.as_tensor(np.asarray(T[k_], dtype=np.float64)[r], device=device)[:, None]  # noqa: E731
                 t = (torch.arange(Kc, device=device, dtype=torch.float64)[None, :]
                      + torch.rand(len(r), Kc, device=device, dtype=torch.float64, generator=gen)) / Kc
-                xc = g_("x0") + t * (g_("x1") - g_("x0"))
-                yc = g_("y0") + t * (g_("y1") - g_("y0"))
+                x0_, y0_, x1_, y1_ = g_("x0"), g_("y0"), g_("x1"), g_("y1")
+                if chord_curve == "hermite":
+                    ch = torch.hypot(x1_ - x0_, y1_ - y0_)
+                    n0 = torch.hypot(g_("u0"), g_("v0")).clamp_min(1e-12)
+                    n1 = torch.hypot(g_("u1"), g_("v1")).clamp_min(1e-12)
+                    h00, h10 = 2 * t ** 3 - 3 * t ** 2 + 1, t ** 3 - 2 * t ** 2 + t
+                    h01, h11 = -2 * t ** 3 + 3 * t ** 2, t ** 3 - t ** 2
+                    xc = h00 * x0_ + h10 * ch * g_("u0") / n0 + h01 * x1_ + h11 * ch * g_("u1") / n1
+                    yc = h00 * y0_ + h10 * ch * g_("v0") / n0 + h01 * y1_ + h11 * ch * g_("v1") / n1
+                else:
+                    xc = x0_ + t * (x1_ - x0_)
+                    yc = y0_ + t * (y1_ - y0_)
                 face = torch.as_tensor(np.asarray(T["face"])[r], device=device)
                 x, y = canonical_to_cell(xc.clamp(0.0, 1.0), yc.clamp(0.0, 1.0), face)
                 cid = torch.as_tensor(cid_all[r], device=device).unsqueeze(-1)
