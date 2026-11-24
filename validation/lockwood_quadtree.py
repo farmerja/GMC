@@ -1,5 +1,5 @@
 """
-Lockwood / Sandia depth-dose (lockwood_slab.py: semi-infinite Al and Cu, SAND79-0414) with SIZE-CONDITIONED GMC + SCR
+Lockwood / Sandia depth-dose (lockwood_slab.py: semi-infinite Al, Cu and Ta, SAND79-0414) with SIZE-CONDITIONED GMC + SCR
 on square-cell meshes of any cell sizes (validation/chain_quadtree.py), vs the analog MC with ESTAR stopping.
 
 Geometry as lockwood_slab.py gmc: a box of material (depth W >= 1.4 R, height H >= 2.5 R, R = 1.1 x the CSDA range at
@@ -37,16 +37,18 @@ from chain_quadtree import QuadMesh, chain_quadtree, scr_tally_quadtree, MirrorY
 from lockwood_slab import load_cases, find_run, OUT as LW_OUT  # noqa: E402
 
 OUT = LW_OUT / "size"
-L_LO, L_HI = 0.005, 0.6          # model cell-size range (cm): 50 um - 6 mm
-RHO = {"Al": 2.699, "Cu": 8.96}
+L_LO, L_HI = 0.005, 0.6          # model cell-size range (cm): 50 um - 6 mm (Al, Cu)
+# per material: the size model's cell-size range (cm), also the random-mesh lattice (L_lo). Ta: 10 um - 1 cm
+L_RANGE = {"Al": (L_LO, L_HI), "Cu": (L_LO, L_HI), "Ta": (0.001, 1.0)}
+RHO = {"Al": 2.699, "Cu": 8.96, "Ta": 16.654}
 
 
 def case_range(c, E, rho):
     return 1.1 * c["csda_range_exp"] * (E / c["E_exp"]) ** 1.7 / rho          # cm, margin for our longer range
 
 
-def mesh_one(R):
-    S = min(max(2.5 * R, L_LO), L_HI)
+def mesh_one(R, lo=L_LO, hi=L_HI):
+    S = min(max(2.5 * R, lo), hi)
     return QuadMesh([0.0], [0.0], [S], [0], (S, S), S)
 
 
@@ -58,14 +60,14 @@ def mesh_uniform(R, L):
     return QuadMesh(gx.ravel(), gy.ravel(), np.full(nx * ny, L), np.zeros(nx * ny, int), (nx * L, ny * L), L)
 
 
-def mesh_random(R, seed, h=L_LO):
+def mesh_random(R, seed, h=L_LO, hi=L_HI):
     """Random square tiling on an h lattice: at the first free lattice point (x-major), a square of side k * h with k
     log-uniform in [1, k_max], shrunk until it fits (free and inside the box)."""
     rng = np.random.default_rng(seed)
     nx = max(1, math.ceil(1.4 * R / h))
     ny = max(1, math.ceil(2.5 * R / h))
     ny += 1 - ny % 2
-    k_max = max(1, min(int(round(R / h)), int(L_HI / h), nx, ny))
+    k_max = max(1, min(int(round(R / h)), int(hi / h), nx, ny))
     free = np.ones((nx, ny), bool)
     cells = []
     for i in range(nx):
@@ -81,14 +83,14 @@ def mesh_random(R, seed, h=L_LO):
     return QuadMesh(c[:, 0] * h, c[:, 1] * h, c[:, 2] * h, np.zeros(len(c), int), (nx * h, ny * h), h)
 
 
-def make_mesh(spec, R):
+def make_mesh(spec, R, lo=L_LO, hi=L_HI):
     kind, *v = spec.split(":")
     if kind in ("one", "fewest"):
-        return mesh_one(R)
+        return mesh_one(R, lo, hi)
     if kind == "uniform":
         return mesh_uniform(R, float(v[0]) * 1e-4)
     if kind == "random":
-        return mesh_random(R, int(v[0]))
+        return mesh_random(R, int(v[0]), lo, hi)
     raise ValueError(spec)
 
 
@@ -109,7 +111,7 @@ def cmd_run(a):
     os.makedirs(OUT, exist_ok=True)
     cases = load_cases()
     keys = a.cases or [k for k, c in cases.items() if not c.get("missing")]
-    models = {"Al": (a.model_al, a.kernel_al), "Cu": (a.model_cu, a.kernel_cu)}
+    models = {"Al": (a.model_al, a.kernel_al), "Cu": (a.model_cu, a.kernel_cu), "Ta": (a.model_ta, a.kernel_ta)}
     for key in keys:
         c = cases[key]
         model, kpath = models[c["material"]]
@@ -122,7 +124,7 @@ def cmd_run(a):
             print(f"{key}: {out.name} exists, skipped", flush=True)
             continue
         R = case_range(c, E, rho)
-        mesh = make_mesh(a.mesh, R)
+        mesh = make_mesh(a.mesh, R, *L_RANGE[c["material"]])
         W, H = mesh.box
         # depth bins: the lattice cut into m parts, at most R / 40 wide
         m = max(1, math.ceil(mesh.h / (R / a.bins_per_range)))
@@ -312,6 +314,8 @@ def main():
     p.add_argument("--kernel_al")
     p.add_argument("--model_cu")
     p.add_argument("--kernel_cu")
+    p.add_argument("--model_ta")
+    p.add_argument("--kernel_ta")
     p.add_argument("--N", type=int, default=200000)
     p.add_argument("--n_seeds", type=int, default=2)
     p.add_argument("--batch", type=int, default=100000)

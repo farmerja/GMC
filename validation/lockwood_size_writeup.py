@@ -36,7 +36,7 @@ def family(mesh):
     return mesh.split(":")[0]
 
 
-def collect(n_bins, min_frac):
+def collect(n_bins, min_frac, materials=None):
     cases = load_cases()
     files = {"auto": sorted(glob.glob(str(OUT / "gmc_*_200k.npz"))),
              "k8": sorted(glob.glob(str(OUT / "gmc_*_200k_k8.npz"))),
@@ -52,6 +52,8 @@ def collect(n_bins, min_frac):
             z, meta = load_gmc(f)
             key = meta["case"]
             c = cases[key]
+            if materials and c["material"] not in materials:
+                continue
             E = meta["E"]
             mc = find_run(key, E, 200000, 79, "estar")
             if mc is None:
@@ -162,9 +164,9 @@ def t1_vs_k8(data, png, plt):
     print(f"wrote {png}")
 
 
-def speed_accuracy(data, png, plt):
+def speed_accuracy(data, png, plt, mk=None, title="Shape error vs speed (size model: K8; dedicated model: auto K)"):
     fig, ax = plt.subplots(1, 2, figsize=(13, 5), constrained_layout=True)
-    mk = {("Al", 0): "o", ("Al", 60): "^", ("Cu", 0): "s"}
+    mk = mk or {("Al", 0): "o", ("Al", 60): "^", ("Cu", 0): "s"}
     for key, runs in data.items():
         for r in runs:
             s = r["stats"]
@@ -186,7 +188,7 @@ def speed_accuracy(data, png, plt):
     h = [plt.Line2D([], [], ls="", marker="o", color=c, label=l) for c, l in FAM.values()]
     h += [plt.Line2D([], [], ls="", marker=m, color="0.3", mfc="0.3", label=f"{a} {b}°") for (a, b), m in mk.items()]
     ax[0].legend(handles=h, fontsize=8)
-    ax[0].set_title("Shape error vs speed (size model: K8; dedicated model: auto K)", fontsize=10)
+    ax[0].set_title(title, fontsize=10)
     ax[1].set_title("Within noise? (χ²/dof ≈ 1)", fontsize=10)
     fig.savefig(png, dpi=125)
     plt.close(fig)
@@ -336,13 +338,15 @@ def main():
     ap.add_argument("--out_dir", default=str(OUT / "writeup"))
     ap.add_argument("--n_bins", type=int, default=25)
     ap.add_argument("--min_frac", type=float, default=0.1)
+    ap.add_argument("--materials", nargs="+", default=["Al", "Cu"],
+                    help="cases of these materials only (Ta has its own write-up, lockwood_ta_writeup.py)")
     a = ap.parse_args()
     import sec_plot_style as S
     S.apply()
     plt = S.plt
     out = Path(a.out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    data = collect(a.n_bins, a.min_frac)
+    data = collect(a.n_bins, a.min_frac, a.materials)
     for kset in ("auto", "k8", "t1"):
         if any(r["stats"]["kset"] == kset for rs in data.values() for r in rs):
             ratio_grid(data, kset, out / f"ratio_grid_{kset}.png", plt)
