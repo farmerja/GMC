@@ -7,6 +7,7 @@ mesh and the old dedicated 100 um model (lockwood_slab.py), all vs the ESTAR ana
   ratio_grid<sfx>.png      GMC / MC vs depth per case, MC 2-sigma band shaded
   speed_accuracy.png       speed-up vs MC against rms shape error and chi2/dof (K8 runs + the dedicated model)
   timing.png               ms per primary: MC vs each mesh per case; chain cost vs transits; chain / tally split
+  t1_vs_k8.png             targeted fine-tunes (_t1) vs base models, rms and chi2/dof per case and mesh
   meshes.png               the meshes of the Al 1 MeV case
   dose_density_<case>.png  GMC cell dose density on each mesh + depth-dose: MC vs cell level vs GMC + SCR
   summary.json             every scored run (both K settings)
@@ -39,6 +40,11 @@ def collect(n_bins, min_frac):
     cases = load_cases()
     files = {"auto": sorted(glob.glob(str(OUT / "gmc_*_200k.npz"))),
              "k8": sorted(glob.glob(str(OUT / "gmc_*_200k_k8.npz"))),
+             # targeted fine-tunes (_t1 GMC + SCR); a _k8_t1q rerun (same settings, idle machine) replaces the timing-
+             # contaminated _k8_t1 run of the same case and mesh
+             "t1": sorted(f if not Path(f.replace("_k8_t1.npz", "_k8_t1q.npz")).exists()
+                          else f.replace("_k8_t1.npz", "_k8_t1q.npz")
+                          for f in glob.glob(str(OUT / "gmc_*_200k_k8_t1.npz"))),
              "old": sorted(glob.glob(str(LW_OUT / "gmc_*_200k_n20_estar.npz")))}
     out = {}
     for kset, fl in files.items():
@@ -103,9 +109,54 @@ def ratio_grid(data, kset, png, plt):
     h += [plt.Line2D([], [], color=FAM["random"][0], ls=ls, lw=1.1, label=m) for m, ls in RAND_LS.items()]
     h.append(plt.Rectangle((0, 0), 1, 1, color="0.85", label="± 2σ combined noise (uniform run)"))
     fig.legend(handles=h, loc="outside lower center", ncol=8, fontsize=8, frameon=False)
-    ktxt = "K = max(8, 0.25 × auto)" if kset == "k8" else "K = max(32, auto)"
+    ktxt = {"k8": "K = max(8, 0.25 × auto)", "t1": "targeted fine-tunes (_t1), K = max(8, 0.25 × auto)"}.get(
+        kset, "K = max(32, auto)")
     fig.suptitle(f"Lockwood depth-dose, size-conditioned GMC + SCR vs analog MC (ESTAR), {ktxt}; bins with "
                  f"J > 10 % of max", fontweight="bold")
+    fig.savefig(png, dpi=120)
+    plt.close(fig)
+    print(f"wrote {png}")
+
+
+def t1_vs_k8(data, png, plt):
+    """Targeted fine-tunes vs the base models, per case and mesh: rms shape error and chi2/dof, _t1 against K8."""
+    pairs = []
+    for key, rs in data.items():
+        by = {}
+        for r in rs:
+            by.setdefault(r["stats"]["mesh"], {})[r["stats"]["kset"]] = r["stats"]
+        pairs += [(v["k8"], v["t1"]) for v in by.values() if "k8" in v and "t1" in v]
+    if not pairs:
+        return
+    fig, axs = plt.subplots(1, 2, figsize=(11, 4.8), constrained_layout=True)
+    for ax, (f, lab, sc) in zip(axs, ((lambda s: 100 * s["rms_rel"], "rms shape error (%)", "linear"),
+                                      (lambda s: s["chi2_dof"], "χ²/dof", "log"))):
+        for fam in ("uniform", "random", "one"):
+            for mat, mk in (("Al", "o"), ("Cu", "s")):
+                pp = [(f(a), f(b)) for a, b in pairs if a["family"] == fam and a["material"] == mat]
+                if pp:
+                    x, y = np.array(pp).T
+                    ax.plot(x, y, mk, color=FAM[fam][0], ms=6, mec=FAM[fam][0],
+                            mfc=FAM[fam][0] if mat == "Cu" else "none", mew=1.4, ls="none",
+                            label=f"{mat}, {FAM[fam][1].replace('size model, ', '')}")
+        lo = min(min(f(a), f(b)) for a, b in pairs) * 0.9
+        hi = max(max(f(a), f(b)) for a, b in pairs) * 1.1
+        ax.plot([lo, hi], [lo, hi], color="0.4", lw=0.8)
+        ax.set_xscale(sc)
+        ax.set_yscale(sc)
+        if sc == "log":
+            from matplotlib.ticker import FixedLocator, NullLocator, FuncFormatter
+            t = [v for v in (1, 2, 3, 5, 10, 20, 30, 50, 100) if lo <= v <= hi]
+            for axis in (ax.xaxis, ax.yaxis):
+                axis.set_major_locator(FixedLocator(t))
+                axis.set_minor_locator(NullLocator())
+                axis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}"))
+        ax.set_xlabel(f"{lab}, base models (K8)")
+        ax.set_ylabel(f"{lab}, targeted fine-tunes (_t1)")
+        ax.set_title(f"{lab}: below the diagonal = better after fine-tuning", fontsize=10)
+    axs[0].legend(fontsize=7, ncol=2)
+    fig.suptitle("Lockwood: targeted Al / Cu fine-tunes vs base models, one point per case and mesh "
+                 "(open = Al, filled = Cu)", fontweight="bold")
     fig.savefig(png, dpi=120)
     plt.close(fig)
     print(f"wrote {png}")
@@ -119,7 +170,7 @@ def speed_accuracy(data, png, plt):
             s = r["stats"]
             col, _ = FAM[s["family"]]
             m = mk[(s["material"], int(s["angle"]))]
-            if s["kset"] == "auto":
+            if s["kset"] in ("auto", "t1"):
                 continue
             kw = dict(marker=m, s=40, zorder=3, edgecolor=col, lw=1.2, facecolor=col)
             ax[0].scatter(s["speedup_vs_mc"], 100 * s["rms_rel"], **kw)
@@ -292,10 +343,11 @@ def main():
     out = Path(a.out_dir)
     out.mkdir(parents=True, exist_ok=True)
     data = collect(a.n_bins, a.min_frac)
-    for kset in ("auto", "k8"):
+    for kset in ("auto", "k8", "t1"):
         if any(r["stats"]["kset"] == kset for rs in data.values() for r in rs):
             ratio_grid(data, kset, out / f"ratio_grid_{kset}.png", plt)
     speed_accuracy(data, out / "speed_accuracy.png", plt)
+    t1_vs_k8(data, out / "t1_vs_k8.png", plt)
     ks = "k8" if any(r["stats"]["kset"] == "k8" for rs in data.values() for r in rs) else "auto"
     timing(data, out / "timing.png", plt, ks)
     meshes(data, out / "meshes.png", plt, kset=ks)
@@ -306,7 +358,7 @@ def main():
     # per-family aggregate: median over cases
     print(f"{'kset':>5} {'family':>8} {'n':>3} {'med rms %':>9} {'max rms %':>9} {'med chi2':>8} {'med speedup':>11} "
           f"{'|tot-1| max %':>13}")
-    for kset in ("auto", "k8", "old"):
+    for kset in ("auto", "k8", "t1", "old"):
         for fam in ("old", "uniform", "random", "one"):
             st = [r["stats"] for rs in data.values() for r in rs if r["stats"]["kset"] == kset
                   and r["stats"]["family"] == fam]

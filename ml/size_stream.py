@@ -469,7 +469,7 @@ def scr_tensors(R, ent, dev):
 
 
 SCR_PLAN_KEYS = ("data_dir", "n_files", "sweeps", "steps", "batch", "lr", "layers", "bins", "hidden", "ctx", "depth",
-                 "n_freq", "seg_weight", "min_spread", "min_spread_cell", "seed")
+                 "n_freq", "seg_weight", "min_spread", "min_spread_cell", "seed", "init_from")
 
 
 def cmd_scr(args):
@@ -487,6 +487,10 @@ def cmd_scr(args):
         st = torch.load(st_path, map_location="cpu", weights_only=False)
         check_plan(st, args, SCR_PLAN_KEYS)
         spec = sk.Spec(**st["spec"])
+    elif args.init_from:
+        # fine-tune: the kernel's own spec (feature normalisation) and architecture, weights loaded below
+        spec, _, init_blob = sk.load_kernel(args.init_from, "cpu")
+        print(f"  fine-tuning from {args.init_from} (arch {init_blob['arch']})", flush=True)
     else:
         spec = spec_v
         spec.logE_hi = math.log10(float(man["settings"]["E_high"])) + 1e-9
@@ -501,8 +505,13 @@ def cmd_scr(args):
     torch.manual_seed(1234)
     vpts = sk.entry_points(spec, vbin, None, True, vmom, spec.min_spread, vn)
     del wv, ev
-    model = sk.SubcellFlow(sk.cond_dim(spec), ctx_dim=args.ctx, hidden=args.hidden, n_layers=args.layers,
-                           n_bins=args.bins, n_freq=args.n_freq, depth=args.depth).to(dev)
+    if args.init_from:
+        arch = torch.load(os.path.join(args.init_from, "subcell_kernel.pth") if os.path.isdir(args.init_from)
+                          else args.init_from, map_location="cpu", weights_only=False)["arch"]
+        model = sk.SubcellFlow(**arch).to(dev)
+    else:
+        model = sk.SubcellFlow(sk.cond_dim(spec), ctx_dim=args.ctx, hidden=args.hidden, n_layers=args.layers,
+                               n_bins=args.bins, n_freq=args.n_freq, depth=args.depth).to(dev)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=1e-5)
     ema = sk.EMA(model, args.ema)
     eval_model = sk.SubcellFlow(**model.arch).to(dev).eval()
@@ -519,6 +528,11 @@ def cmd_scr(args):
     else:
         visit, log, best = 0, [], float("inf")
         torch.manual_seed(args.seed)
+        if args.init_from:
+            _, m0, _ = sk.load_kernel(args.init_from, dev)
+            model.load_state_dict(m0.state_dict())
+            ema = sk.EMA(model, args.ema)
+            del m0
     print(f"Kernel: {sum(p.numel() for p in model.parameters()) / 1e6:.2f} M parameters, cond {sk.cond_dim(spec)}; "
           f"weights '{args.seg_weight}'", flush=True)
 
@@ -646,6 +660,9 @@ def main():
     s.add_argument("--min_spread_cell", type=float, default=5e-4,
                    help="... and (cell widths): 5e-4 = half a bin at 1000 x 1000 (0 = off, the first run)")
     s.add_argument("--n_val", type=int, default=500000)
+    s.add_argument("--init_from", default=None,
+                   help="fine-tune: start from this kernel (dir or .pth), keeping its spec and architecture; use a "
+                        "lower --lr and a mix_dirs.py directory of targeted + broad files")
     args = ap.parse_args()
     (cmd_gmc if args.cmd == "gmc" else cmd_scr)(args)
 
